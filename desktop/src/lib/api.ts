@@ -146,6 +146,8 @@ export const api = {
     ),
   getTranscript: (id: number) =>
     request<TranscriptData>(`/api/recordings/${id}/transcript`),
+  getJobs: (id: number) =>
+    request<JobEvent[]>(`/api/recordings/${id}/jobs`),
   diarize: (id: number, params?: DiarizeParams) =>
     request<{ job_id: number; status: string }>(`/api/recordings/${id}/diarize`, {
       method: "POST",

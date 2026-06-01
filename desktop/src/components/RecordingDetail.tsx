@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "./AudioPlayer";
 import {
+  useActiveJob,
   useDiarization,
   useDiarize,
   useEnrollSpeaker,
@@ -143,15 +144,21 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
 
   // Use recording.status as fallback when WS job event hasn't arrived yet
   const running = !!(job && (job.status === "running" || job.status === "pending")) || statusRunning;
+
+  // Poll the backend every 1.5 s as a fallback when WS events are missed.
+  const { data: polledJob } = useActiveJob(recording.id, running);
+  // Prefer live WS store data (updated immediately), fall back to polled data.
+  const activeJob = job ?? polledJob ?? null;
+
   const startingPhase = transcribe.isPending
     ? "Starte Transkription"
     : diarizeFirst.isPending
       ? "Starte Sprechererkennung"
       : null;
-  const pct = Math.round((job?.progress ?? 0) * 100);
+  const pct = Math.round((activeJob?.progress ?? 0) * 100);
   // Phase label: prefer live job data, fall back to recording.status
-  const phaseLabel = job
-    ? jobPhaseLabel(job.phase)
+  const phaseLabel = activeJob
+    ? jobPhaseLabel(activeJob.phase)
     : recording.status === "diarizing"
       ? jobPhaseLabel("diarization")
       : jobPhaseLabel("asr");

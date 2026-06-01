@@ -96,6 +96,18 @@ export function useTranscript(recordingId: number, enabled: boolean) {
   });
 }
 
+/** Poll the latest active job every 1.5 s — fallback when WS events are missed. */
+export function useActiveJob(recordingId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["active-job", recordingId],
+    queryFn: () => api.getJobs(recordingId),
+    enabled,
+    refetchInterval: enabled ? 1500 : false,
+    select: (jobs) =>
+      jobs.find((j) => j.status === "running" || j.status === "pending") ?? null,
+  });
+}
+
 export function useDiarize() {
   const qc = useQueryClient();
   return useMutation({

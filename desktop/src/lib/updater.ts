@@ -33,6 +33,10 @@ export async function installUpdate(
   pending: PendingUpdate,
   onProgress?: (fraction: number) => void,
 ): Promise<void> {
+  const { executableDir } = await import("@tauri-apps/api/path");
+  if ((await executableDir()).startsWith("/Volumes/")) {
+    throw new Error("Bitte verschiebe Tarscribe zuerst in den Programme-Ordner und starte die App erneut.");
+  }
   const update = pending.handle as {
     downloadAndInstall: (cb: (e: DownloadEvent) => void) => Promise<void>;
   };

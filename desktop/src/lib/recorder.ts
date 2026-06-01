@@ -6,18 +6,29 @@ export class Recorder {
   private chunks: Blob[] = [];
   private stream: MediaStream | null = null;
 
+  private cleanup(): void {
+    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stream = null;
+    this.mr = null;
+  }
+
   get mimeType(): string {
     return this.mr?.mimeType || "audio/webm";
   }
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    this.chunks = [];
-    this.mr = new MediaRecorder(this.stream);
-    this.mr.ondataavailable = (e) => {
-      if (e.data.size) this.chunks.push(e.data);
-    };
-    this.mr.start(1000); // gather data each second (robust for long recordings)
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this.chunks = [];
+      this.mr = new MediaRecorder(this.stream);
+      this.mr.ondataavailable = (e) => {
+        if (e.data.size) this.chunks.push(e.data);
+      };
+      this.mr.start(1000); // gather data each second (robust for long recordings)
+    } catch (e) {
+      this.cleanup();
+      throw e;
+    }
   }
 
   pause(): void {
@@ -28,18 +39,29 @@ export class Recorder {
   }
 
   stop(): Promise<Blob> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const mr = this.mr;
       if (!mr) return resolve(new Blob());
       mr.onstop = () => {
         const blob = new Blob(this.chunks, { type: mr.mimeType || "audio/webm" });
-        this.stream?.getTracks().forEach((t) => t.stop());
-        this.stream = null;
-        this.mr = null;
+        this.cleanup();
         resolve(blob);
       };
-      mr.stop();
+      mr.onerror = (e) => {
+        this.cleanup();
+        reject(e.error);
+      };
+      try {
+        mr.stop();
+      } catch (e) {
+        this.cleanup();
+        reject(e);
+      }
     });
+  }
+
+  dispose(): void {
+    this.cleanup();
   }
 }
 

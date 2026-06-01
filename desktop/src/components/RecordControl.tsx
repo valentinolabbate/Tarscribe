@@ -20,6 +20,8 @@ export function RecordControl({ topicId }: { topicId: number }) {
     return () => clearInterval(t);
   }, [state]);
 
+  useEffect(() => () => recorder.current?.dispose(), []);
+
   async function start() {
     try {
       recorder.current = new Recorder();
@@ -36,7 +38,16 @@ export function RecordControl({ topicId }: { topicId: number }) {
     if (!recorder.current) return;
     setState("saving");
     const mime = recorder.current.mimeType;
-    const blob = await recorder.current.stop();
+    let blob: Blob;
+    try {
+      blob = await recorder.current.stop();
+    } catch (e) {
+      toast(`Aufnahme fehlgeschlagen: ${(e as Error).message}`, "error");
+      recorder.current = null;
+      setState("idle");
+      setElapsed(0);
+      return;
+    }
     recorder.current = null;
     const stamp = new Date().toLocaleString("de-DE", {
       day: "2-digit",

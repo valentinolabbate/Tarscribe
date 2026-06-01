@@ -10,7 +10,7 @@ import {
   useSummarize,
   useTemplates,
 } from "../hooks/queries";
-import { useSummaryStream } from "../hooks/useJobs";
+import { trackSummaryStart, useSummaryStream } from "../hooks/useJobs";
 import { TrashIcon } from "./icons";
 
 function Markdown({ children }: { children: string }) {
@@ -38,6 +38,7 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
   async function run() {
     if (!effectiveTemplate) return;
     const res = await summarize.mutateAsync({ id: recordingId, templateId: effectiveTemplate });
+    trackSummaryStart(res.summary_id);
     setActiveSummaryId(res.summary_id);
   }
 
@@ -63,7 +64,7 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
           onClick={run}
           title={modelMissing ? "Erst ein LLM-Modell in den Einstellungen wählen" : ""}
         >
-          {streaming ? "Generiere…" : "Zusammenfassen"}
+          {summarize.isPending ? "Startet…" : streaming ? "Generiere…" : "Zusammenfassen"}
         </button>
       </div>
 
@@ -74,12 +75,18 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
       )}
 
       {/* Live stream of the in-progress summary */}
+      {summarize.isPending && !stream && (
+        <div className="rec-sub" style={{ marginBottom: 8 }}>
+          Zusammenfassung wird gestartet…
+        </div>
+      )}
       {stream && (
         <div className="summary-card">
           {stream.error ? (
             <div style={{ color: "var(--danger)" }}>{stream.error}</div>
           ) : (
             <div className="summary-text markdown">
+              {!stream.text && !stream.done && <span className="rec-sub">Zusammenfassung wird erstellt… </span>}
               <Markdown>{stream.text}</Markdown>
               {!stream.done && <span className="caret">▋</span>}
             </div>

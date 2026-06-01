@@ -118,7 +118,7 @@ export function TuningPanel({
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
         <button className="btn primary" onClick={apply} disabled={disabled || diarize.isPending}>
-          Neu diarisieren
+          {diarize.isPending ? "Startet…" : "Neu diarisieren"}
         </button>
       </div>
       <div className="tuning-hint" style={{ marginTop: 6 }}>

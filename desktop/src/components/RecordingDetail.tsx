@@ -11,7 +11,7 @@ import {
 } from "../hooks/queries";
 import { useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
-import { fmtDuration } from "../lib/format";
+import { fmtDuration, jobPhaseLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
 import { useToast } from "./Toast";
 import { SpeakerIdIcon, WaveIcon } from "./icons";
@@ -127,8 +127,13 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   }, [activeStart, playing]);
 
   const running = job && (job.status === "running" || job.status === "pending");
+  const startingPhase = transcribe.isPending
+    ? "Starte Transkription"
+    : diarizeFirst.isPending
+      ? "Starte Sprechererkennung"
+      : null;
   const pct = Math.round((job?.progress ?? 0) * 100);
-  const phaseLabel = job?.phase === "diarization" ? "Erkenne Sprecher" : "Transkribiere";
+  const phaseLabel = jobPhaseLabel(job?.phase);
   const labels = diar?.speakers.map((s) => s.label) ?? [];
 
   return (
@@ -149,9 +154,11 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
         <span className="rec-sub">{fmtDuration(recording.duration_sec)}</span>
       </div>
 
-      {running && (
+      {(running || startingPhase) && (
         <div className="transcribe-box" style={{ marginBottom: 14 }}>
-          <div className="rec-sub" style={{ marginBottom: 8 }}>{phaseLabel}… {pct}%</div>
+          <div className="rec-sub" style={{ marginBottom: 8 }}>
+            {startingPhase ? `${startingPhase}…` : `${phaseLabel}… ${pct}%`}
+          </div>
           <div className="progress"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>
         </div>
       )}

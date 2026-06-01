@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
+import { trackPendingJob } from "./useJobs";
 
 export function useHardware() {
   return useQuery({ queryKey: ["hardware"], queryFn: api.hardware, staleTime: Infinity });
@@ -79,7 +80,10 @@ export function useTranscribe() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, asr }: { id: number; asr?: string }) => api.transcribe(id, asr),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onSuccess: (data, vars) => {
+      trackPendingJob(vars.id, data.job_id, "asr");
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+    },
   });
 }
 
@@ -97,7 +101,10 @@ export function useDiarize() {
   return useMutation({
     mutationFn: ({ id, params }: { id: number; params?: DiarizeParams }) =>
       api.diarize(id, params),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onSuccess: (data, vars) => {
+      trackPendingJob(vars.id, data.job_id, "diarization");
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+    },
   });
 }
 

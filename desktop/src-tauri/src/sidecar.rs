@@ -60,6 +60,14 @@ fn tool_path() -> OsString {
     std::env::join_paths(paths).unwrap_or_else(|_| OsString::from("/usr/bin:/bin"))
 }
 
+fn python_path(backend: &Path) -> OsString {
+    let mut paths = vec![backend.to_path_buf()];
+    if let Some(existing) = std::env::var_os("PYTHONPATH") {
+        paths.extend(std::env::split_paths(&existing));
+    }
+    std::env::join_paths(paths).unwrap_or_else(|_| backend.as_os_str().to_os_string())
+}
+
 /// Backend sources: bundled in the .app under resources, or the dev tree.
 fn backend_source(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
@@ -122,7 +130,9 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
     let port = find_free_port();
     let token = uuid::Uuid::new_v4().simple().to_string();
     let data_dir = app_data(app);
+    let backend = backend_source(app).ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
     std::fs::create_dir_all(&data_dir).ok();
+    println!("[backend] Quellen: {}", backend.display());
 
     let mut child = Command::new(python)
         .args([
@@ -138,6 +148,7 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
             &data_dir.to_string_lossy(),
         ])
         .env("PATH", tool_path())
+        .env("PYTHONPATH", python_path(&backend))
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -261,4 +272,17 @@ pub fn backend_config(state: tauri::State<BackendState>) -> Result<BackendConfig
         .unwrap()
         .clone()
         .ok_or_else(|| "Backend noch nicht bereit".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::python_path;
+    use std::path::Path;
+
+    #[test]
+    fn bundled_backend_is_first_python_path_entry() {
+        let backend = Path::new("/tmp/tarscribe-bundled-backend");
+        let paths: Vec<_> = std::env::split_paths(&python_path(backend)).collect();
+        assert_eq!(paths.first().map(|path| path.as_path()), Some(backend));
+    }
 }

@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import type { JobEvent } from "../lib/types";
 
 // Tiny external store: recording_id -> latest job event.
-const jobs = new Map<number, JobEvent>();
+let jobs = new Map<number, JobEvent>();
 const listeners = new Set<() => void>();
 
 // Streaming summary text: summary_id -> { text, done, error }.
@@ -13,7 +13,7 @@ export interface SummaryStream {
   done: boolean;
   error?: string;
 }
-const summaries = new Map<number, SummaryStream>();
+let summaries = new Map<number, SummaryStream>();
 
 function emit() {
   for (const l of listeners) l();
@@ -39,6 +39,26 @@ export function useSummaryStream(summaryId: number | null): SummaryStream | unde
   return summaryId != null ? map.get(summaryId) : undefined;
 }
 
+export function trackPendingJob(recordingId: number, jobId: number, phase: string) {
+  if (jobs.get(recordingId)?.job_id === jobId) return;
+  jobs = new Map(jobs).set(recordingId, {
+    type: "job",
+    job_id: jobId,
+    recording_id: recordingId,
+    phase,
+    status: "pending",
+    progress: 0,
+    error: null,
+  });
+  emit();
+}
+
+export function trackSummaryStart(summaryId: number) {
+  if (summaries.has(summaryId)) return;
+  summaries = new Map(summaries).set(summaryId, { text: "", done: false });
+  emit();
+}
+
 /** Mount once (in App) to stream job events and refresh data on completion. */
 export function useJobSocket() {
   const qc = useQueryClient();
@@ -48,7 +68,7 @@ export function useJobSocket() {
     api
       .connectJobs(
         (e) => {
-          jobs.set(e.recording_id, e);
+          jobs = new Map(jobs).set(e.recording_id, e);
           emit();
           if (e.status === "done" || e.status === "failed") {
             qc.invalidateQueries({ queryKey: ["recordings"] });
@@ -58,7 +78,7 @@ export function useJobSocket() {
         },
         (e) => {
           const prev = summaries.get(e.summary_id) ?? { text: "", done: false };
-          summaries.set(e.summary_id, {
+          summaries = new Map(summaries).set(e.summary_id, {
             text: prev.text + (e.delta || ""),
             done: e.done,
             error: e.error,

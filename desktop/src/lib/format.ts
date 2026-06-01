@@ -30,3 +30,10 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Fehler",
 };
 export const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
+
+const JOB_PHASE_LABEL: Record<string, string> = {
+  asr: "Transkribiere",
+  diarization: "Erkenne Sprecher",
+  summarize: "Erstelle Zusammenfassung",
+};
+export const jobPhaseLabel = (phase?: string) => JOB_PHASE_LABEL[phase ?? ""] ?? "Verarbeite";

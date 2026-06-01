@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useDeleteRecording, useRecordings, useUploadRecording } from "../hooks/queries";
 import { useJobFor } from "../hooks/useJobs";
-import { fmtDate, fmtDuration, statusLabel } from "../lib/format";
+import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
 import { RecordControl } from "./RecordControl";
 import { TrashIcon, UploadIcon, WaveIcon } from "./icons";
@@ -35,7 +35,7 @@ function RecordingRow({
         )}
       </div>
       <span className={`badge ${running ? "transcribing" : r.status}`}>
-        {running ? `Transkribiert… ${pct}%` : statusLabel(r.status)}
+        {running ? `${jobPhaseLabel(job.phase)}… ${pct}%` : statusLabel(r.status)}
       </span>
       <button
         className="btn ghost danger"

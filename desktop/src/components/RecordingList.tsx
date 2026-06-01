@@ -16,8 +16,14 @@ function RecordingRow({
   onDelete: () => void;
 }) {
   const job = useJobFor(r.id);
-  const running = job && (job.status === "running" || job.status === "pending");
+  const statusRunning = r.status === "transcribing" || r.status === "diarizing";
+  const running = !!(job && (job.status === "running" || job.status === "pending")) || statusRunning;
   const pct = Math.round((job?.progress ?? 0) * 100);
+  const phaseLabel = job
+    ? jobPhaseLabel(job.phase)
+    : r.status === "diarizing"
+      ? jobPhaseLabel("diarization")
+      : jobPhaseLabel("asr");
   return (
     <div className="rec-card" onClick={onOpen} style={{ cursor: "pointer" }}>
       <div className="rec-icon">
@@ -35,7 +41,7 @@ function RecordingRow({
         )}
       </div>
       <span className={`badge ${running ? "transcribing" : r.status}`}>
-        {running ? `${jobPhaseLabel(job.phase)}… ${pct}%` : statusLabel(r.status)}
+        {running ? `${phaseLabel}… ${pct}%` : statusLabel(r.status)}
       </span>
       <button
         className="btn ghost danger"

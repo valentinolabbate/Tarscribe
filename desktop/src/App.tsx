@@ -14,6 +14,7 @@ import { TopicExportModal } from "./components/TopicExportModal";
 import {
   useDeleteTopic,
   useHardware,
+  useRecordings,
   useTopics,
   useUpdateTopic,
 } from "./hooks/queries";
@@ -157,8 +158,17 @@ export default function App() {
   }, [sidebarWidth]);
 
   const { data: topics } = useTopics();
+  const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
   const toast = useToast();
   useJobSocket();
+
+  // Keep openRecording in sync with live query data so status changes
+  // (e.g. diarizing → ready) are reflected without navigating away.
+  useEffect(() => {
+    if (!openRecording || !liveRecordings) return;
+    const live = liveRecordings.find((r) => r.id === openRecording.id);
+    if (live && live.status !== openRecording.status) setOpenRecording(live);
+  }, [liveRecordings, openRecording]);
 
   // Check GitHub for a newer release on launch; pop the dialog if found.
   useEffect(() => {

@@ -106,10 +106,15 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   const { reassign } = useSpeakerEdits(recording.id);
   const updateRec = useUpdateRecording();
   const toast = useToast();
-  const isReady = recording.status === "ready";
+  // "ready" = transcription + any diarization done
+  // "diarizing" = transcription done, diarization in progress → still show transcript
+  const isFullyReady = recording.status === "ready";
+  const isTranscribed = isFullyReady || recording.status === "diarizing";
+  // Fallback: recording.status reflects backend state even if WS event was missed
+  const statusRunning = recording.status === "transcribing" || recording.status === "diarizing";
 
-  const { data: transcript } = useTranscript(recording.id, isReady);
-  const { data: diar } = useDiarization(recording.id, isReady && !!transcript);
+  const { data: transcript } = useTranscript(recording.id, isTranscribed);
+  const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
 
   const [showTuning, setShowTuning] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -132,18 +137,24 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
     if (!job) return;
     const stuck = job.status === "pending" || job.status === "running";
     if (!stuck) return;
-    if (job.phase === "asr" && isReady) clearJobFor(recording.id);
+    if (job.phase === "asr" && isFullyReady) clearJobFor(recording.id);
     if (job.phase === "diarization" && diar) clearJobFor(recording.id);
-  }, [isReady, diar, job, recording.id]);
+  }, [isFullyReady, diar, job, recording.id]);
 
-  const running = job && (job.status === "running" || job.status === "pending");
+  // Use recording.status as fallback when WS job event hasn't arrived yet
+  const running = !!(job && (job.status === "running" || job.status === "pending")) || statusRunning;
   const startingPhase = transcribe.isPending
     ? "Starte Transkription"
     : diarizeFirst.isPending
       ? "Starte Sprechererkennung"
       : null;
   const pct = Math.round((job?.progress ?? 0) * 100);
-  const phaseLabel = jobPhaseLabel(job?.phase);
+  // Phase label: prefer live job data, fall back to recording.status
+  const phaseLabel = job
+    ? jobPhaseLabel(job.phase)
+    : recording.status === "diarizing"
+      ? jobPhaseLabel("diarization")
+      : jobPhaseLabel("asr");
   const labels = diar?.speakers.map((s) => s.label) ?? [];
 
   return (
@@ -173,7 +184,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
         </div>
       )}
 
-      {!isReady && !running && (
+      {!isTranscribed && !running && (
         <div className="transcribe-box" style={{ textAlign: "center" }}>
           <div className="rec-icon" style={{ margin: "0 auto 12px" }}><WaveIcon /></div>
           <div style={{ marginBottom: 12 }}>Diese Aufnahme wurde noch nicht transkribiert.</div>
@@ -184,7 +195,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
         </div>
       )}
 
-      {isReady && transcript && (
+      {isTranscribed && transcript && (
         <>
           <AudioPlayer
             ref={playerRef}

@@ -51,6 +51,14 @@ cd backend && .venv/bin/python -m pytest
 
 ## Status
 
-Phase 1 (Gerüst: Themenbereiche & Aufnahmen, Upload + ffmpeg-Normalisierung, UI-Shell,
-Hardware-Erkennung, Sidecar) abgeschlossen. Weitere Phasen: ASR, Diarisierung + Tuning,
-Sprecher-Bibliothek, LLM-Zusammenfassung, Settings/Keychain, Packaging. Siehe Projektplan.
+Aktueller Stand: **v0.1.2** ist als macOS-Release veröffentlicht.
+
+Umgesetzt sind Themenbereiche, Uploads und In-App-Aufnahmen, ffmpeg-Normalisierung,
+lokale ASR-Backends, Speaker-Diarisierung mit Tuning, Sprecher-Bibliothek,
+Voiceprint-Zuordnung, LLM-Zusammenfassungen, Export, Settings/Keychain sowie
+macOS-Packaging mit Auto-Updates über GitHub Releases.
+
+Hinweis für macOS: Die App findet Homebrew-Installationen von `ffmpeg`/`ffprobe`
+auch aus der installierten GUI-App heraus (`/opt/homebrew/bin`, `/usr/local/bin`
+u. a.). Optional können die Pfade über `TARSCRIBE_FFMPEG_PATH` und
+`TARSCRIBE_FFPROBE_PATH` explizit gesetzt werden.

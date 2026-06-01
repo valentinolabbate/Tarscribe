@@ -1,0 +1,48 @@
+name: Release
+
+# Push a version tag (e.g. v0.2.0) to build the macOS app, sign the update
+# artifacts, and publish a GitHub Release with latest.json for the auto-updater.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: macos-14 # Apple Silicon runner
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm install
+
+      - name: Stage backend + uv resources
+        working-directory: desktop
+        run: ./scripts/stage-resources.sh
+
+      - name: Build & publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Tarscribe ${{ github.ref_name }}"
+          releaseBody: "Automatisch erstellter Release. Die App aktualisiert sich selbst."
+          releaseDraft: false
+          prerelease: false
+          args: --target aarch64-apple-darwin

@@ -1,0 +1,57 @@
+"""System/health endpoints used by the Tauri shell and first-run wizard."""
+
+from __future__ import annotations
+
+import shutil
+
+from fastapi import APIRouter
+
+from .. import __version__
+from ..hardware import detect_hardware
+from ..settings_store import has_hf_token, load_prefs, save_prefs
+
+router = APIRouter(prefix="/api/system", tags=["system"])
+
+
+@router.get("/health")
+def health() -> dict:
+    return {"status": "ok", "version": __version__}
+
+
+@router.get("/hardware")
+def hardware() -> dict:
+    info = detect_hardware().to_dict()
+    info["ffmpeg_available"] = shutil.which("ffmpeg") is not None
+    info["ffprobe_available"] = shutil.which("ffprobe") is not None
+    return info
+
+
+@router.get("/setup-status")
+def setup_status() -> dict:
+    prefs = load_prefs()
+    llm = prefs.get("llm") or {}
+    return {
+        "setup_complete": bool(prefs.get("setup_complete")),
+        "ffmpeg_available": shutil.which("ffmpeg") is not None,
+        "hf_token_set": has_hf_token(),
+        "llm_configured": bool(llm.get("model")),
+        "hardware": detect_hardware().to_dict(),
+    }
+
+
+@router.post("/complete-setup")
+def complete_setup() -> dict:
+    save_prefs({"setup_complete": True})
+    return {"setup_complete": True}
+
+
+@router.post("/warmup")
+def warmup() -> dict:
+    """Load the ASR backend so its model downloads now (first-run prep)."""
+    from ..ml.asr.factory import get_backend
+
+    backend = get_backend()
+    # Touch the model loader (downloads on first call) without transcribing.
+    if hasattr(backend, "_ensure_model"):
+        backend._ensure_model()
+    return {"ok": True, "engine": getattr(backend, "name", "unknown")}

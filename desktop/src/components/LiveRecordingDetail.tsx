@@ -75,15 +75,14 @@ function groupWords(words: LiveWord[]): UtteranceGroup[] {
   const groups: UtteranceGroup[] = [];
   for (const word of words) {
     const last = groups[groups.length - 1];
-    if (last && last.speakerId === (word.speaker_id ?? null)) {
+    // Null speaker_id (punctuation tokens etc.) inherits the running group's speaker
+    // rather than starting a new anonymous block.
+    const speakerId = word.speaker_id ?? last?.speakerId ?? null;
+    if (last && last.speakerId === speakerId) {
       last.words.push(word);
       if (!word.is_final) last.hasProvisional = true;
     } else {
-      groups.push({
-        speakerId: word.speaker_id ?? null,
-        words: [word],
-        hasProvisional: !word.is_final,
-      });
+      groups.push({ speakerId, words: [word], hasProvisional: !word.is_final });
     }
   }
   return groups;
@@ -119,7 +118,9 @@ function LiveTranscript({
       {groups.map((grp, i) => {
         const sp = grp.speakerId ? speakerMap.get(grp.speakerId) : null;
         const name = sp?.display_name ?? (grp.speakerId ? "Unbekannt" : "");
-        const text = grp.words.map((w) => w.text).join("");
+        // trimStart: faster-whisper prefixes words with a space; the first word of
+        // a new group would otherwise render with a leading blank.
+        const text = grp.words.map((w) => w.text).join("").trimStart();
 
         return (
           <div key={i} className="live-utterance">

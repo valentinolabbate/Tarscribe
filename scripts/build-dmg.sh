@@ -10,25 +10,34 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ---- Paths ---------------------------------------------------------------
-APP="desktop/src-tauri/target/release/bundle/macos/Tarscribe.app"
-OUT_DIR="desktop/src-tauri/target/release/bundle/dmg"
 INSTALL_SRC="scripts/install.command"
 
+ARCH=$(uname -m)
+[[ "$ARCH" == "arm64" ]] && ARCH_TAG="aarch64" || ARCH_TAG="x86_64"
+TARGET="${ARCH_TAG}-apple-darwin"
+
+# tauri-action builds with --target <triple> → target/<triple>/release/bundle/
+# Local builds without --target → target/release/bundle/
+APP="desktop/src-tauri/target/${TARGET}/release/bundle/macos/Tarscribe.app"
+OUT_DIR="desktop/src-tauri/target/${TARGET}/release/bundle/dmg"
 if [[ ! -d "$APP" ]]; then
-  echo "Fehler: $APP nicht gefunden."
-  echo "Zuerst bauen: cd desktop/src-tauri && cargo tauri build"
+  APP="desktop/src-tauri/target/release/bundle/macos/Tarscribe.app"
+  OUT_DIR="desktop/src-tauri/target/release/bundle/dmg"
+fi
+
+if [[ ! -d "$APP" ]]; then
+  echo "Fehler: Tarscribe.app nicht gefunden (weder target/${TARGET}/... noch target/release/...)."
+  echo "Zuerst bauen: cd desktop && npx tauri build"
   exit 1
 fi
 
 # ---- Version aus tauri.conf.json -----------------------------------------
 VERSION=$(python3 -c "
-import json, sys
+import json
 with open('desktop/src-tauri/tauri.conf.json') as f:
     print(json.load(f)['version'])
 ")
 
-ARCH=$(uname -m)
-[[ "$ARCH" == "arm64" ]] && ARCH_TAG="aarch64" || ARCH_TAG="x86_64"
 DMG_PATH="$OUT_DIR/Tarscribe_${VERSION}_${ARCH_TAG}.dmg"
 
 # ---- Staging-Verzeichnis --------------------------------------------------

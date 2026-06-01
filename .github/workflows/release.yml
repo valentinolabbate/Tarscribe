@@ -55,6 +55,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(python3 -c "import json; print(json.load(open('desktop/src-tauri/tauri.conf.json'))['version'])")
-          gh release upload "${{ github.ref_name }}" \
-            "desktop/src-tauri/target/release/bundle/dmg/Tarscribe_${VERSION}_aarch64.dmg" \
-            --clobber
+          DMG="desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/Tarscribe_${VERSION}_aarch64.dmg"
+          gh release upload "${{ github.ref_name }}" "$DMG" --clobber

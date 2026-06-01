@@ -25,18 +25,23 @@ Schick die **.dmg** (oder die gezippte **.app**) per AirDrop / USB / Download we
 
 ## 2. So öffnen deine Freundin / dein Kumpel die App (einmalig)
 
-Weil die App nicht von Apple notarisiert ist, blockt macOS sie beim ersten Start.
-Das ist normal — einer dieser Wege genügt:
+Weil die App nicht von Apple notarisiert ist, setzt macOS beim Download ein
+„Quarantäne"-Flag. Bei Apple Silicon erscheint dann oft **„Tarscribe ist beschädigt"**
+— das ist **kein** echter Defekt, sondern Gatekeeper. **Zuverlässigster Weg:**
 
-- **Rechtsklick** auf `Tarscribe.app` → **„Öffnen"** → im Dialog nochmal **„Öffnen"**, **oder**
-- **Systemeinstellungen → Datenschutz & Sicherheit** → unten bei der Tarscribe-Meldung
-  auf **„Trotzdem öffnen"**, **oder**
-- einmalig im Terminal:
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/Tarscribe.app
-  ```
+1. `Tarscribe.app` in den Ordner **Programme** ziehen.
+2. **Terminal** öffnen und einmalig ausführen:
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Tarscribe.app
+   ```
+3. App per Doppelklick starten — läuft ab jetzt normal.
 
-Danach startet die App ganz normal per Doppelklick.
+> Tipp: Falls schon das **DMG** als „beschädigt" gemeldet wird, vorher
+> `xattr -cr ~/Downloads/Tarscribe_*.dmg` ausführen, dann das DMG öffnen.
+
+Alternativ (ohne Terminal) klappt manchmal **Rechtsklick auf die App → „Öffnen"** bzw.
+**Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem öffnen"** — bei der
+„beschädigt"-Meldung ist aber der `xattr`-Befehl oben am verlässlichsten.
 
 ## 3. Erster Start
 

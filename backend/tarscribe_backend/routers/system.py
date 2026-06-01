@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import shutil
-
 from fastapi import APIRouter
 
 from .. import __version__
 from ..hardware import detect_hardware
+from ..media_tools import is_media_tool_available
 from ..settings_store import has_hf_token, load_prefs, save_prefs
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -21,8 +20,8 @@ def health() -> dict:
 @router.get("/hardware")
 def hardware() -> dict:
     info = detect_hardware().to_dict()
-    info["ffmpeg_available"] = shutil.which("ffmpeg") is not None
-    info["ffprobe_available"] = shutil.which("ffprobe") is not None
+    info["ffmpeg_available"] = is_media_tool_available("ffmpeg")
+    info["ffprobe_available"] = is_media_tool_available("ffprobe")
     return info
 
 
@@ -32,7 +31,7 @@ def setup_status() -> dict:
     llm = prefs.get("llm") or {}
     return {
         "setup_complete": bool(prefs.get("setup_complete")),
-        "ffmpeg_available": shutil.which("ffmpeg") is not None,
+        "ffmpeg_available": is_media_tool_available("ffmpeg"),
         "hf_token_set": has_hf_token(),
         "llm_configured": bool(llm.get("model")),
         "hardware": detect_hardware().to_dict(),

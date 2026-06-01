@@ -7,9 +7,10 @@ the ASR and diarization models expect, and keep the original filename for export
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
+
+from .media_tools import media_tool_path
 
 TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
@@ -20,7 +21,7 @@ class AudioError(RuntimeError):
 
 
 def _resolve(tool: str) -> str:
-    path = shutil.which(tool)
+    path = media_tool_path(tool)
     if not path:
         raise AudioError(
             f"'{tool}' wurde nicht gefunden. Bitte ffmpeg installieren oder mit der App bündeln."

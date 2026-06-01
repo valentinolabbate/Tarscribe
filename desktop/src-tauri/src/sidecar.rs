@@ -2,6 +2,7 @@
 //! packaged macOS build, bootstraps its Python environment on first run via a
 //! bundled `uv` (the env lives in the app data dir, built from bundled sources).
 
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,27 @@ fn app_data(app: &AppHandle) -> PathBuf {
 
 fn runtime_venv_python(app: &AppHandle) -> PathBuf {
     app_data(app).join("runtime/.venv/bin/python")
+}
+
+fn tool_path() -> OsString {
+    let mut paths: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    for path in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        let path = PathBuf::from(path);
+        if !paths.iter().any(|existing| existing == &path) {
+            paths.push(path);
+        }
+    }
+    std::env::join_paths(paths).unwrap_or_else(|_| OsString::from("/usr/bin:/bin"))
 }
 
 /// Backend sources: bundled in the .app under resources, or the dev tree.
@@ -115,6 +137,7 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
             "--data-dir",
             &data_dir.to_string_lossy(),
         ])
+        .env("PATH", tool_path())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -68,6 +68,7 @@ export function RecordingList({
   const upload = useUploadRecording();
   const del = useDeleteRecording(topic.id);
   const fileInput = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
 
   async function handleFiles(files: FileList | null) {
@@ -81,13 +82,24 @@ export function RecordingList({
 
   return (
     <div
-      onDragOver={(e) => {
+      onDragEnter={(e) => {
         e.preventDefault();
+        dragDepth.current += 1;
         setDragOver(true);
       }}
-      onDragLeave={() => setDragOver(false)}
+      onDragOver={(e) => {
+        e.preventDefault();
+      }}
+      onDragLeave={() => {
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setDragOver(false);
+        }
+      }}
       onDrop={(e) => {
         e.preventDefault();
+        dragDepth.current = 0;
         setDragOver(false);
         handleFiles(e.dataTransfer.files);
       }}
@@ -98,7 +110,11 @@ export function RecordingList({
         accept="audio/*,video/*,.m4a,.mp3,.wav,.mp4,.aac,.ogg,.flac"
         multiple
         hidden
-        onChange={(e) => handleFiles(e.target.files)}
+        onChange={async (e) => {
+          const input = e.currentTarget;
+          await handleFiles(input.files);
+          input.value = "";
+        }}
       />
 
       {isLoading ? (

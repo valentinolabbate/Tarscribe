@@ -112,7 +112,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           ) : (
             <>
               <input
-                type="text"
+                type="password"
                 placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}

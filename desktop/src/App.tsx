@@ -24,6 +24,9 @@ import { api, waitForBackend } from "./lib/api";
 import { invoke, isTauri } from "./lib/tauri";
 import type { Recording, Topic } from "./lib/types";
 
+const clampSidebarWidth = (width: number) =>
+  Math.max(160, Math.min(500, window.innerWidth - 640, Number.isFinite(width) ? width : 248));
+
 function Splash({ error }: { error?: string }) {
   return (
     <div className="splash">
@@ -136,7 +139,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const v = localStorage.getItem("ts-sidebar-w");
-      return v ? Math.max(160, Math.min(500, Number(v))) : 248;
+      return clampSidebarWidth(v ? Number(v) : 248);
     } catch { return 248; }
   });
 
@@ -144,10 +147,9 @@ export default function App() {
     e.preventDefault();
     const startX = e.clientX;
     const startW = sidebarWidth;
-    const clamp = (v: number) => Math.max(160, Math.min(500, v));
-    const onMove = (ev: MouseEvent) => setSidebarWidth(clamp(startW + ev.clientX - startX));
+    const onMove = (ev: MouseEvent) => setSidebarWidth(clampSidebarWidth(startW + ev.clientX - startX));
     const onUp = (ev: MouseEvent) => {
-      const w = clamp(startW + ev.clientX - startX);
+      const w = clampSidebarWidth(startW + ev.clientX - startX);
       setSidebarWidth(w);
       try { localStorage.setItem("ts-sidebar-w", String(w)); } catch { /* ignore */ }
       window.removeEventListener("mousemove", onMove);
@@ -156,6 +158,12 @@ export default function App() {
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    const onResize = () => setSidebarWidth((width) => clampSidebarWidth(width));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const { data: topics } = useTopics();
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
@@ -236,10 +244,11 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
-  // Auto-select first topic once loaded.
+  // Keep the selection valid when the active topic is deleted.
   useEffect(() => {
-    if (activeTopic == null && topics && topics.length > 0) {
-      setActiveTopic(topics[0].id);
+    if (topics && !topics.some((topic) => topic.id === activeTopic)) {
+      setActiveTopic(topics[0]?.id ?? null);
+      setOpenRecording(null);
     }
   }, [topics, activeTopic]);
 

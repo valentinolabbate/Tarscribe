@@ -108,7 +108,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
               ) : (
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
-                    type="text"
+                    type="password"
                     placeholder="hf_…"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}

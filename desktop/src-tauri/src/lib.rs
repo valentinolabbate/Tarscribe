@@ -5,6 +5,31 @@ use menu::TrayState;
 use sidecar::BackendState;
 use tauri::RunEvent;
 
+/// macOS adds com.apple.quarantine to downloaded apps; on macOS 26+ this hides
+/// the app from Finder/Launchpad even after the user approves it in Security
+/// settings. Remove the flag on every launch — xattr is a no-op if absent.
+#[cfg(target_os = "macos")]
+fn remove_quarantine() {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        // exe: .../Tarscribe.app/Contents/MacOS/desktop
+        if let Some(bundle) = exe
+            .parent()              // MacOS/
+            .and_then(|p| p.parent())  // Contents/
+            .and_then(|p| p.parent())  // Tarscribe.app
+        {
+            if bundle.extension().is_some_and(|e| e == "app") {
+                let _ = std::process::Command::new("xattr")
+                    .args(["-dr", "com.apple.quarantine"])
+                    .arg(bundle)
+                    .output();
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -22,6 +47,9 @@ pub fn run() {
             menu::set_update_badge,
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            remove_quarantine();
+
             let handle = app.handle().clone();
             match sidecar::start_if_ready(&handle) {
                 Ok(true) => {}

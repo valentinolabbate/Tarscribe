@@ -46,3 +46,15 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin
+
+      - name: Build enhanced DMG with install script
+        run: ./scripts/build-dmg.sh
+
+      - name: Upload DMG to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(python3 -c "import json; print(json.load(open('desktop/src-tauri/tauri.conf.json'))['version'])")
+          gh release upload "${{ github.ref_name }}" \
+            "desktop/src-tauri/target/release/bundle/dmg/Tarscribe_${VERSION}_aarch64.dmg" \
+            --clobber

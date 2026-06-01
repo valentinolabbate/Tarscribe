@@ -1,23 +1,37 @@
 # Tarscribe
 
-Lokale Transkriptions- & Speaker-Diarisierungs-App für **Windows** und **macOS Silicon**.
-Themenbereiche anlegen, Aufnahmen hochladen/erstellen, vollständig **offline** transkribieren und
-Sprecher trennen — mit nachträglich feinjustierbarer Diarisierung, Stimmproben-Identifikation und
-lokaler LLM-Zusammenfassung (Ollama / LM Studio).
+Lokale Transkriptions- & Speaker-Diarisierungs-App für **macOS (Apple Silicon)**.  
+Themenbereiche anlegen, Aufnahmen hochladen oder direkt aufnehmen, vollständig **offline**
+transkribieren und Sprecher trennen — mit feinjustierbarer Diarisierung, Stimmproben-Identifikation
+und lokaler LLM-Zusammenfassung (Ollama / LM Studio).
+
+## Installation (macOS)
+
+1. **DMG herunterladen** von [Releases](https://github.com/valentinolabbate/Tarscribe/releases/latest)
+2. **DMG öffnen** — du siehst `Tarscribe.app`, einen `Applications`-Ordner und `Tarscribe installieren.command`
+3. **Doppelklick auf `Tarscribe installieren.command`**
+   - macOS fragt: *„Aus dem Internet heruntergeladen — trotzdem öffnen?"* → **Öffnen**
+   - Falls ein zweiter Dialog erscheint (für das Skript selbst): ebenfalls in **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben
+   - Terminal öffnet sich, kopiert die App nach `/Applications` und entfernt den Quarantäne-Flag
+4. Tarscribe startet automatisch und ist danach in **Finder, Launchpad und Spotlight** sichtbar
+
+> **Warum das Skript?** macOS 26 blockiert nicht-notarisierte Apps in Finder und Launchpad,
+> auch nach manueller Security-Freigabe. Das Skript entfernt den `com.apple.quarantine`-Flag,
+> der dieses Verhalten auslöst.
 
 ## Architektur
 
 ```
 desktop/        Tauri v2 Shell (Rust) + React/TS/Vite Frontend
-  src/          UI (Themenbereiche, Aufnahmen, später Transcript-Editor & Tuning)
+  src/          UI (Themenbereiche, Aufnahmen, Transcript-Editor, Tuning)
   src-tauri/    Rust: startet das Python-Backend als Sidecar, native Integration
 backend/        Python FastAPI Sidecar (ASR, Diarisierung, DB, Jobs)
   tarscribe_backend/
 ```
 
 Die Rust-Shell wählt beim Start einen freien Loopback-Port + Token, startet das Backend
-(`python -m tarscribe_backend`) und reicht die Verbindungsdaten via `backend_config`-Command an das
-Frontend. Daten liegen im OS-App-Data-Verzeichnis (SQLite + Audio).
+(`python -m tarscribe_backend`) und reicht die Verbindungsdaten via `backend_config`-Command
+an das Frontend. Daten liegen im macOS App-Data-Verzeichnis (SQLite + Audio).
 
 ## Entwicklung
 
@@ -43,22 +57,21 @@ cd backend && TARSCRIBE_AUTH_TOKEN="" .venv/bin/python -m uvicorn tarscribe_back
 cd desktop && npm run dev   # http://localhost:1420 (Fallback auf 127.0.0.1:8765)
 ```
 
+## Release bauen
+
+```bash
+cd desktop && npx tauri build   # erstellt .app in src-tauri/target/release/bundle/macos/
+cd .. && ./scripts/build-dmg.sh # verpackt .app + Installer-Skript in eine DMG
+```
+
 ## Tests
 
 ```bash
 cd backend && .venv/bin/python -m pytest
 ```
 
-## Status
+## Hinweise
 
-Aktueller Stand: **v0.1.2** ist als macOS-Release veröffentlicht.
-
-Umgesetzt sind Themenbereiche, Uploads und In-App-Aufnahmen, ffmpeg-Normalisierung,
-lokale ASR-Backends, Speaker-Diarisierung mit Tuning, Sprecher-Bibliothek,
-Voiceprint-Zuordnung, LLM-Zusammenfassungen, Export, Settings/Keychain sowie
-macOS-Packaging mit Auto-Updates über GitHub Releases.
-
-Hinweis für macOS: Die App findet Homebrew-Installationen von `ffmpeg`/`ffprobe`
-auch aus der installierten GUI-App heraus (`/opt/homebrew/bin`, `/usr/local/bin`
-u. a.). Optional können die Pfade über `TARSCRIBE_FFMPEG_PATH` und
-`TARSCRIBE_FFPROBE_PATH` explizit gesetzt werden.
+- **ffmpeg**: Die App findet Homebrew-Installationen automatisch (`/opt/homebrew/bin`, `/usr/local/bin`).
+  Optional via `TARSCRIBE_FFMPEG_PATH` und `TARSCRIBE_FFPROBE_PATH` überschreibbar.
+- **Aktueller Stand**: v0.1.7 — macOS Apple Silicon

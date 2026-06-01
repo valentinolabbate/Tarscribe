@@ -1399,6 +1399,25 @@ button.utt-time:hover {
   border-bottom-color: var(--ok);
 }
 
+.live-scroll-to-end {
+  position: sticky;
+  top: 8px;
+  float: right;
+  z-index: 10;
+  margin: 0 0 6px 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.live-scroll-to-end:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .live-degraded-badge {
   margin-left: 8px;
   font-size: 11px;

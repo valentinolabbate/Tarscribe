@@ -189,6 +189,25 @@ export default function App() {
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
+  // Keyboard shortcuts during live recording: Space = pause/resume, Esc = stop.
+  useEffect(() => {
+    if (recording.state === "idle") return;
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (recording.state === "recording") recording.pause();
+        else if (recording.state === "paused") recording.resume();
+      }
+      if (e.code === "Escape" && (recording.state === "recording" || recording.state === "paused")) {
+        recording.stop();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [recording]);
+
   // Check GitHub for a newer release on launch; pop the dialog if found.
   useEffect(() => {
     checkForUpdate()
@@ -327,7 +346,7 @@ export default function App() {
         <div className="topbar">
           <h1>{current ? current.name : "Tarscribe"}</h1>
           <div className="spacer" />
-          <GlobalRecordingIndicator />
+          {recording.state === "idle" && <GlobalRecordingIndicator />}
           {current && (
             <button
               className="btn ghost"

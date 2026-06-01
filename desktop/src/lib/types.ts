@@ -32,6 +32,7 @@ export interface AppSettings {
   asr_override: string | null;
   recording_device_id: string;
   diarization_model: string;
+  speaker_match_threshold: number;
   llm: { provider: string; base_url: string; model: string | null };
   hf_token_set: boolean;
   llm_chunk_size: number;

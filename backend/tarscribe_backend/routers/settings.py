@@ -28,6 +28,7 @@ class PrefsIn(BaseModel):
     recording_device_id: str | None = None
     diarization_model: str | None = None
     llm: dict | None = None
+    speaker_match_threshold: float | None = None
     live_transcription_enabled: bool | None = None
     live_speaker_detection_enabled: bool | None = None
     llm_chunk_size: int | None = None

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LiveRecordingHandle } from "../hooks/useLiveRecording";
 import type { LiveSpeaker, LiveTranscriptSnapshot, LiveSpeakerSnapshot, LiveWord } from "../lib/types";
 import { StopIcon } from "./icons";
@@ -91,15 +91,33 @@ function groupWords(words: LiveWord[]): UtteranceGroup[] {
 function LiveTranscript({
   snapshot,
   speakers,
+  bodyRef,
 }: {
   snapshot: LiveTranscriptSnapshot | null;
   speakers: LiveSpeaker[];
+  bodyRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  const handleScroll = useCallback(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAutoScroll(atBottom);
+  }, [bodyRef]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [snapshot?.revision]);
+    const el = bodyRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [bodyRef, handleScroll]);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [snapshot?.revision, autoScroll, bodyRef]);
 
   if (!snapshot || snapshot.words.length === 0) {
     return (
@@ -114,37 +132,50 @@ function LiveTranscript({
   const speakerMap = new Map(speakers.map((s) => [s.id, s]));
 
   return (
-    <div className="live-transcript">
-      {groups.map((grp, i) => {
-        const sp = grp.speakerId ? speakerMap.get(grp.speakerId) : null;
-        const name = sp?.display_name ?? (grp.speakerId ? "Unbekannt" : "");
-        // trimStart: faster-whisper prefixes words with a space; the first word of
-        // a new group would otherwise render with a leading blank.
-        const text = grp.words.map((w) => w.text).join("").trimStart();
+    <>
+      {!autoScroll && (
+        <button
+          className="live-scroll-to-end"
+          onClick={() => {
+            const el = bodyRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+            setAutoScroll(true);
+          }}
+        >
+          ↓ Zurück zum Ende
+        </button>
+      )}
+      <div className="live-transcript">
+        {groups.map((grp, i) => {
+          const sp = grp.speakerId ? speakerMap.get(grp.speakerId) : null;
+          const name = sp?.display_name ?? (grp.speakerId ? "Unbekannt" : "");
+          // trimStart: faster-whisper prefixes words with a space; the first word of
+          // a new group would otherwise render with a leading blank.
+          const text = grp.words.map((w) => w.text).join("").trimStart();
 
-        return (
-          <div key={i} className="live-utterance">
-            {name && (
-              <span
-                className={`live-utterance-speaker match-${sp?.match_status ?? "none"}`}
-                title={
-                  sp?.similarity != null
-                    ? `Ähnlichkeit: ${(sp.similarity * 100).toFixed(0)} %`
-                    : undefined
-                }
-              >
-                {name}
-                {sp?.match_status === "probable" && <span className="live-match-badge">?</span>}
+          return (
+            <div key={i} className="live-utterance">
+              {name && (
+                <span
+                  className={`live-utterance-speaker match-${sp?.match_status ?? "none"}`}
+                  title={
+                    sp?.similarity != null
+                      ? `Ähnlichkeit: ${(sp.similarity * 100).toFixed(0)} %`
+                      : undefined
+                  }
+                >
+                  {name}
+                  {sp?.match_status === "probable" && <span className="live-match-badge">?</span>}
+                </span>
+              )}
+              <span className={grp.hasProvisional ? "live-text-provisional" : "live-text-stable"}>
+                {text}
               </span>
-            )}
-            <span className={grp.hasProvisional ? "live-text-provisional" : "live-text-stable"}>
-              {text}
-            </span>
-          </div>
-        );
-      })}
-      <div ref={bottomRef} />
-    </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -170,6 +201,7 @@ export function LiveRecordingDetail({
   onStop,
 }: Props) {
   const isActive = state === "recording" || state === "paused";
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="live-detail">
@@ -216,10 +248,11 @@ export function LiveRecordingDetail({
 
       <SpeakerChips snapshot={handle?.speakerSnapshot ?? null} />
 
-      <div className="live-detail-body">
+      <div className="live-detail-body" ref={bodyRef}>
         <LiveTranscript
           snapshot={handle?.transcriptSnapshot ?? null}
           speakers={handle?.speakerSnapshot?.speakers ?? []}
+          bodyRef={bodyRef}
         />
       </div>
 

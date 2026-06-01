@@ -160,6 +160,14 @@ def _fmt_dur(sec: float) -> str:
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+def _fmt_ts(sec: float) -> str:
+    """Format seconds as MM:SS or HH:MM:SS for transcript timestamps."""
+    t = int(sec)
+    h, t = divmod(t, 3600)
+    m, s = divmod(t, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
 def _build_markdown(session: Session, rec: Recording, words, segments, name_map) -> str:
     """Obsidian-friendly note: YAML frontmatter + summary callout + speaker transcript."""
     diarized = bool(segments)
@@ -205,7 +213,8 @@ def _build_markdown(session: Session, rec: Recording, words, segments, name_map)
     if diarized:
         for u in utterances:
             speaker_name = name_map.get(u.speaker, u.speaker)
-            lines.append(f"**{speaker_name}:** {u.text}")
+            ts = _fmt_ts(u.start)
+            lines.append(f"**{speaker_name}** `[{ts}]`: {u.text}")
             lines.append("")
     else:
         lines.append("".join(w.text for w in words).strip())

@@ -205,6 +205,35 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
         {settings && (
           <div className="field">
+            <label>Speaker-Match-Schwellenwert</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                type="range"
+                min={0.1}
+                max={0.95}
+                step={0.05}
+                value={settings.speaker_match_threshold ?? 0.5}
+                style={{ flex: 1 }}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setSettings({ ...settings, speaker_match_threshold: v });
+                }}
+                onMouseUp={(e) => {
+                  api.updateSettings({ speaker_match_threshold: Number((e.target as HTMLInputElement).value) });
+                }}
+              />
+              <span className="mono" style={{ width: 34 }}>
+                {(settings.speaker_match_threshold ?? 0.5).toFixed(2)}
+              </span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
+              Wie ähnlich eine Stimme einem bekannten Sprecher sein muss, um als Match zu gelten (0 = immer, 1 = nur exakt).
+            </div>
+          </div>
+        )}
+
+        {settings && (
+          <div className="field">
             <label>Diarisierungs-Modell</label>
             <input type="text" value={settings.diarization_model} readOnly />
           </div>

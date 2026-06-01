@@ -18,6 +18,7 @@ from ..models import (
     DiarizationRun,
     Job,
     JobStatus,
+    LiveRecordingSession,
     ManualEdit,
     Recording,
     RecordingStatus,
@@ -153,8 +154,17 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
             session.delete(row)
     for job in jobs:
         session.delete(job)
-    session.flush()
 
+    # Remove any live session that references this recording; without this the
+    # LiveRecordingSession.finalized_recording_id FK (NO ACTION) would block the delete.
+    for live in session.exec(
+        select(LiveRecordingSession).where(
+            LiveRecordingSession.finalized_recording_id == recording_id
+        )
+    ).all():
+        session.delete(live)
+
+    session.flush()
     session.delete(rec)
     session.commit()
     try:

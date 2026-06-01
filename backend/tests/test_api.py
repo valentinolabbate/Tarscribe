@@ -132,6 +132,40 @@ def test_delete_recording_removes_dependent_rows_even_when_audio_is_missing(clie
         assert not s.exec(select(DiarizationRun).where(DiarizationRun.recording_id == recording_id)).all()
 
 
+def test_delete_recording_with_finalized_live_session(client):
+    """Deleting a recording that has a linked LiveRecordingSession must succeed."""
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import LiveRecordingSession, LiveSessionStatus, Recording, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Test")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Live", audio_path="/tmp/live-test.wav")
+        s.add(rec)
+        s.flush()
+        live = LiveRecordingSession(
+            id="abc123",
+            topic_id=topic.id,
+            title="Live",
+            status=LiveSessionStatus.completed,
+            pcm_path="/tmp/live.pcm",
+            finalized_recording_id=rec.id,
+        )
+        s.add(live)
+        s.commit()
+        recording_id = rec.id
+
+    r = client.delete(f"/api/recordings/{recording_id}")
+    assert r.status_code == 204
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Recording, recording_id) is None
+        assert s.get(LiveRecordingSession, "abc123") is None
+
+
 def test_delete_recording_rejects_running_job(client):
     from sqlmodel import Session
 

@@ -34,6 +34,7 @@ export interface AppSettings {
   diarization_model: string;
   llm: { provider: string; base_url: string; model: string | null };
   hf_token_set: boolean;
+  llm_chunk_size: number;
 }
 
 export interface WordSeg {
@@ -74,6 +75,10 @@ export interface LlmConfig {
   provider?: string;
   base_url?: string;
   model?: string | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  max_tokens?: number | null;
 }
 
 export interface SummaryEvent {

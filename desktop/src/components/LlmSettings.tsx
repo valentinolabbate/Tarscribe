@@ -7,6 +7,52 @@ const PRESETS: Record<string, string> = {
   lmstudio: "http://localhost:1234/v1",
 };
 
+function NumField({
+  label,
+  enabled,
+  onToggle,
+  value,
+  onChange,
+  min,
+  max,
+  step,
+  placeholder,
+}: {
+  label: string;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max?: number;
+  step: number;
+  placeholder?: string;
+}) {
+  return (
+    <div className="tuning-row">
+      <label>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onToggle(e.target.checked)}
+        />{" "}
+        {label}
+      </label>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        disabled={!enabled}
+        placeholder={placeholder}
+        style={{ width: 80, opacity: enabled ? 1 : 0.4 }}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </div>
+  );
+}
+
 export function LlmSettings() {
   const qc = useQueryClient();
   const [provider, setProvider] = useState("ollama");
@@ -16,11 +62,28 @@ export function LlmSettings() {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Inference params
+  const [temperature, setTemperature] = useState(0.3);
+  const [topP, setTopP] = useState(0.9);
+  const [useTopP, setUseTopP] = useState(false);
+  const [topK, setTopK] = useState(40);
+  const [useTopK, setUseTopK] = useState(false);
+  const [maxTokens, setMaxTokens] = useState(2048);
+  const [useMaxTokens, setUseMaxTokens] = useState(false);
+  const [chunkSize, setChunkSize] = useState(48000);
+
   useEffect(() => {
     api.getLlmConfig().then((c) => {
       if (c.provider) setProvider(c.provider);
       if (c.base_url) setBaseUrl(c.base_url);
       if (c.model) setModel(c.model);
+      if (c.temperature != null) setTemperature(c.temperature);
+      if (c.top_p != null) { setTopP(c.top_p); setUseTopP(true); }
+      if (c.top_k != null) { setTopK(c.top_k); setUseTopK(true); }
+      if (c.max_tokens != null) { setMaxTokens(c.max_tokens); setUseMaxTokens(true); }
+    });
+    api.getSettings().then((s) => {
+      if (s.llm_chunk_size) setChunkSize(s.llm_chunk_size);
     });
   }, []);
 
@@ -39,8 +102,20 @@ export function LlmSettings() {
   }
 
   async function save(nextModel = model) {
-    await api.setLlmConfig({ provider, base_url: baseUrl, model: nextModel });
+    await api.setLlmConfig({
+      provider,
+      base_url: baseUrl,
+      model: nextModel,
+      temperature,
+      top_p: useTopP ? topP : null,
+      top_k: useTopK ? topK : null,
+      max_tokens: useMaxTokens ? maxTokens : null,
+    });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
+  }
+
+  async function saveChunkSize(size: number) {
+    await api.updateSettings({ llm_chunk_size: size });
   }
 
   function onProvider(p: string) {
@@ -97,6 +172,86 @@ export function LlmSettings() {
           {status.msg}
         </div>
       )}
+
+      {/* ── Inference-Parameter ─────────────────────────────────────────── */}
+      <div className="tuning" style={{ marginTop: 12 }}>
+        <div className="tuning-row">
+          <label>Temperature</label>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={0.05}
+              value={temperature}
+              onChange={(e) => setTemperature(Number(e.target.value))}
+              onMouseUp={() => save()}
+              onTouchEnd={() => save()}
+              style={{ width: 120 }}
+            />
+            <span className="mono" style={{ width: 34 }}>{temperature.toFixed(2)}</span>
+          </div>
+        </div>
+        <div className="tuning-hint">
+          Niedriger = deterministischer. Für Zusammenfassungen 0.1–0.5 empfohlen.
+        </div>
+
+        <NumField
+          label="Top-P"
+          enabled={useTopP}
+          onToggle={(v) => { setUseTopP(v); save(); }}
+          value={topP}
+          onChange={(v) => setTopP(v)}
+          min={0.01}
+          max={1}
+          step={0.05}
+        />
+        <NumField
+          label="Top-K"
+          enabled={useTopK}
+          onToggle={(v) => { setUseTopK(v); save(); }}
+          value={topK}
+          onChange={(v) => setTopK(v)}
+          min={1}
+          step={1}
+          placeholder="z.B. 40"
+        />
+        <NumField
+          label="Max. Tokens"
+          enabled={useMaxTokens}
+          onToggle={(v) => { setUseMaxTokens(v); save(); }}
+          value={maxTokens}
+          onChange={(v) => setMaxTokens(v)}
+          min={64}
+          step={64}
+          placeholder="z.B. 2048"
+        />
+
+        <div className="tuning-row" style={{ marginTop: 6 }}>
+          <label title="Maximale Transkript-Zeichen pro LLM-Aufruf. Längere Texte werden in Abschnitte aufgeteilt.">
+            Chunk-Größe (Zeichen)
+          </label>
+          <input
+            type="number"
+            min={4000}
+            max={200000}
+            step={1000}
+            value={chunkSize}
+            style={{ width: 90 }}
+            onChange={(e) => setChunkSize(Number(e.target.value))}
+            onBlur={() => saveChunkSize(chunkSize)}
+          />
+        </div>
+        <div className="tuning-hint">
+          Längere Texte werden in Abschnitte aufgeteilt (Map-Reduce). Default: 48 000.
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+          <button className="btn primary" onClick={() => save()}>
+            Parameter speichern
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -20,6 +20,10 @@ class LlmConfigIn(BaseModel):
     provider: str | None = None
     base_url: str | None = None
     model: str | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    max_tokens: int | None = None
 
 
 @router.get("/api/llm/config")
@@ -30,9 +34,9 @@ def get_llm_config() -> dict:
 @router.put("/api/llm/config")
 def set_llm_config(payload: LlmConfigIn) -> dict:
     llm = dict(load_prefs().get("llm") or {})
-    for k, v in payload.model_dump().items():
-        if v is not None:
-            llm[k] = v
+    # exclude_unset=True: only touch fields the client explicitly sent
+    # (allows sending null to clear a param)
+    llm.update(payload.model_dump(exclude_unset=True))
     save_prefs({"llm": llm})
     return llm
 

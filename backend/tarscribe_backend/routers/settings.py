@@ -30,6 +30,7 @@ class PrefsIn(BaseModel):
     llm: dict | None = None
     live_transcription_enabled: bool | None = None
     live_speaker_detection_enabled: bool | None = None
+    llm_chunk_size: int | None = None
 
 
 @router.get("")

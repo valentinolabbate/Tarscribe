@@ -24,6 +24,10 @@ def get_llm_config() -> dict:
         "base_url": (llm.get("base_url") or "http://localhost:11434/v1").rstrip("/"),
         "model": llm.get("model"),
         "provider": llm.get("provider") or "ollama",
+        "temperature": float(llm["temperature"]) if llm.get("temperature") is not None else 0.3,
+        "top_p": float(llm["top_p"]) if llm.get("top_p") is not None else None,
+        "top_k": int(llm["top_k"]) if llm.get("top_k") is not None else None,
+        "max_tokens": int(llm["max_tokens"]) if llm.get("max_tokens") is not None else None,
     }
 
 
@@ -44,15 +48,27 @@ def test_connection(base_url: str | None = None) -> dict:
 
 
 def stream_chat(
-    messages: list[dict], model: str, base_url: str, temperature: float = 0.3
+    messages: list[dict],
+    model: str,
+    base_url: str,
+    temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
 ) -> Iterator[str]:
     """Yield content deltas from a streaming chat completion."""
-    payload = {
+    payload: dict = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
         "stream": True,
     }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if top_k is not None:
+        payload["top_k"] = top_k
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
     with httpx.stream(
         "POST", f"{base_url}/chat/completions", json=payload, timeout=None
     ) as r:

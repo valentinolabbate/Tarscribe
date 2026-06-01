@@ -30,6 +30,8 @@ DEFAULT_PREFS: dict[str, Any] = {
     # Live transcription feature flags (plan §10).
     "live_transcription_enabled": True,
     "live_speaker_detection_enabled": True,
+    # Maximum transcript characters per LLM call before map-reduce chunking kicks in.
+    "llm_chunk_size": 48000,
 }
 
 

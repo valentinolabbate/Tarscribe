@@ -82,12 +82,14 @@ def render_template(template_str: str, context: dict[str, str]) -> str:
 def build_context(
     duration_sec: float, created_at, topic_name: str, transcript_text: str, speakers: list[str]
 ) -> dict:
+    dt = created_at or datetime.utcnow()
     return {
         "transcript": transcript_text,
         "speakers": ", ".join(speakers) if speakers else "unbekannt",
         "topic": topic_name or "",
         "duration": _fmt_dur(duration_sec),
-        "date": (created_at or datetime.utcnow()).strftime("%d.%m.%Y"),
+        "date": dt.strftime("%d.%m.%Y"),       # für menschenlesbaren Text
+        "date_iso": dt.strftime("%Y-%m-%d"),    # für Obsidian-Frontmatter (Dataview-kompatibel)
     }
 
 

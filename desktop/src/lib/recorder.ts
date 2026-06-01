@@ -16,6 +16,11 @@ export class Recorder {
     return this.mr?.mimeType || "audio/webm";
   }
 
+  /** The underlying MediaStream, available after start() resolves. */
+  get audioStream(): MediaStream | null {
+    return this.stream;
+  }
+
   async start(deviceId?: string): Promise<boolean> {
     let usedFallback = false;
     try {

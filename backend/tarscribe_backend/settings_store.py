@@ -27,6 +27,9 @@ DEFAULT_PREFS: dict[str, Any] = {
     "speaker_match_threshold": 0.5,
     "llm": {"provider": "ollama", "base_url": "http://localhost:11434/v1", "model": None},
     "setup_complete": False,
+    # Live transcription feature flags (plan §10).
+    "live_transcription_enabled": True,
+    "live_speaker_detection_enabled": True,
 }
 
 

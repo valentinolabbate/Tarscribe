@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import type { JobEvent } from "../lib/types";
+import type { JobEvent, LiveEvent } from "../lib/types";
 
 // Tiny external store: recording_id -> latest job event.
 let jobs = new Map<number, JobEvent>();
@@ -79,8 +79,8 @@ export function trackSummaryStart(summaryId: number) {
   emit();
 }
 
-/** Mount once (in App) to stream job events and refresh data on completion. */
-export function useJobSocket() {
+/** Mount once (in App) to stream job + live events and refresh data on completion. */
+export function useJobSocket(onLive?: (e: LiveEvent) => void) {
   const qc = useQueryClient();
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -106,6 +106,7 @@ export function useJobSocket() {
           emit();
           if (e.done) qc.invalidateQueries({ queryKey: ["summaries", e.recording_id] });
         },
+        onLive,
       )
       .then((c) => {
         if (closed) c();
@@ -115,5 +116,5 @@ export function useJobSocket() {
       closed = true;
       cleanup?.();
     };
-  }, [qc]);
+  }, [qc, onLive]);
 }

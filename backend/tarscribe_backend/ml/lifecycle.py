@@ -7,6 +7,14 @@ pipeline has run, so the app does not keep several GB resident while idle.
 from __future__ import annotations
 
 import gc
+import threading
+
+# Serialises access to the shared ASR singleton.
+# Final jobs acquire it blocking; live analysis acquires it non-blocking (skip on contention).
+asr_lock = threading.Lock()
+
+# Same pattern for the pyannote diarization pipeline.
+diar_lock = threading.Lock()
 
 
 def release_memory() -> None:

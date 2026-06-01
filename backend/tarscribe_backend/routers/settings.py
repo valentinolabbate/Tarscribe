@@ -28,6 +28,8 @@ class PrefsIn(BaseModel):
     recording_device_id: str | None = None
     diarization_model: str | None = None
     llm: dict | None = None
+    live_transcription_enabled: bool | None = None
+    live_speaker_detection_enabled: bool | None = None
 
 
 @router.get("")

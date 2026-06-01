@@ -154,8 +154,14 @@ def _safe_filename(title: str) -> str:
     return "".join(c if c.isalnum() or c in " -_" else "_" for c in title).strip() or "Aufnahme"
 
 
+def _fmt_dur(sec: float) -> str:
+    m, s = divmod(int(sec), 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def _build_markdown(session: Session, rec: Recording, words, segments, name_map) -> str:
-    """Obsidian-friendly note: frontmatter + summary + speaker transcript."""
+    """Obsidian-friendly note: YAML frontmatter + summary callout + speaker transcript."""
     diarized = bool(segments)
     utterances = _utterances(session, rec.id, words, segments) if diarized else []
     speakers = sorted({name_map.get(s.speaker_label, s.speaker_label) for s in segments})
@@ -166,22 +172,44 @@ def _build_markdown(session: Session, rec: Recording, words, segments, name_map)
         .order_by(Summary.created_at.desc())
     ).first()
 
-    date = (rec.created_at.strftime("%Y-%m-%d") if rec.created_at else "")
-    lines = ["---", f"title: {rec.title}", f"date: {date}"]
+    date_iso = rec.created_at.strftime("%Y-%m-%d") if rec.created_at else ""
+    duration = _fmt_dur(rec.duration_sec)
+
+    # ── YAML frontmatter ────────────────────────────────────────────────────
+    lines = [
+        "---",
+        f'title: "{rec.title}"',
+        f"date: {date_iso}",
+        f"duration: {duration}",
+    ]
     if speakers:
-        lines.append("speakers: [" + ", ".join(f'"{s}"' for s in speakers) + "]")
-    lines += ["tags: [tarscribe]", "---", "", f"# {rec.title}", ""]
+        lines.append("participants: [" + ", ".join(f'"{s}"' for s in speakers) + "]")
+    lines += [
+        "tags:",
+        "  - tarscribe",
+        "---",
+        "",
+        f"# {rec.title}",
+        "",
+    ]
 
+    # ── Zusammenfassung als Callout ─────────────────────────────────────────
     if summary and summary.content.strip():
-        lines += ["## Zusammenfassung", "", summary.content.strip(), ""]
+        lines += ["## Zusammenfassung", ""]
+        for summary_line in summary.content.strip().splitlines():
+            lines.append(summary_line)
+        lines.append("")
 
+    # ── Transkript ──────────────────────────────────────────────────────────
     lines += ["## Transkript", ""]
     if diarized:
         for u in utterances:
-            lines.append(f"**{name_map.get(u.speaker, u.speaker)}:** {u.text}")
+            speaker_name = name_map.get(u.speaker, u.speaker)
+            lines.append(f"**{speaker_name}:** {u.text}")
             lines.append("")
     else:
         lines.append("".join(w.text for w in words).strip())
+
     return "\n".join(lines)
 
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
+import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
 import { SetupScreen } from "./components/SetupScreen";
 import { RecordingDetail } from "./components/RecordingDetail";
 import { RecordingList } from "./components/RecordingList";
@@ -168,7 +169,8 @@ export default function App() {
   const { data: topics } = useTopics();
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
   const toast = useToast();
-  useJobSocket();
+  const recording = useRecording();
+  useJobSocket(recording.dispatchLiveEvent);
 
   // Keep openRecording in sync with live query data so status changes
   // (e.g. diarizing → ready) are reflected without navigating away.
@@ -177,6 +179,15 @@ export default function App() {
     const live = liveRecordings.find((r) => r.id === openRecording.id);
     if (live && live.status !== openRecording.status) setOpenRecording(live);
   }, [liveRecordings, openRecording]);
+
+  // After a live recording finishes, automatically open the new recording's detail page.
+  useEffect(() => {
+    if (!recording.lastFinishedRecording) return;
+    const rec = recording.lastFinishedRecording;
+    recording.clearLastFinished();
+    setActiveTopic(rec.topic_id);
+    setOpenRecording(rec);
+  }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
   // Check GitHub for a newer release on launch; pop the dialog if found.
   useEffect(() => {
@@ -330,7 +341,17 @@ export default function App() {
           <HardwarePill />
         </div>
         <div className="content">
-          {openRecording ? (
+          {recording.state !== "idle" ? (
+            <LiveRecordingDetail
+              topicName={recording.topicName ?? "Aufnahme"}
+              elapsed={recording.elapsed}
+              state={recording.state}
+              handle={recording.liveHandle}
+              onPause={recording.pause}
+              onResume={recording.resume}
+              onStop={recording.stop}
+            />
+          ) : openRecording ? (
             <RecordingDetail
               recording={openRecording}
               onBack={() => setOpenRecording(null)}

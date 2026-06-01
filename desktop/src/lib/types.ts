@@ -134,3 +134,97 @@ export interface HardwareInfo {
   ffmpeg_available: boolean;
   ffprobe_available: boolean;
 }
+
+export type LiveSessionStatus =
+  | "starting"
+  | "recording"
+  | "paused"
+  | "finalizing"
+  | "completed"
+  | "failed"
+  | "canceled";
+
+export interface LiveSession {
+  id: string;
+  topic_id: number;
+  title: string;
+  status: LiveSessionStatus;
+  sample_rate: number;
+  channels: number;
+  last_sequence_number: number;
+  received_duration_sec: number;
+  transcript_snapshot_json: string | null;
+  speaker_snapshot_json: string | null;
+  last_analyzed_sec: number;
+  finalized_recording_id: number | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LiveWord {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  confidence: number;
+  is_final: boolean;
+  speaker_id: string | null;
+}
+
+export interface LiveTranscriptSnapshot {
+  revision: number;
+  duration_sec: number;
+  words: LiveWord[];
+}
+
+export interface LiveSpeaker {
+  id: string;
+  display_name: string;
+  known_speaker_id: number | null;
+  similarity: number | null;
+  match_status: "none" | "probable" | "confirmed";
+}
+
+export interface LiveSpeakerSnapshot {
+  revision: number;
+  speakers: LiveSpeaker[];
+}
+
+export interface LiveSessionEvent {
+  type: "live_session";
+  session_id: string;
+  status: LiveSessionStatus;
+  received_duration_sec?: number;
+}
+
+export interface LiveTranscriptEvent {
+  type: "live_transcript";
+  session_id: string;
+  snapshot: LiveTranscriptSnapshot;
+}
+
+export interface LiveSpeakersEvent {
+  type: "live_speakers";
+  session_id: string;
+  snapshot: LiveSpeakerSnapshot;
+}
+
+export interface LiveFinalizedEvent {
+  type: "live_finalized";
+  session_id: string;
+  recording_id: number | null;
+}
+
+export interface LiveDegradedEvent {
+  type: "live_degraded";
+  session_id: string;
+  reason: string;
+}
+
+export type LiveEvent =
+  | LiveSessionEvent
+  | LiveTranscriptEvent
+  | LiveSpeakersEvent
+  | LiveFinalizedEvent
+  | LiveDegradedEvent;

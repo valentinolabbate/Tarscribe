@@ -32,6 +32,16 @@ class RecordingStatus(str, Enum):
     failed = "failed"
 
 
+class LiveSessionStatus(str, Enum):
+    starting = "starting"
+    recording = "recording"
+    paused = "paused"
+    finalizing = "finalizing"
+    completed = "completed"
+    failed = "failed"
+    canceled = "canceled"
+
+
 class JobPhase(str, Enum):
     asr = "asr"
     diarization = "diarization"
@@ -195,6 +205,29 @@ class Job(SQLModel, table=True):
     phase: JobPhase
     progress: float = 0.0  # 0..1
     status: JobStatus = JobStatus.pending
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class LiveRecordingSession(SQLModel, table=True):
+    """Tracks a live recording session from microphone capture to finalization."""
+
+    __tablename__ = "live_recording_sessions"
+
+    id: str = Field(primary_key=True)  # UUID hex
+    topic_id: int = Field(foreign_key="topics.id", index=True)
+    title: str
+    status: LiveSessionStatus = LiveSessionStatus.starting
+    pcm_path: Optional[str] = None
+    sample_rate: int = 16000
+    channels: int = 1
+    last_sequence_number: int = -1  # highest confirmed chunk index
+    received_duration_sec: float = 0.0
+    transcript_snapshot_json: Optional[str] = None
+    speaker_snapshot_json: Optional[str] = None
+    last_analyzed_sec: float = 0.0
+    finalized_recording_id: Optional[int] = Field(default=None, foreign_key="recordings.id")
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

@@ -24,3 +24,12 @@ class RecordingCreate(BaseModel):
 class RecordingUpdate(BaseModel):
     title: str | None = None
     topic_id: int | None = None
+
+
+class LiveSessionCreate(BaseModel):
+    topic_id: int
+    title: str = "Live-Aufnahme"
+
+
+class LiveSessionFinish(BaseModel):
+    recording_id: int | None = None

@@ -94,6 +94,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
 
         backend = get_backend(override)
 
+        from .ml.lifecycle import asr_lock
         from .settings_store import load_prefs
 
         language = load_prefs().get("language")  # None => auto-detect
@@ -107,7 +108,9 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 last["t"] = now
                 _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
 
-        result = backend.transcribe(audio_path, language=language, progress=progress)
+        # Acquire the ASR lock so that live-analysis ticks cannot run concurrently.
+        with asr_lock:
+            result = backend.transcribe(audio_path, language=language, progress=progress)
         backend = None  # drop strong ref so the model can be unloaded below
 
         # Persist transcript (replace any previous one — Stage A cache).
@@ -194,9 +197,12 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
                 last["t"] = now
                 _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
 
+        from .ml.lifecycle import diar_lock
+
         backend = DiarizationBackend(hf_token=token, model_id=model_id, device=device)
         params = DiarizationParams(**params_dict)
-        segments = backend.diarize(audio_path, params=params, progress=progress)
+        with diar_lock:
+            segments = backend.diarize(audio_path, params=params, progress=progress)
         backend = None  # drop strong ref to the pyannote pipeline
 
         # Persist as a new active run (Stage B, versioned).

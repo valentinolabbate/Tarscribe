@@ -1202,3 +1202,215 @@ button.utt-time:hover {
   margin-top: 10px;
   font-size: 13px;
 }
+
+/* ── Live Recording Detail ─────────────────────────────────────────────────── */
+.live-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 20px 24px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.live-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.live-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  flex: 1;
+  min-width: 0;
+}
+
+.live-state-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.live-state-badge.paused {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--warn);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+
+.live-detail-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.live-detail-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.live-detail-upload {
+  flex-shrink: 0;
+  font-size: 12px;
+  min-height: 18px;
+}
+
+.live-upload-status {
+  color: var(--text-faint);
+}
+
+.live-upload-status.pending {
+  color: var(--text-dim);
+}
+
+.live-upload-status.error {
+  color: var(--warn);
+}
+
+.live-upload-status.ok {
+  color: var(--ok);
+}
+
+.live-speakers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.live-speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.live-speaker-chip.match-probable {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: var(--accent);
+}
+
+.live-speaker-chip.match-confirmed {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--ok);
+}
+
+.live-match-badge {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.live-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  line-height: 1.65;
+}
+
+.live-transcript-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.live-transcript {
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.live-text-stable {
+  color: var(--text);
+}
+
+.live-text-provisional {
+  color: var(--text-dim);
+  border-bottom: 1px dashed var(--border-strong);
+}
+
+.live-detail-note {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.live-utterance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.live-utterance-speaker {
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+  color: var(--text-faint);
+  min-width: 6em;
+  text-align: right;
+  padding-right: 6px;
+  border-right: 2px solid var(--border);
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.live-utterance-speaker.match-probable {
+  color: var(--accent);
+  border-right-color: var(--accent);
+}
+
+.live-utterance-speaker.match-confirmed {
+  color: var(--ok);
+  border-right-color: var(--ok);
+}
+
+.live-degraded-badge {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--warn);
+  opacity: 0.85;
+  cursor: default;
+}
+.live-degraded-badge::before {
+  content: "⚠ ";
+}

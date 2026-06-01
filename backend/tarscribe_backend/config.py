@@ -59,8 +59,20 @@ class Settings(BaseSettings):
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
 
+    @property
+    def live_pcm_dir(self) -> Path:
+        """Per-session raw PCM files for live recording."""
+        return self.data_dir / "live_pcm"
+
     def _ensure_dirs(self) -> None:
-        for d in (self.data_dir, self.audio_dir, self.models_dir, self.samples_dir, self.logs_dir):
+        for d in (
+            self.data_dir,
+            self.audio_dir,
+            self.models_dir,
+            self.samples_dir,
+            self.logs_dir,
+            self.live_pcm_dir,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
 

@@ -5,6 +5,8 @@ import type {
   JobEvent,
   KnownSpeaker,
   LlmConfig,
+  LiveEvent,
+  LiveSession,
   Recording,
   Summary,
   SummaryEvent,
@@ -277,16 +279,70 @@ export const api = {
     ),
   deleteHfToken: () => request<void>("/api/settings/hf-token", { method: "DELETE" }),
 
+  // Live recording sessions
+  createLiveSession: (topicId: number, title: string) =>
+    request<LiveSession>("/api/live-recordings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic_id: topicId, title }),
+    }),
+  getLiveSession: (sessionId: string) =>
+    request<LiveSession>(`/api/live-recordings/${sessionId}`),
+  pauseLiveSession: (sessionId: string) =>
+    request<{ status: string }>(`/api/live-recordings/${sessionId}/pause`, { method: "POST" }),
+  resumeLiveSession: (sessionId: string) =>
+    request<{ status: string }>(`/api/live-recordings/${sessionId}/resume`, { method: "POST" }),
+  finishLiveSession: (sessionId: string, recordingId: number | null) =>
+    request<{ status: string; recording_id: number | null }>(
+      `/api/live-recordings/${sessionId}/finish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recording_id: recordingId }),
+      },
+    ),
+  cancelLiveSession: (sessionId: string) =>
+    request<void>(`/api/live-recordings/${sessionId}`, { method: "DELETE" }),
+  async uploadPcmChunk(
+    sessionId: string,
+    chunk: ArrayBuffer,
+    sequenceNumber: number,
+    sampleRate = 16000,
+    channels = 1,
+  ): Promise<{ accepted: boolean; last_sequence_number: number; received_duration_sec: number }> {
+    const cfg = await getConfig();
+    const headers = new Headers();
+    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
+    headers.set("Content-Type", "application/octet-stream");
+    headers.set("X-Sequence-Number", String(sequenceNumber));
+    headers.set("X-Sample-Rate", String(sampleRate));
+    headers.set("X-Channels", String(channels));
+    const res = await fetch(`${cfg.base_url}/api/live-recordings/${sessionId}/chunks`, {
+      method: "POST",
+      headers,
+      body: chunk,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail ?? detail; } catch { /* ignore */ }
+      throw new Error(detail);
+    }
+    return res.json();
+  },
+
   /** Open a WebSocket for live job + summary streaming. Returns a cleanup function. */
   async connectJobs(
     onEvent: (e: JobEvent) => void,
     onSummary?: (e: SummaryEvent) => void,
+    onLive?: (e: LiveEvent) => void,
   ): Promise<() => void> {
     const cfg = await getConfig();
     const url = cfg.base_url.replace(/^http/, "ws") + "/ws";
     let ws: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
+
+    const LIVE_TYPES = new Set(["live_session", "live_transcript", "live_speakers", "live_finalized", "live_degraded", "live_error"]);
 
     const connect = () => {
       if (closed) return;
@@ -297,6 +353,7 @@ export const api = {
           const data = JSON.parse(m.data);
           if (data?.type === "job") onEvent(data as JobEvent);
           else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
+          else if (LIVE_TYPES.has(data?.type)) onLive?.(data as LiveEvent);
         } catch {
           /* ignore */
         }

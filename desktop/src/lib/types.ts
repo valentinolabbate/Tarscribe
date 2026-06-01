@@ -30,6 +30,7 @@ export interface Recording {
 export interface AppSettings {
   language: string | null;
   asr_override: string | null;
+  recording_device_id: string;
   diarization_model: string;
   llm: { provider: string; base_url: string; model: string | null };
   hf_token_set: boolean;
@@ -123,6 +124,7 @@ export interface HardwareInfo {
   os: string;
   arch: string;
   is_apple_silicon: boolean;
+  has_mps: boolean;
   has_cuda: boolean;
   cuda_device: string | null;
   vram_gb: number | null;

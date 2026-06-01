@@ -1,3 +1,3 @@
 """Tarscribe backend: local transcription & speaker diarization service."""
 
-__version__ = "0.1.2"
+__version__ = "0.1.4"

@@ -25,6 +25,7 @@ class HfTokenIn(BaseModel):
 class PrefsIn(BaseModel):
     language: str | None = None
     asr_override: str | None = None
+    recording_device_id: str | None = None
     diarization_model: str | None = None
     llm: dict | None = None
 

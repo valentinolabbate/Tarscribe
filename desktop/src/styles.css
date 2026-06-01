@@ -237,6 +237,10 @@ button {
 .btn:active {
   transform: translateY(1px);
 }
+.btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -450,6 +454,11 @@ textarea:focus {
   border-radius: 999px;
   padding: 4px 10px;
 }
+@media (max-width: 1100px) {
+  .hw-pill {
+    display: none;
+  }
+}
 .drop-hint {
   border: 1.5px dashed var(--border-strong);
   border-radius: var(--radius);
@@ -472,6 +481,24 @@ textarea:focus {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 5px 10px;
+}
+.global-recorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 5px 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.global-recorder-topic {
+  max-width: 150px;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rec-pulse {
   width: 10px;

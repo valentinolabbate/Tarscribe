@@ -65,8 +65,10 @@ class DiarizationBackend:
                 )
             try:
                 pipeline.to(torch.device(self.device))
-            except Exception:
+            except Exception as exc:
+                print(f"Diarisierungs-Pipeline: {self.device}-Initialisierung fehlgeschlagen: {exc}")
                 pipeline.to(torch.device("cpu"))
+                self.device = "cpu"
             self._pipeline = pipeline
         return self._pipeline
 
@@ -116,7 +118,7 @@ class DiarizationBackend:
         if hook is not None:
             call_kwargs["hook"] = hook
 
-        output = pipeline(str(audio_path), **call_kwargs)
+        output = pipeline(_load_waveform(audio_path), **call_kwargs)
 
         # Newer pipelines (e.g. community-1) return a DiarizeOutput wrapper; the
         # classic pipelines return an Annotation directly.
@@ -140,3 +142,13 @@ def _make_hook(progress: ProgressCb):
             progress(min(0.98, frac), f"Diarisiere… ({step_name})")
 
     return hook
+
+
+def _load_waveform(audio_path: Path) -> dict:
+    """Load normalized audio once so pyannote does not decode the file repeatedly."""
+    import soundfile as sf
+    import torch
+
+    samples, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=True)
+    waveform = torch.from_numpy(samples.T.copy())
+    return {"waveform": waveform, "sample_rate": sample_rate}

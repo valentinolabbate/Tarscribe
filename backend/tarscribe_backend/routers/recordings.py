@@ -14,7 +14,20 @@ from sqlmodel import Session, select
 from ..audio import AudioError, normalize_to_wav, probe_duration
 from ..config import get_settings
 from ..db import get_session
-from ..models import Recording, RecordingStatus, Topic
+from ..models import (
+    DiarizationRun,
+    Job,
+    JobStatus,
+    ManualEdit,
+    Recording,
+    RecordingStatus,
+    Segment,
+    SpeakerLabel,
+    Summary,
+    Topic,
+    Transcript,
+    Word,
+)
 from ..schemas import RecordingUpdate
 from ..security import require_token
 
@@ -107,9 +120,47 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
     rec = session.get(Recording, recording_id)
     if not rec:
         raise HTTPException(404, "Aufnahme nicht gefunden")
-    Path(rec.audio_path).unlink(missing_ok=True)
+
+    jobs = session.exec(select(Job).where(Job.recording_id == recording_id)).all()
+    if any(job.status in (JobStatus.pending, JobStatus.running) for job in jobs):
+        raise HTTPException(409, "Aufnahme wird noch verarbeitet und kann nicht gelöscht werden.")
+
+    audio_path = Path(rec.audio_path)
+    transcripts = session.exec(
+        select(Transcript).where(Transcript.recording_id == recording_id)
+    ).all()
+    for transcript in transcripts:
+        for word in session.exec(select(Word).where(Word.transcript_id == transcript.id)).all():
+            session.delete(word)
+    session.flush()
+    for transcript in transcripts:
+        session.delete(transcript)
+    session.flush()
+
+    runs = session.exec(
+        select(DiarizationRun).where(DiarizationRun.recording_id == recording_id)
+    ).all()
+    for run in runs:
+        for segment in session.exec(select(Segment).where(Segment.run_id == run.id)).all():
+            session.delete(segment)
+    session.flush()
+    for run in runs:
+        session.delete(run)
+    session.flush()
+
+    for model in (SpeakerLabel, ManualEdit, Summary):
+        for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
+            session.delete(row)
+    for job in jobs:
+        session.delete(job)
+    session.flush()
+
     session.delete(rec)
     session.commit()
+    try:
+        audio_path.unlink(missing_ok=True)
+    except OSError as exc:
+        print(f"Audiodatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
 
 
 @router.get("/{recording_id}/audio")

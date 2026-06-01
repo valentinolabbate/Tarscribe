@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { FirstRunWizard } from "./components/FirstRunWizard";
+import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
 import { SetupScreen } from "./components/SetupScreen";
 import { RecordingDetail } from "./components/RecordingDetail";
 import { RecordingList } from "./components/RecordingList";
@@ -17,6 +18,7 @@ import {
   useUpdateTopic,
 } from "./hooks/queries";
 import { useJobSocket } from "./hooks/useJobs";
+import { useRecording } from "./hooks/useRecording";
 import { api, waitForBackend } from "./lib/api";
 import { invoke, isTauri } from "./lib/tauri";
 import type { Recording, Topic } from "./lib/types";
@@ -53,6 +55,7 @@ function TopicRow({
   const [editing, setEditing] = useState(false);
   const update = useUpdateTopic();
   const del = useDeleteTopic();
+  const recording = useRecording();
 
   if (editing) {
     return (
@@ -84,7 +87,12 @@ function TopicRow({
       <span className="topic-name">{topic.name}</span>
       <button
         className="topic-del"
-        title="Themenbereich löschen"
+        title={
+          recording.topicId === topic.id
+            ? "Während einer laufenden Aufnahme nicht löschbar"
+            : "Themenbereich löschen"
+        }
+        disabled={recording.topicId === topic.id}
         onClick={(e) => {
           e.stopPropagation();
           del.mutate(topic.id);
@@ -102,7 +110,7 @@ function HardwarePill() {
   const dev = hw.has_cuda
     ? `CUDA · ${hw.cuda_device ?? "GPU"}`
     : hw.is_apple_silicon
-      ? "Apple Silicon (MPS)"
+      ? `Apple Silicon · Diarisierung: ${hw.has_mps ? "MPS" : "CPU"}`
       : "CPU";
   return (
     <span className="hw-pill">
@@ -263,6 +271,7 @@ export default function App() {
         <div className="topbar">
           <h1>{current ? current.name : "Tarscribe"}</h1>
           <div className="spacer" />
+          <GlobalRecordingIndicator />
           {current && (
             <button
               className="btn ghost"

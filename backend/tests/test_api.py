@@ -76,3 +76,78 @@ def test_builtin_templates_seeded(client):
     with Session(db.get_engine()) as s:
         rows = s.exec(select(SummaryTemplate)).all()
     assert len(rows) >= 5
+
+
+def test_delete_recording_removes_dependent_rows_even_when_audio_is_missing(client):
+    from pathlib import Path
+
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import (
+        DiarizationRun,
+        Job,
+        JobPhase,
+        JobStatus,
+        ManualEdit,
+        Recording,
+        Segment,
+        SpeakerLabel,
+        Summary,
+        Topic,
+        Transcript,
+        Word,
+    )
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Test")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Defekt", audio_path="/tmp/missing-tarscribe.wav")
+        s.add(rec)
+        s.flush()
+        transcript = Transcript(recording_id=rec.id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Hallo"))
+        run = DiarizationRun(recording_id=rec.id, model="test")
+        s.add(run)
+        s.flush()
+        s.add(Segment(run_id=run.id, start=0, end=1, speaker_label="SPEAKER_00"))
+        s.add(SpeakerLabel(recording_id=rec.id, original_label="SPEAKER_00"))
+        s.add(ManualEdit(recording_id=rec.id, edit_type="rename"))
+        s.add(Summary(recording_id=rec.id, model="test"))
+        s.add(Job(recording_id=rec.id, phase=JobPhase.asr, status=JobStatus.done))
+        s.commit()
+        recording_id = rec.id
+
+    assert not Path("/tmp/missing-tarscribe.wav").exists()
+    r = client.delete(f"/api/recordings/{recording_id}")
+    assert r.status_code == 204
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Recording, recording_id) is None
+        assert not s.exec(select(Job).where(Job.recording_id == recording_id)).all()
+        assert not s.exec(select(Transcript).where(Transcript.recording_id == recording_id)).all()
+        assert not s.exec(select(DiarizationRun).where(DiarizationRun.recording_id == recording_id)).all()
+
+
+def test_delete_recording_rejects_running_job(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Job, JobPhase, JobStatus, Recording, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Test")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Aktiv", audio_path="/tmp/active-tarscribe.wav")
+        s.add(rec)
+        s.flush()
+        s.add(Job(recording_id=rec.id, phase=JobPhase.asr, status=JobStatus.running))
+        s.commit()
+        recording_id = rec.id
+
+    r = client.delete(f"/api/recordings/{recording_id}")
+    assert r.status_code == 409

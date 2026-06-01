@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { ToastProvider, toast } from "./components/Toast";
+import { RecordingProvider } from "./hooks/useRecording";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <App />
+        <RecordingProvider>
+          <App />
+        </RecordingProvider>
       </ToastProvider>
     </QueryClientProvider>
   </React.StrictMode>,

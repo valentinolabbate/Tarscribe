@@ -16,15 +16,25 @@ export class Recorder {
     return this.mr?.mimeType || "audio/webm";
   }
 
-  async start(): Promise<void> {
+  async start(deviceId?: string): Promise<boolean> {
+    let usedFallback = false;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({
+          audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+        });
+      } catch (e) {
+        if (!deviceId || !isMissingDeviceError(e)) throw e;
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        usedFallback = true;
+      }
       this.chunks = [];
       this.mr = new MediaRecorder(this.stream);
       this.mr.ondataavailable = (e) => {
         if (e.data.size) this.chunks.push(e.data);
       };
       this.mr.start(1000); // gather data each second (robust for long recordings)
+      return usedFallback;
     } catch (e) {
       this.cleanup();
       throw e;
@@ -62,6 +72,31 @@ export class Recorder {
 
   dispose(): void {
     this.cleanup();
+  }
+}
+
+function isMissingDeviceError(e: unknown): boolean {
+  return e instanceof DOMException && (e.name === "NotFoundError" || e.name === "OverconstrainedError");
+}
+
+export interface RecordingDevice {
+  deviceId: string;
+  label: string;
+}
+
+export async function listRecordingDevices(requestPermission = false): Promise<RecordingDevice[]> {
+  let stream: MediaStream | null = null;
+  try {
+    if (requestPermission) stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((device) => device.kind === "audioinput")
+      .map((device, index) => ({
+        deviceId: device.deviceId,
+        label: device.label || `Mikrofon ${index + 1}`,
+      }));
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
   }
 }
 

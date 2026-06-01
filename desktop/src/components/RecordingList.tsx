@@ -100,7 +100,7 @@ export function RecordingList({
       ) : hasRecordings ? (
         <div className="rec-list">
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 2 }}>
-            <RecordControl topicId={topic.id} />
+            <RecordControl topicId={topic.id} topicName={topic.name} />
             <button className="btn" onClick={() => fileInput.current?.click()}>
               <UploadIcon /> Hochladen
             </button>
@@ -131,7 +131,7 @@ export function RecordingList({
             Noch keine Aufnahmen in <strong>{topic.name}</strong>.
           </div>
           <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <RecordControl topicId={topic.id} />
+            <RecordControl topicId={topic.id} topicName={topic.name} />
             <button className="btn primary" onClick={() => fileInput.current?.click()}>
               <UploadIcon /> Hochladen
             </button>

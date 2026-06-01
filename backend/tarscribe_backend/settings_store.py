@@ -22,6 +22,7 @@ HF_TOKEN_KEY = "hf_token"
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
     "asr_override": None,  # force an ASR engine, else auto by hardware
+    "recording_device_id": "",  # empty => browser/system default microphone
     "diarization_model": "pyannote/speaker-diarization-community-1",
     "speaker_match_threshold": 0.5,
     "llm": {"provider": "ollama", "base_url": "http://localhost:11434/v1", "model": None},

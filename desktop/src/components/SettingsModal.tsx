@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
+import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
 import { SpeakerIdIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
 import { TemplatesModal } from "./TemplatesModal";
@@ -43,10 +44,20 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
 
   useEffect(() => {
     api.getSettings().then(setSettings);
+    listRecordingDevices().then(setRecordingDevices).catch(() => {});
   }, []);
+
+  async function refreshRecordingDevices() {
+    try {
+      setRecordingDevices(await listRecordingDevices(true));
+    } catch (e) {
+      setStatus({ ok: false, msg: `Mikrofone konnten nicht geladen werden: ${(e as Error).message}` });
+    }
+  }
 
   async function saveToken() {
     if (!token.trim()) return;
@@ -144,6 +155,32 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <KnownSpeakers />
+
+        {settings && (
+          <div className="field">
+            <label>Standard-Mikrofon</label>
+            <select
+              value={settings.recording_device_id}
+              onChange={(e) => {
+                const recording_device_id = e.target.value;
+                setSettings({ ...settings, recording_device_id });
+                api.updateSettings({ recording_device_id });
+              }}
+            >
+              <option value="">Systemstandard</option>
+              {recordingDevices.map((device) => (
+                <option key={device.deviceId} value={device.deviceId}>
+                  {device.label}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <button className="btn" onClick={refreshRecordingDevices}>
+                Geräte aktualisieren
+              </button>
+            </div>
+          </div>
+        )}
 
         {settings && (
           <div className="field">

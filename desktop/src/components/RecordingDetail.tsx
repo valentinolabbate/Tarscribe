@@ -9,7 +9,7 @@ import {
   useTranscript,
   useUpdateRecording,
 } from "../hooks/queries";
-import { useJobFor } from "../hooks/useJobs";
+import { clearJobFor, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
 import { fmtDuration, jobPhaseLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
@@ -125,6 +125,16 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [activeStart, playing]);
+
+  // If the server-side result is already present but the WS "done" event was
+  // missed, the job stays stuck at "pending/0%". Clear it so the UI unblocks.
+  useEffect(() => {
+    if (!job) return;
+    const stuck = job.status === "pending" || job.status === "running";
+    if (!stuck) return;
+    if (job.phase === "asr" && isReady) clearJobFor(recording.id);
+    if (job.phase === "diarization" && diar) clearJobFor(recording.id);
+  }, [isReady, diar, job, recording.id]);
 
   const running = job && (job.status === "running" || job.status === "pending");
   const startingPhase = transcribe.isPending

@@ -39,6 +39,13 @@ export function useSummaryStream(summaryId: number | null): SummaryStream | unde
   return summaryId != null ? map.get(summaryId) : undefined;
 }
 
+export function clearJobFor(recordingId: number) {
+  if (!jobs.has(recordingId)) return;
+  jobs = new Map(jobs);
+  jobs.delete(recordingId);
+  emit();
+}
+
 export function trackPendingJob(recordingId: number, jobId: number, phase: string) {
   if (jobs.get(recordingId)?.job_id === jobId) return;
   jobs = new Map(jobs).set(recordingId, {

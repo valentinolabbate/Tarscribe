@@ -62,8 +62,20 @@ button {
 /* ---- Layout ---- */
 .app {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  /* grid-template-columns is set via inline style in App.tsx */
+  grid-template-columns: 248px 4px 1fr;
   height: 100%;
+}
+
+.resizer {
+  cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  z-index: 10;
+  user-select: none;
+}
+.resizer:hover {
+  background: var(--accent);
 }
 
 .sidebar {
@@ -274,7 +286,6 @@ button {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 820px;
 }
 .rec-card {
   display: flex;
@@ -541,7 +552,7 @@ textarea:focus {
 
 /* ---- Recording detail ---- */
 .detail {
-  max-width: 820px;
+  max-width: 100%;
 }
 .detail-head {
   display: flex;

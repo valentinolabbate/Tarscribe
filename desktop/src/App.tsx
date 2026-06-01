@@ -132,6 +132,30 @@ export default function App() {
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
 
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const v = localStorage.getItem("ts-sidebar-w");
+      return v ? Math.max(160, Math.min(500, Number(v))) : 248;
+    } catch { return 248; }
+  });
+
+  const handleResizerDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    const clamp = (v: number) => Math.max(160, Math.min(500, v));
+    const onMove = (ev: MouseEvent) => setSidebarWidth(clamp(startW + ev.clientX - startX));
+    const onUp = (ev: MouseEvent) => {
+      const w = clamp(startW + ev.clientX - startX);
+      setSidebarWidth(w);
+      try { localStorage.setItem("ts-sidebar-w", String(w)); } catch { /* ignore */ }
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [sidebarWidth]);
+
   const { data: topics } = useTopics();
   const toast = useToast();
   useJobSocket();
@@ -224,7 +248,7 @@ export default function App() {
   const current = topics?.find((t) => t.id === activeTopic);
 
   return (
-    <div className="app">
+    <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}>
       <aside className="sidebar">
         <div className="brand">
           <LogoIcon className="logo" />
@@ -266,6 +290,8 @@ export default function App() {
           <SettingsIcon width={16} height={16} /> Einstellungen
         </button>
       </aside>
+
+      <div className="resizer" onMouseDown={handleResizerDown} />
 
       <main className="main">
         <div className="topbar">

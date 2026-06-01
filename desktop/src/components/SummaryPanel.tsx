@@ -7,6 +7,7 @@ import {
   useDeleteSummary,
   useLlmConfig,
   useSummaries,
+  useSummaryProgress,
   useSummarize,
   useTemplates,
 } from "../hooks/queries";
@@ -30,7 +31,9 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
 
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [activeSummaryId, setActiveSummaryId] = useState<number | null>(null);
+  const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const stream = useSummaryStream(activeSummaryId);
+  const { data: progress } = useSummaryProgress(recordingId, activeSummaryId, activeJobId);
 
   const effectiveTemplate = templateId ?? templates?.[0]?.id ?? null;
   const modelMissing = !llm?.model;
@@ -40,9 +43,18 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
     const res = await summarize.mutateAsync({ id: recordingId, templateId: effectiveTemplate });
     trackSummaryStart(res.summary_id);
     setActiveSummaryId(res.summary_id);
+    setActiveJobId(res.job_id);
   }
 
-  const streaming = stream && !stream.done;
+  const polledText = progress?.summary.content ?? "";
+  const streamedText = stream?.text ?? "";
+  const text = streamedText.length >= polledText.length ? streamedText : polledText;
+  const jobDone =
+    progress?.job?.status === "done" ||
+    progress?.job?.status === "failed" ||
+    progress?.job?.status === "canceled";
+  const streaming = activeSummaryId != null && !stream?.done && !jobDone;
+  const streamError = stream?.error ?? (progress?.job?.status === "failed" ? progress.job.error : null);
 
   return (
     <div className="summary-panel">
@@ -80,15 +92,15 @@ export function SummaryPanel({ recordingId }: { recordingId: number }) {
           Zusammenfassung wird gestartet…
         </div>
       )}
-      {stream && (
+      {activeSummaryId != null && (
         <div className="summary-card">
-          {stream.error ? (
-            <div style={{ color: "var(--danger)" }}>{stream.error}</div>
+          {streamError ? (
+            <div style={{ color: "var(--danger)" }}>{streamError}</div>
           ) : (
             <div className="summary-text markdown">
-              {!stream.text && !stream.done && <span className="rec-sub">Zusammenfassung wird erstellt… </span>}
-              <Markdown>{stream.text}</Markdown>
-              {!stream.done && <span className="caret">▋</span>}
+              {!text && streaming && <span className="rec-sub">Zusammenfassung wird erstellt… </span>}
+              <Markdown>{text}</Markdown>
+              {streaming && <span className="caret">▋</span>}
             </div>
           )}
         </div>

@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { AudioPlayer, type PlayerHandle } from "./AudioPlayer";
 import {
-  useActiveJob,
   useDiarization,
   useDiarize,
   useEnrollSpeaker,
   useSpeakerEdits,
+  useLatestJob,
   useTranscribe,
   useTranscript,
   useUpdateRecording,
 } from "../hooks/queries";
-import { clearJobFor, useJobFor } from "../hooks/useJobs";
+import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
 import { fmtDuration, jobPhaseLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
@@ -132,23 +132,12 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
     }
   }, [activeStart, playing]);
 
-  // If the server-side result is already present but the WS "done" event was
-  // missed, the job stays stuck at "pending/0%". Clear it so the UI unblocks.
-  useEffect(() => {
-    if (!job) return;
-    const stuck = job.status === "pending" || job.status === "running";
-    if (!stuck) return;
-    if (job.phase === "asr" && isFullyReady) clearJobFor(recording.id);
-    if (job.phase === "diarization" && diar) clearJobFor(recording.id);
-  }, [isFullyReady, diar, job, recording.id]);
-
-  // Use recording.status as fallback when WS job event hasn't arrived yet
-  const running = !!(job && (job.status === "running" || job.status === "pending")) || statusRunning;
-
-  // Poll the backend every 1.5 s as a fallback when WS events are missed.
-  const { data: polledJob } = useActiveJob(recording.id, running);
-  // Prefer live WS store data (updated immediately), fall back to polled data.
-  const activeJob = job ?? polledJob ?? null;
+  const localRunning = job?.status === "running" || job?.status === "pending";
+  // Poll alongside WebSocket updates so missed events cannot freeze the UI at 0%.
+  const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning);
+  const activeJob = preferJobEvent(job, polledJob);
+  const running =
+    activeJob?.status === "running" || activeJob?.status === "pending" || statusRunning;
 
   const startingPhase = transcribe.isPending
     ? "Starte Transkription"

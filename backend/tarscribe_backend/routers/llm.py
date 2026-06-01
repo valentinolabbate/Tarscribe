@@ -82,6 +82,14 @@ def list_summaries(recording_id: int, session: Session = Depends(get_session)) -
     )
 
 
+@router.get("/api/summaries/{summary_id}")
+def get_summary(summary_id: int, session: Session = Depends(get_session)) -> Summary:
+    summary = session.get(Summary, summary_id)
+    if not summary:
+        raise HTTPException(404, "Zusammenfassung nicht gefunden")
+    return summary
+
+
 @router.delete("/api/summaries/{summary_id}", status_code=204)
 def delete_summary(summary_id: int, session: Session = Depends(get_session)) -> None:
     summ = session.get(Summary, summary_id)

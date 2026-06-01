@@ -39,6 +39,19 @@ export function useSummaryStream(summaryId: number | null): SummaryStream | unde
   return summaryId != null ? map.get(summaryId) : undefined;
 }
 
+export function preferJobEvent(
+  live: JobEvent | undefined,
+  polled: JobEvent | null | undefined,
+): JobEvent | undefined {
+  if (!live) return polled ?? undefined;
+  if (!polled) return live;
+  if (live.job_id !== polled.job_id) return live.job_id > polled.job_id ? live : polled;
+  const terminal = (job: JobEvent) => job.status === "done" || job.status === "failed" || job.status === "canceled";
+  if (terminal(polled) && !terminal(live)) return polled;
+  if (terminal(live) && !terminal(polled)) return live;
+  return polled.progress > live.progress ? polled : live;
+}
+
 export function clearJobFor(recordingId: number) {
   if (!jobs.has(recordingId)) return;
   jobs = new Map(jobs);

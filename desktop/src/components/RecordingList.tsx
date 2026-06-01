@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { useDeleteRecording, useRecordings, useUploadRecording } from "../hooks/queries";
-import { useJobFor } from "../hooks/useJobs";
+import { useDeleteRecording, useLatestJob, useRecordings, useUploadRecording } from "../hooks/queries";
+import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
 import { RecordControl } from "./RecordControl";
@@ -15,8 +15,11 @@ function RecordingRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
-  const job = useJobFor(r.id);
-  const statusRunning = r.status === "transcribing" || r.status === "diarizing";
+  const liveJob = useJobFor(r.id);
+  const localRunning = liveJob?.status === "running" || liveJob?.status === "pending";
+  const statusRunning = r.status === "queued" || r.status === "transcribing" || r.status === "diarizing";
+  const { data: polledJob } = useLatestJob(r.id, localRunning || statusRunning);
+  const job = preferJobEvent(liveJob, polledJob);
   const running = !!(job && (job.status === "running" || job.status === "pending")) || statusRunning;
   const pct = Math.round((job?.progress ?? 0) * 100);
   const phaseLabel = job

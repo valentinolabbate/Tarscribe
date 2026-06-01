@@ -151,3 +151,65 @@ def test_delete_recording_rejects_running_job(client):
 
     r = client.delete(f"/api/recordings/{recording_id}")
     assert r.status_code == 409
+
+
+def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client, monkeypatch):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.llm as llm
+    from tarscribe_backend.models import (
+        Job,
+        JobPhase,
+        JobStatus,
+        Recording,
+        Summary,
+        SummaryTemplate,
+        Topic,
+        Transcript,
+        Word,
+    )
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Test")
+        s.add(topic)
+        s.flush()
+        recording = Recording(topic_id=topic.id, title="Stream", audio_path="/tmp/stream.wav")
+        s.add(recording)
+        s.flush()
+        transcript = Transcript(recording_id=recording.id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Hallo"))
+        template = SummaryTemplate(name="Test", user_prompt_template="{{transcript}}")
+        s.add(template)
+        s.flush()
+        summary = Summary(recording_id=recording.id, template_id=template.id, model="")
+        s.add(summary)
+        job = Job(recording_id=recording.id, phase=JobPhase.summarize, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        recording_id = recording.id
+        template_id = template.id
+        summary_id = summary.id
+        job_id = job.id
+
+    events = []
+    monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
+    monkeypatch.setattr(llm, "stream_chat", lambda *args, **kwargs: iter(("Hallo", " Welt")))
+    monkeypatch.setattr(jobs.hub, "broadcast", events.append)
+
+    jobs._run_summary(recording_id, job_id, template_id, summary_id)
+
+    r = client.get(f"/api/summaries/{summary_id}")
+    assert r.status_code == 200
+    assert r.json()["content"] == "Hallo Welt"
+    job_payload = client.get(f"/api/recordings/{recording_id}/jobs").json()[0]
+    assert job_payload["job_id"] == job_id
+    assert "id" not in job_payload
+    assert any(event.get("type") == "summary" and event.get("delta") == "Hallo" for event in events)
+    assert any(event.get("type") == "summary" and event.get("done") is True for event in events)
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Job, job_id).status == JobStatus.done

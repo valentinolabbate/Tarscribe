@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
 import { trackPendingJob } from "./useJobs";
@@ -55,6 +56,10 @@ export function useRecordings(topicId?: number) {
     queryKey: ["recordings", topicId],
     queryFn: () => api.listRecordings(topicId),
     enabled: topicId != null,
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.status === "queued" || r.status === "transcribing" || r.status === "diarizing")
+        ? 1500
+        : false,
   });
 }
 
@@ -83,6 +88,7 @@ export function useTranscribe() {
     onSuccess: (data, vars) => {
       trackPendingJob(vars.id, data.job_id, "asr");
       qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["latest-job", vars.id] });
     },
   });
 }
@@ -96,15 +102,21 @@ export function useTranscript(recordingId: number, enabled: boolean) {
   });
 }
 
-/** Poll the latest active job every 1.5 s — fallback when WS events are missed. */
-export function useActiveJob(recordingId: number, enabled: boolean) {
+/** Poll the latest job as a fallback when WS events are missed. */
+export function useLatestJob(recordingId: number, shouldPoll: boolean) {
+  const [enabled, setEnabled] = useState(shouldPoll);
+  useEffect(() => {
+    if (shouldPoll) setEnabled(true);
+  }, [shouldPoll]);
   return useQuery({
-    queryKey: ["active-job", recordingId],
+    queryKey: ["latest-job", recordingId],
     queryFn: () => api.getJobs(recordingId),
     enabled,
-    refetchInterval: enabled ? 1500 : false,
-    select: (jobs) =>
-      jobs.find((j) => j.status === "running" || j.status === "pending") ?? null,
+    refetchInterval: (query) => {
+      const status = query.state.data?.[0]?.status;
+      return status === "done" || status === "failed" || status === "canceled" ? false : 1000;
+    },
+    select: (jobs) => jobs[0] ?? null,
   });
 }
 
@@ -116,6 +128,7 @@ export function useDiarize() {
     onSuccess: (data, vars) => {
       trackPendingJob(vars.id, data.job_id, "diarization");
       qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["latest-job", vars.id] });
     },
   });
 }
@@ -138,6 +151,24 @@ export function useSummaries(recordingId: number, enabled: boolean) {
     queryKey: ["summaries", recordingId],
     queryFn: () => api.listSummaries(recordingId),
     enabled,
+  });
+}
+
+export function useSummaryProgress(recordingId: number, summaryId: number | null, jobId: number | null) {
+  return useQuery({
+    queryKey: ["summary-progress", summaryId, jobId],
+    queryFn: async () => {
+      const [summary, jobs] = await Promise.all([
+        api.getSummary(summaryId!),
+        api.getJobs(recordingId),
+      ]);
+      return { summary, job: jobs.find((job) => job.job_id === jobId) ?? null };
+    },
+    enabled: summaryId != null && jobId != null,
+    refetchInterval: (query) => {
+      const status = query.state.data?.job?.status;
+      return status === "done" || status === "failed" || status === "canceled" ? false : 500;
+    },
   });
 }
 

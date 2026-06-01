@@ -236,6 +236,7 @@ export const api = {
     ),
   listSummaries: (recordingId: number) =>
     request<Summary[]>(`/api/recordings/${recordingId}/summaries`),
+  getSummary: (id: number) => request<Summary>(`/api/summaries/${id}`),
   deleteSummary: (id: number) => request<void>(`/api/summaries/${id}`, { method: "DELETE" }),
   async downloadExport(id: number, format: string, title: string): Promise<void> {
     const cfg = await getConfig();
@@ -283,21 +284,37 @@ export const api = {
   ): Promise<() => void> {
     const cfg = await getConfig();
     const url = cfg.base_url.replace(/^http/, "ws") + "/ws";
-    const ws = new WebSocket(url);
-    ws.onmessage = (m) => {
-      try {
-        const data = JSON.parse(m.data);
-        if (data?.type === "job") onEvent(data as JobEvent);
-        else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
-      } catch {
-        /* ignore */
-      }
+    let ws: WebSocket | null = null;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      const socket = new WebSocket(url);
+      ws = socket;
+      socket.onmessage = (m) => {
+        try {
+          const data = JSON.parse(m.data);
+          if (data?.type === "job") onEvent(data as JobEvent);
+          else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
+        } catch {
+          /* ignore */
+        }
+      };
+      socket.onclose = () => {
+        if (ws === socket) ws = null;
+        if (!closed) reconnect = setTimeout(connect, 1000);
+      };
+      socket.onerror = () => socket.close();
     };
+    connect();
     // Keep-alive ping so the server's receive loop stays happy.
-    const ping = setInterval(() => ws.readyState === ws.OPEN && ws.send("ping"), 20000);
+    const ping = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send("ping"), 20000);
     return () => {
+      closed = true;
       clearInterval(ping);
-      ws.close();
+      clearTimeout(reconnect);
+      ws?.close();
     };
   },
   async downloadAudio(id: number, title: string): Promise<void> {

@@ -111,7 +111,7 @@ export interface DiarizationData {
 }
 
 export interface JobEvent {
-  type: "job";
+  type?: "job";
   job_id: number;
   recording_id: number;
   phase: string;

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..jobs import enqueue_asr
+from ..jobs import enqueue_asr, serialize_job
 from ..models import Job, Recording, Transcript, Word
 from ..security import require_token
 
@@ -47,11 +47,10 @@ def get_transcript(recording_id: int, session: Session = Depends(get_session)) -
 
 
 @router.get("/{recording_id}/jobs", dependencies=[Depends(require_token)])
-def list_jobs(recording_id: int, session: Session = Depends(get_session)) -> list[Job]:
-    return list(
-        session.exec(
-            select(Job)
-            .where(Job.recording_id == recording_id)
-            .order_by(Job.created_at.desc())
-        ).all()
-    )
+def list_jobs(recording_id: int, session: Session = Depends(get_session)) -> list[dict]:
+    jobs = session.exec(
+        select(Job)
+        .where(Job.recording_id == recording_id)
+        .order_by(Job.created_at.desc())
+    ).all()
+    return [serialize_job(job) for job in jobs]

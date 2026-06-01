@@ -23,6 +23,7 @@ from .models import (
     Recording,
     RecordingStatus,
     Segment,
+    Summary,
     Transcript,
     Word,
 )
@@ -30,6 +31,19 @@ from .ws import hub
 
 # Heavy models are not thread-safe and saturate the device; serialize to 1 worker.
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-job")
+
+
+def serialize_job(job: Job) -> dict:
+    """Return the shared REST/WS job event shape."""
+    return {
+        "type": "job",
+        "job_id": job.id,
+        "recording_id": job.recording_id,
+        "phase": job.phase.value if isinstance(job.phase, JobPhase) else job.phase,
+        "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
+        "progress": job.progress,
+        "error": job.error,
+    }
 
 
 def _update_job(job_id: int, **fields) -> dict:
@@ -42,15 +56,7 @@ def _update_job(job_id: int, **fields) -> dict:
             setattr(job, k, v)
         s.add(job)
         s.flush()
-        payload = {
-            "type": "job",
-            "job_id": job.id,
-            "recording_id": job.recording_id,
-            "phase": job.phase.value if isinstance(job.phase, JobPhase) else job.phase,
-            "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
-            "progress": job.progress,
-            "error": job.error,
-        }
+        payload = serialize_job(job)
     hub.broadcast(payload)
     return payload
 
@@ -61,6 +67,16 @@ def _set_recording_status(recording_id: int, status: RecordingStatus) -> None:
         if rec:
             rec.status = status
             s.add(rec)
+
+
+def _save_summary_content(summary_id: int, content: str, model: str) -> None:
+    """Persist partial LLM output so clients can recover missed WS deltas."""
+    with session_scope() as s:
+        summary = s.get(Summary, summary_id)
+        if summary:
+            summary.content = content
+            summary.model = model
+            s.add(summary)
 
 
 def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
@@ -274,8 +290,11 @@ def _assemble_transcript(session, recording_id: int) -> tuple[str, list[str]]:
 
 def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: int) -> None:
     from . import llm as L
-    from .models import Summary, SummaryTemplate, Topic
+    from .models import SummaryTemplate, Topic
 
+    acc = ""
+    model = ""
+    last_save = 0.0
     try:
         _update_job(job_id, status=JobStatus.running, progress=0.05)
         cfg = L.get_llm_config()
@@ -321,25 +340,25 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         ]
 
         _update_job(job_id, progress=0.6)
-        acc = ""
         for delta in L.stream_chat(messages, model, base):
             acc += delta
+            now = time.monotonic()
+            if now - last_save >= 0.25:
+                _save_summary_content(summary_id, acc, model)
+                last_save = now
             hub.broadcast(
                 {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": delta, "done": False}
             )
 
-        with session_scope() as s:
-            summ = s.get(Summary, summary_id)
-            if summ:
-                summ.content = acc
-                summ.model = model
-                s.add(summ)
+        _save_summary_content(summary_id, acc, model)
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
+        if acc:
+            _save_summary_content(summary_id, acc, model)
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True, "error": str(exc)}

@@ -634,7 +634,7 @@ textarea:focus {
 }
 .settings-nav-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 .settings-nav-btn svg {
   flex-shrink: 0;
@@ -952,7 +952,7 @@ textarea:focus {
 }
 .seg-btn.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
 }
 
 /* Speaker legend */
@@ -1195,7 +1195,7 @@ textarea:focus {
   border-radius: 50%;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   display: grid;
   place-items: center;
   transition: background 0.12s, transform 0.06s;
@@ -1564,8 +1564,8 @@ button.utt-time:hover {
 }
 
 .live-speaker-chip.match-probable {
-  background: rgba(99, 102, 241, 0.1);
-  border-color: rgba(99, 102, 241, 0.3);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--accent);
 }
 

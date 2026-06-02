@@ -716,6 +716,7 @@ dependencies = [
 name = "desktop"
 version = "0.1.11"
 dependencies = [
+ "cc",
  "serde",
  "serde_json",
  "tauri",

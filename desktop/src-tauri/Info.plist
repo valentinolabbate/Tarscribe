@@ -4,5 +4,7 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>Tarscribe benötigt Zugriff auf das Mikrofon, um Aufnahmen direkt in der App zu erstellen.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Tarscribe benötigt Zugriff auf das Systemaudio, um Besprechungen und Vorlesungen direkt in der App aufzuzeichnen.</string>
 </dict>
 </plist>

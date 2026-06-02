@@ -132,6 +132,20 @@ export const api = {
     form.set("file", file);
     return request<Recording>("/api/recordings", { method: "POST", body: form });
   },
+  importLocalRecording: (topicId: number, path: string, title?: string) =>
+    request<Recording>("/api/recordings/import-local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic_id: topicId, path, title }),
+    }),
+  importMixedLocalRecording: (topicId: number, path: string, microphone: Blob, title?: string) => {
+    const form = new FormData();
+    form.set("topic_id", String(topicId));
+    form.set("path", path);
+    if (title) form.set("title", title);
+    form.set("microphone", microphone, "microphone.webm");
+    return request<Recording>("/api/recordings/import-local-mixed", { method: "POST", body: form });
+  },
   updateRecording: (id: number, patch: { title?: string; topic_id?: number }) =>
     request<Recording>(`/api/recordings/${id}`, {
       method: "PATCH",

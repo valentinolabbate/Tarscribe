@@ -64,6 +64,11 @@ class Settings(BaseSettings):
         """Per-session raw PCM files for live recording."""
         return self.data_dir / "live_pcm"
 
+    @property
+    def native_recordings_dir(self) -> Path:
+        """Temporary CAF files produced by the native macOS recorder."""
+        return self.data_dir / "native-recordings"
+
     def _ensure_dirs(self) -> None:
         for d in (
             self.data_dir,
@@ -72,6 +77,7 @@ class Settings(BaseSettings):
             self.samples_dir,
             self.logs_dir,
             self.live_pcm_dir,
+            self.native_recordings_dir,
         ):
             d.mkdir(parents=True, exist_ok=True)
 

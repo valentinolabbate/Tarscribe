@@ -23,6 +23,7 @@ LLM_API_KEY_KEY = "llm_api_key"
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
     "asr_override": None,  # force an ASR engine, else auto by hardware
+    "recording_source": "microphone",  # future: system audio, optionally mixed with microphone
     "recording_device_id": "",  # empty => browser/system default microphone
     "diarization_model": "pyannote/speaker-diarization-community-1",
     "speaker_match_threshold": 0.5,

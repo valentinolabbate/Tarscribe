@@ -27,9 +27,12 @@ export interface Recording {
   created_at: string;
 }
 
+export type RecordingSource = "microphone" | "system_audio" | "system_audio_and_microphone";
+
 export interface AppSettings {
   language: string | null;
   asr_override: string | null;
+  recording_source: RecordingSource;
   recording_device_id: string;
   diarization_model: string;
   speaker_match_threshold: number;

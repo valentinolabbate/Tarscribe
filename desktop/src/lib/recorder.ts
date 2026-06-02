@@ -2,6 +2,7 @@
 // to the backend, which normalizes any container/codec to 16 kHz mono wav.
 
 export class Recorder {
+  readonly kind = "browser";
   private mr: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private stream: MediaStream | null = null;

@@ -78,6 +78,68 @@ def test_builtin_templates_seeded(client):
     assert len(rows) >= 5
 
 
+def test_import_local_recording_accepts_native_capture_file(client, monkeypatch):
+    from pathlib import Path
+
+    import tarscribe_backend.routers.recordings as recordings
+    topic = client.post("/api/topics", json={"name": "Native"}).json()
+    source = recordings.get_settings().native_recordings_dir / "capture.caf"
+    source.write_bytes(b"caf")
+
+    def fake_normalize(src: Path, dst: Path) -> None:
+        dst.write_bytes(src.read_bytes())
+
+    monkeypatch.setattr(recordings, "normalize_to_wav", fake_normalize)
+    monkeypatch.setattr(recordings, "probe_duration", lambda _path: 3.5)
+
+    r = client.post(
+        "/api/recordings/import-local",
+        json={"topic_id": topic["id"], "title": "Systemaudio", "path": str(source)},
+    )
+    assert r.status_code == 201
+    assert r.json()["title"] == "Systemaudio"
+    assert r.json()["duration_sec"] == 3.5
+    assert not source.exists()
+
+
+def test_import_local_recording_rejects_files_outside_native_capture_dir(client, tmp_path):
+    topic = client.post("/api/topics", json={"name": "Native"}).json()
+    source = tmp_path / "outside.caf"
+    source.write_bytes(b"caf")
+
+    r = client.post(
+        "/api/recordings/import-local",
+        json={"topic_id": topic["id"], "path": str(source)},
+    )
+    assert r.status_code == 403
+
+
+def test_import_local_mixed_recording_combines_system_audio_and_microphone(client, monkeypatch):
+    from pathlib import Path
+
+    import tarscribe_backend.routers.recordings as recordings
+
+    topic = client.post("/api/topics", json={"name": "Native"}).json()
+    source = recordings.get_settings().native_recordings_dir / "capture.caf"
+    source.write_bytes(b"system")
+
+    def fake_mix(system_audio: Path, microphone_audio: Path, dst: Path) -> None:
+        dst.write_bytes(system_audio.read_bytes() + b"+" + microphone_audio.read_bytes())
+
+    monkeypatch.setattr(recordings, "mix_to_wav", fake_mix)
+    monkeypatch.setattr(recordings, "probe_duration", lambda _path: 4.0)
+
+    r = client.post(
+        "/api/recordings/import-local-mixed",
+        data={"topic_id": topic["id"], "title": "Gemischt", "path": str(source)},
+        files={"microphone": ("microphone.webm", b"microphone", "audio/webm")},
+    )
+    assert r.status_code == 201
+    assert r.json()["title"] == "Gemischt"
+    assert r.json()["duration_sec"] == 4.0
+    assert not source.exists()
+
+
 def test_delete_recording_removes_dependent_rows_even_when_audio_is_missing(client):
     from pathlib import Path
 

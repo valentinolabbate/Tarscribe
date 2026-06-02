@@ -10,10 +10,62 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
     this._chunkSamples = (options.processorOptions && options.processorOptions.chunkSamples) || 32000;
     this._buf = [];
     this._active = true;
+    // System-audio samples fed from the main thread (already at this context's
+    // sample rate). Kept as a queue of segments with a read offset; the
+    // microphone input drives the clock and these are summed in 1:1.
+    this._sysSegments = [];
+    this._sysOffset = 0;
+    this._sysLength = 0;
+    this._maxSysQueue = sampleRate; // cap the queue at ~1 s to bound latency
     this.port.onmessage = (e) => {
-      if (e.data === 'pause') this._active = false;
-      else if (e.data === 'resume') this._active = true;
+      const data = e.data;
+      if (data === 'pause') {
+        this._active = false;
+        this._clearSystem();
+      } else if (data === 'resume') {
+        this._active = true;
+      } else if (data && data.type === 'system') {
+        this._pushSystem(data.samples);
+      }
     };
+  }
+
+  _clearSystem() {
+    this._sysSegments = [];
+    this._sysOffset = 0;
+    this._sysLength = 0;
+  }
+
+  _pushSystem(samples) {
+    if (!samples || samples.length === 0) return;
+    this._sysSegments.push(samples);
+    this._sysLength += samples.length;
+    // Drop the oldest samples if the consumer (microphone clock) falls behind.
+    while (this._sysLength > this._maxSysQueue && this._sysSegments.length > 0) {
+      const head = this._sysSegments[0];
+      const available = head.length - this._sysOffset;
+      const overflow = this._sysLength - this._maxSysQueue;
+      if (overflow >= available) {
+        this._sysSegments.shift();
+        this._sysOffset = 0;
+        this._sysLength -= available;
+      } else {
+        this._sysOffset += overflow;
+        this._sysLength -= overflow;
+      }
+    }
+  }
+
+  _nextSystem() {
+    if (this._sysLength === 0) return 0;
+    const head = this._sysSegments[0];
+    const value = head[this._sysOffset++];
+    this._sysLength--;
+    if (this._sysOffset >= head.length) {
+      this._sysSegments.shift();
+      this._sysOffset = 0;
+    }
+    return value;
   }
 
   process(inputs) {
@@ -22,7 +74,7 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
     if (!this._active) return true;
 
     for (let i = 0; i < ch.length; i++) {
-      const s = ch[i];
+      const s = ch[i] + this._nextSystem();
       this._buf.push(Math.max(-1, Math.min(1, s)));
     }
 
@@ -40,11 +92,26 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 registerProcessor('pcm-capture', PcmCaptureProcessor);
 `;
 
+export interface SystemAudioSource {
+  /** Drain system-audio samples buffered since the last poll (mono float). */
+  poll: () => Promise<Float32Array>;
+  /** Sample rate of the polled samples. */
+  sampleRate: () => Promise<number>;
+  /** How often to poll the native buffer (default 200 ms). */
+  pollIntervalMs?: number;
+}
+
 export interface PcmCaptureOptions {
   stream: MediaStream;
   sampleRate?: number;
   chunkDurationSec?: number;
   onChunk: (chunk: ArrayBuffer, sequenceNumber: number) => void;
+  /**
+   * Optional second source (e.g. native system audio) mixed into the same PCM
+   * stream as ``stream``. The microphone drives the clock; system samples are
+   * summed in as they arrive so the live preview reflects every source.
+   */
+  systemAudio?: SystemAudioSource;
 }
 
 export class LivePcmCapture {
@@ -54,11 +121,18 @@ export class LivePcmCapture {
   private gainNode: GainNode | null = null;
   private sequenceNumber = 0;
   private started = false;
+  private targetSampleRate = 16000;
+  private systemTimer: ReturnType<typeof setInterval> | null = null;
+  private systemPolling = false;
+  private systemPaused = false;
+  private systemNativeRate = 0;
+  private systemRemainder = new Float32Array(0);
 
   async start(opts: PcmCaptureOptions): Promise<void> {
     const sampleRate = opts.sampleRate ?? 16000;
     const chunkDurationSec = opts.chunkDurationSec ?? 2;
     const chunkSamples = Math.round(sampleRate * chunkDurationSec);
+    this.targetSampleRate = sampleRate;
 
     this.audioCtx = new AudioContext({ sampleRate });
 
@@ -93,17 +167,93 @@ export class LivePcmCapture {
     this.gainNode.connect(this.audioCtx.destination);
 
     this.started = true;
+
+    if (opts.systemAudio) {
+      this.startSystemAudio(opts.systemAudio);
+    }
+  }
+
+  private startSystemAudio(source: SystemAudioSource): void {
+    const intervalMs = source.pollIntervalMs ?? 200;
+    this.systemTimer = setInterval(() => {
+      if (this.systemPaused || this.systemPolling || !this.workletNode) return;
+      this.systemPolling = true;
+      void (async () => {
+        try {
+          if (!(this.systemNativeRate > 0)) {
+            this.systemNativeRate = await source.sampleRate();
+            if (!(this.systemNativeRate > 0)) return;
+          }
+          const samples = await source.poll();
+          if (samples.length === 0 || !this.workletNode) return;
+          const resampled = this.resampleSystem(samples);
+          if (resampled.length === 0) return;
+          this.workletNode.port.postMessage(
+            { type: "system", samples: resampled },
+            [resampled.buffer],
+          );
+        } catch (e) {
+          console.warn("[live] system-audio poll failed:", e);
+        } finally {
+          this.systemPolling = false;
+        }
+      })();
+    }, intervalMs);
+  }
+
+  /**
+   * Resample native system-audio samples to the capture rate via linear
+   * interpolation, carrying the unconsumed tail across polls so no audio is
+   * dropped at chunk boundaries.
+   */
+  private resampleSystem(samples: Float32Array): Float32Array {
+    let input = samples;
+    if (this.systemRemainder.length > 0) {
+      input = new Float32Array(this.systemRemainder.length + samples.length);
+      input.set(this.systemRemainder, 0);
+      input.set(samples, this.systemRemainder.length);
+    }
+
+    const ratio = this.systemNativeRate / this.targetSampleRate;
+    if (ratio <= 0) return new Float32Array(0);
+    if (ratio === 1) {
+      this.systemRemainder = new Float32Array(0);
+      return input;
+    }
+
+    const outLength = Math.floor((input.length - 1) / ratio);
+    if (outLength <= 0) {
+      this.systemRemainder = input;
+      return new Float32Array(0);
+    }
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const pos = i * ratio;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      out[i] = input[idx] + (input[idx + 1] - input[idx]) * frac;
+    }
+    const consumed = Math.floor(outLength * ratio);
+    this.systemRemainder = input.slice(consumed);
+    return out;
   }
 
   pause(): void {
+    this.systemPaused = true;
+    this.systemRemainder = new Float32Array(0);
     this.workletNode?.port.postMessage("pause");
   }
 
   resume(): void {
+    this.systemPaused = false;
     this.workletNode?.port.postMessage("resume");
   }
 
   stop(): void {
+    if (this.systemTimer !== null) {
+      clearInterval(this.systemTimer);
+      this.systemTimer = null;
+    }
     try {
       this.source?.disconnect();
       this.workletNode?.disconnect();
@@ -118,6 +268,10 @@ export class LivePcmCapture {
     this.gainNode = null;
     this.started = false;
     this.sequenceNumber = 0;
+    this.systemPaused = false;
+    this.systemPolling = false;
+    this.systemNativeRate = 0;
+    this.systemRemainder = new Float32Array(0);
   }
 
   get isStarted(): boolean {

@@ -1,5 +1,6 @@
 mod menu;
 mod sidecar;
+mod system_audio;
 
 use menu::TrayState;
 use sidecar::BackendState;
@@ -45,6 +46,14 @@ pub fn run() {
             sidecar::is_backend_ready,
             sidecar::setup_environment,
             menu::set_update_badge,
+            system_audio::system_audio_capability,
+            system_audio::start_system_audio_recording,
+            system_audio::pause_system_audio_recording,
+            system_audio::resume_system_audio_recording,
+            system_audio::stop_system_audio_recording,
+            system_audio::cancel_system_audio_recording,
+            system_audio::system_audio_sample_rate,
+            system_audio::poll_system_audio_pcm,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -71,6 +80,7 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             if let RunEvent::Exit = event {
+                system_audio::stop_if_recording();
                 sidecar::stop(app_handle);
             }
         });

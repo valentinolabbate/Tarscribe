@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
 import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
+import { getSystemAudioCapability, type SystemAudioCapability } from "../lib/tauri";
 import { SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
 import { TemplatesModal } from "./TemplatesModal";
@@ -45,11 +46,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
+  const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
   const [tab, setTab] = useState<"general" | "summaries" | "speakers">("general");
 
   useEffect(() => {
     api.getSettings().then(setSettings);
     listRecordingDevices().then(setRecordingDevices).catch(() => {});
+    getSystemAudioCapability().then(setSystemAudioCapability).catch(() => {});
   }, []);
 
   async function refreshRecordingDevices() {
@@ -127,6 +130,31 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {/* ── Allgemein ───────────────────────────────────────────────── */}
             {tab === "general" && settings && (
               <>
+                <div className="field">
+                  <label>Aufnahmequelle</label>
+                  <select
+                    value={settings.recording_source}
+                    onChange={(e) => {
+                      const recording_source = e.target.value as AppSettings["recording_source"];
+                      setSettings({ ...settings, recording_source });
+                      api.updateSettings({ recording_source });
+                    }}
+                  >
+                    <option value="microphone">Nur Mikrofon</option>
+                    <option value="system_audio" disabled={!systemAudioCapability?.supported}>
+                      Nur Systemaudio
+                    </option>
+                    <option value="system_audio_and_microphone" disabled={!systemAudioCapability?.supported}>
+                      Systemaudio + Mikrofon
+                    </option>
+                  </select>
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    {systemAudioCapability?.supported
+                      ? `macOS ${systemAudioCapability.current_macos_version}: Systemaudio kann ohne zusätzlich installierte Programme aufgenommen werden.`
+                      : systemAudioCapability?.reason ?? "Prüfe native Systemaudio-Unterstützung…"}
+                  </div>
+                </div>
+
                 <div className="field">
                   <label>Standard-Mikrofon</label>
                   <select

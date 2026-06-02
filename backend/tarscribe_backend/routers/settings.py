@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from typing import Literal
 
 from ..security import require_token
 from ..settings_store import (
@@ -25,6 +26,7 @@ class HfTokenIn(BaseModel):
 class PrefsIn(BaseModel):
     language: str | None = None
     asr_override: str | None = None
+    recording_source: Literal["microphone", "system_audio", "system_audio_and_microphone"] | None = None
     recording_device_id: str | None = None
     diarization_model: str | None = None
     llm: dict | None = None

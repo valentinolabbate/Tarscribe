@@ -79,6 +79,38 @@ def normalize_to_wav(src: Path, dst: Path) -> None:
         raise AudioError(f"ffmpeg konnte die Datei nicht konvertieren:\n{proc.stderr[-800:]}")
 
 
+def mix_to_wav(system_audio: Path, microphone_audio: Path, dst: Path) -> None:
+    """Mix native system audio and browser microphone audio into a normalized wav."""
+    ffmpeg = _resolve("ffmpeg")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(system_audio),
+            "-i",
+            str(microphone_audio),
+            "-filter_complex",
+            "[0:a][1:a]amix=inputs=2:duration=longest:normalize=1[a]",
+            "-map",
+            "[a]",
+            "-ac",
+            str(TARGET_CHANNELS),
+            "-ar",
+            str(TARGET_SAMPLE_RATE),
+            "-c:a",
+            "pcm_s16le",
+            "-vn",
+            str(dst),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise AudioError(f"ffmpeg konnte Systemaudio und Mikrofon nicht mischen:\n{proc.stderr[-800:]}")
+
+
 def slice_to_wav(src: Path, dst: Path, start: float, end: float) -> None:
     """Extract ``[start, end]`` seconds of ``src`` into a 16 kHz mono wav.
 

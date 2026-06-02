@@ -217,6 +217,16 @@ def test_live_transcription_enabled_flag_can_be_disabled(client):
     assert r.json()["live_transcription_enabled"] is False
 
 
+def test_recording_source_defaults_to_microphone_and_accepts_native_modes(client):
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    assert r.json()["recording_source"] == "microphone"
+
+    r = client.put("/api/settings", json={"recording_source": "system_audio_and_microphone"})
+    assert r.status_code == 200
+    assert r.json()["recording_source"] == "system_audio_and_microphone"
+
+
 # ── PCM cleanup ───────────────────────────────────────────────────────────────
 
 def test_finish_schedules_pcm_cleanup(client, tmp_path, monkeypatch):

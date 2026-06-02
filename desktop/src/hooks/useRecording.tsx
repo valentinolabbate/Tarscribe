@@ -11,6 +11,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
 import { LivePcmCapture } from "../lib/livePcmCapture";
+import {
+  NativeSystemAudioRecorder,
+  SystemAudioAndMicrophoneRecorder,
+  pollSystemAudioPcm,
+  systemAudioSampleRate,
+} from "../lib/nativeSystemAudioRecorder";
 import { Recorder, recordingExtension } from "../lib/recorder";
 import { useLiveRecording, type LiveRecordingHandle } from "./useLiveRecording";
 import type { LiveEvent, Recording } from "../lib/types";
@@ -39,7 +45,7 @@ const RecordingContext = createContext<RecordingContextValue | null>(null);
 export function RecordingProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const recorder = useRef<Recorder | null>(null);
+  const recorder = useRef<Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null>(null);
   const pcmCapture = useRef<LivePcmCapture | null>(null);
   const [state, setState] = useState<RecordingState>("idle");
   const [elapsed, setElapsed] = useState(0);
@@ -74,11 +80,16 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     async (nextTopicId: number, nextTopicName: string) => {
       if (recorder.current || state !== "idle") return;
-      const next = new Recorder();
-      recorder.current = next;
       setState("starting");
+      let next: Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null = null;
       try {
         const settings = await api.getSettings();
+        next = settings.recording_source === "system_audio"
+          ? new NativeSystemAudioRecorder()
+          : settings.recording_source === "system_audio_and_microphone"
+            ? new SystemAudioAndMicrophoneRecorder()
+            : new Recorder();
+        recorder.current = next;
         const usedFallback = await next.start(settings.recording_device_id);
         setTopicId(nextTopicId);
         setTopicName(nextTopicName);
@@ -96,25 +107,32 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           minute: "2-digit",
         });
         const sessionTitle = `Aufnahme ${stamp}`;
-        const sessionId = await startSession(nextTopicId, sessionTitle);
-
-        if (sessionId && next.audioStream) {
+        if (next.audioStream) {
+          const sessionId = await startSession(nextTopicId, sessionTitle);
+          if (!sessionId) return;
           try {
             const capture = new LivePcmCapture();
             pcmCapture.current = capture;
             await capture.start({
               stream: next.audioStream,
               onChunk: (chunk, _seq) => enqueueChunk(chunk),
+              // Bundled recordings must feed every source into the live preview:
+              // mix the native system-audio tap in alongside the microphone.
+              systemAudio: next instanceof SystemAudioAndMicrophoneRecorder
+                ? { poll: pollSystemAudioPcm, sampleRate: systemAudioSampleRate }
+                : undefined,
             });
           } catch (e) {
             console.warn("[live] PCM capture init failed:", e);
             // Live preview unavailable, archive recording continues.
           }
+        } else {
+          toast("Systemaudio wird aufgenommen. Die Live-Vorschau folgt in einem weiteren Schritt.", "info");
         }
       } catch (e) {
-        next.dispose();
+        next?.dispose();
         reset();
-        toast(`Mikrofon nicht verfügbar: ${(e as Error).message}`, "error");
+        toast(`Aufnahme nicht verfügbar: ${(e as Error).message}`, "error");
       }
     },
     [reset, state, toast, startSession, enqueueChunk],
@@ -143,18 +161,23 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     pcmCapture.current?.stop();
     pcmCapture.current = null;
 
-    const mime = current.mimeType;
     try {
-      const blob = await current.stop();
+      const output = await current.stop();
       const stamp = new Date().toLocaleString("de-DE", {
         day: "2-digit",
         month: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
       });
-      const ext = recordingExtension(mime);
-      const file = new File([blob], `aufnahme.${ext}`, { type: mime });
-      const recording = await api.uploadRecording(topicId, file, `Aufnahme ${stamp}`);
+      const recording = output instanceof Blob
+        ? await api.uploadRecording(
+            topicId,
+            new File([output], `aufnahme.${recordingExtension(current.mimeType)}`, { type: current.mimeType }),
+            `Aufnahme ${stamp}`,
+          )
+        : "microphoneBlob" in output && output.microphoneBlob instanceof Blob
+          ? await api.importMixedLocalRecording(topicId, output.path, output.microphoneBlob, `Aufnahme ${stamp}`)
+        : await api.importLocalRecording(topicId, output.path, `Aufnahme ${stamp}`);
       await queryClient.invalidateQueries({ queryKey: ["recordings", topicId] });
       await liveHandle?.finish(recording.id ?? null);
       setLastFinishedRecording(recording);

@@ -18,6 +18,7 @@ from .config import get_settings
 
 SERVICE = "Tarscribe"
 HF_TOKEN_KEY = "hf_token"
+LLM_API_KEY_KEY = "llm_api_key"
 
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
@@ -80,44 +81,75 @@ def _keyring():
         return None
 
 
-def get_hf_token() -> str | None:
+def _secret_get(key: str) -> str | None:
     kr = _keyring()
     if kr is not None:
         try:
-            tok = kr.get_password(SERVICE, HF_TOKEN_KEY)
-            if tok:
-                return tok
+            val = kr.get_password(SERVICE, key)
+            if val:
+                return val
         except Exception:
             pass
-    # Fallback file.
+    # Fallback file (may hold several secrets keyed by name).
     path = _secret_fallback_path()
     if path.exists():
         try:
-            return json.loads(path.read_text()).get(HF_TOKEN_KEY)
+            return json.loads(path.read_text()).get(key)
         except (json.JSONDecodeError, OSError):
             return None
     return None
 
 
-def set_hf_token(token: str | None) -> None:
+def _secret_set(key: str, value: str | None) -> None:
     kr = _keyring()
     if kr is not None:
         try:
-            if token:
-                kr.set_password(SERVICE, HF_TOKEN_KEY, token)
+            if value:
+                kr.set_password(SERVICE, key, value)
             else:
-                kr.delete_password(SERVICE, HF_TOKEN_KEY)
+                kr.delete_password(SERVICE, key)
             return
         except Exception:
             pass
-    # Fallback: 0600 file.
+    # Fallback: 0600 file holding all secrets. Read-modify-write so setting one
+    # secret never clobbers the others.
     path = _secret_fallback_path()
-    if token:
-        path.write_text(json.dumps({HF_TOKEN_KEY: token}))
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    if value:
+        data[key] = value
+    else:
+        data.pop(key, None)
+    if data:
+        path.write_text(json.dumps(data))
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
     elif path.exists():
         path.unlink()
 
 
+def get_hf_token() -> str | None:
+    return _secret_get(HF_TOKEN_KEY)
+
+
+def set_hf_token(token: str | None) -> None:
+    _secret_set(HF_TOKEN_KEY, token)
+
+
 def has_hf_token() -> bool:
     return bool(get_hf_token())
+
+
+def get_llm_api_key() -> str | None:
+    return _secret_get(LLM_API_KEY_KEY)
+
+
+def set_llm_api_key(key: str | None) -> None:
+    _secret_set(LLM_API_KEY_KEY, key)
+
+
+def has_llm_api_key() -> bool:
+    return bool(get_llm_api_key())

@@ -324,6 +324,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
 
         model = cfg["model"]
         base = cfg["base_url"]
+        api_key = cfg.get("api_key")
         temperature = cfg.get("temperature", 0.3)
         top_p = cfg.get("top_p")
         top_k = cfg.get("top_k")
@@ -335,7 +336,8 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         def _chat(msgs: list[dict]) -> str:
             return "".join(L.stream_chat(msgs, model, base,
                                          temperature=temperature, top_p=top_p,
-                                         top_k=top_k, max_tokens=max_tokens))
+                                         top_k=top_k, max_tokens=max_tokens,
+                                         api_key=api_key))
 
         # Map step: condense long transcripts before applying the template.
         chunks = L.chunk_text(text, size=chunk_size)
@@ -360,7 +362,8 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         _update_job(job_id, progress=0.6)
         for delta in L.stream_chat(messages, model, base,
                                    temperature=temperature, top_p=top_p,
-                                   top_k=top_k, max_tokens=max_tokens):
+                                   top_k=top_k, max_tokens=max_tokens,
+                                   api_key=api_key):
             acc += delta
             now = time.monotonic()
             if now - last_save >= 0.25:

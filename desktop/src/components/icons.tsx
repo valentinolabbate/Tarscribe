@@ -86,3 +86,12 @@ export const SpeakerIdIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M15 10.5v3M18 7.5v9M21 9.5v5" />
   </svg>
 );
+
+/** Document with text lines — used for AI summaries. */
+export const SummaryIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+    <path d="M14 3v5h5" />
+    <path d="M8 13h7M8 17h5" />
+  </svg>
+);

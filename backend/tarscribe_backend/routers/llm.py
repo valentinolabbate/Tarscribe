@@ -11,7 +11,12 @@ from ..db import get_session
 from ..jobs import enqueue_summary
 from ..models import Recording, Summary, SummaryTemplate
 from ..security import require_token
-from ..settings_store import load_prefs, save_prefs
+from ..settings_store import (
+    has_llm_api_key,
+    load_prefs,
+    save_prefs,
+    set_llm_api_key,
+)
 
 router = APIRouter(tags=["llm"], dependencies=[Depends(require_token)])
 
@@ -26,9 +31,16 @@ class LlmConfigIn(BaseModel):
     max_tokens: int | None = None
 
 
+class LlmApiKeyIn(BaseModel):
+    api_key: str
+    base_url: str | None = None
+
+
 @router.get("/api/llm/config")
 def get_llm_config() -> dict:
-    return load_prefs().get("llm") or {}
+    # The API key itself is a secret and never leaves the keychain; expose only
+    # whether one is stored.
+    return {**(load_prefs().get("llm") or {}), "api_key_set": has_llm_api_key()}
 
 
 @router.put("/api/llm/config")
@@ -38,7 +50,7 @@ def set_llm_config(payload: LlmConfigIn) -> dict:
     # (allows sending null to clear a param)
     llm.update(payload.model_dump(exclude_unset=True))
     save_prefs({"llm": llm})
-    return llm
+    return {**llm, "api_key_set": has_llm_api_key()}
 
 
 @router.get("/api/llm/models")
@@ -52,6 +64,27 @@ def list_models(base_url: str | None = None) -> dict:
 @router.post("/api/llm/test")
 def test(payload: LlmConfigIn) -> dict:
     return L.test_connection(payload.base_url)
+
+
+@router.put("/api/llm/api-key")
+def set_api_key(payload: LlmApiKeyIn) -> dict:
+    """Store the (secret) API key in the keychain and verify it by listing models."""
+    key = payload.api_key.strip()
+    set_llm_api_key(key or None)
+    if not key:
+        return {"saved": True, "api_key_set": False}
+    try:
+        models = L.list_models(payload.base_url, api_key=key)
+        return {"saved": True, "ok": True, "models": models, "api_key_set": True}
+    except Exception as exc:  # noqa: BLE001
+        # Stored regardless (may be a transient network error); report status.
+        return {"saved": True, "ok": False, "error": str(exc), "api_key_set": True}
+
+
+@router.delete("/api/llm/api-key")
+def delete_api_key() -> dict:
+    set_llm_api_key(None)
+    return {"saved": True, "api_key_set": False}
 
 
 @router.post("/api/recordings/{recording_id}/summarize")

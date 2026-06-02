@@ -5,7 +5,12 @@ import { api } from "../lib/api";
 const PRESETS: Record<string, string> = {
   ollama: "http://localhost:11434/v1",
   lmstudio: "http://localhost:1234/v1",
+  openai: "https://api.openai.com/v1",
+  openrouter: "https://openrouter.ai/api/v1",
 };
+
+// Hosted providers that authenticate with an API key (vs. local Ollama/LM Studio).
+const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
 
 function NumField({
   label,
@@ -62,6 +67,10 @@ export function LlmSettings() {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // API key (secret) for hosted OpenAI-compatible providers.
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeySet, setApiKeySet] = useState(false);
+
   // Inference params
   const [temperature, setTemperature] = useState(0.3);
   const [topP, setTopP] = useState(0.9);
@@ -81,6 +90,7 @@ export function LlmSettings() {
       if (c.top_p != null) { setTopP(c.top_p); setUseTopP(true); }
       if (c.top_k != null) { setTopK(c.top_k); setUseTopK(true); }
       if (c.max_tokens != null) { setMaxTokens(c.max_tokens); setUseMaxTokens(true); }
+      if (c.api_key_set) setApiKeySet(true);
     });
     api.getSettings().then((s) => {
       if (s.llm_chunk_size) setChunkSize(s.llm_chunk_size);
@@ -91,11 +101,36 @@ export function LlmSettings() {
     setBusy(true);
     setStatus(null);
     try {
+      // If the user typed a new key, store + verify it (also returns the models).
+      if (apiKey.trim()) {
+        const r = await api.setLlmApiKey(apiKey.trim(), url);
+        setApiKeySet(true);
+        if (!r.ok) {
+          setStatus({ ok: false, msg: `Gespeichert, aber Verbindung fehlgeschlagen: ${r.error ?? ""}` });
+          return;
+        }
+        setApiKey("");
+        setModels(r.models ?? []);
+        setStatus({ ok: true, msg: `${(r.models ?? []).length} Modelle gefunden` });
+        return;
+      }
       const res = await api.listLlmModels(url);
       setModels(res.models);
       setStatus({ ok: true, msg: `${res.models.length} Modelle gefunden` });
     } catch (e) {
       setStatus({ ok: false, msg: String((e as Error).message) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeApiKey() {
+    setBusy(true);
+    try {
+      await api.deleteLlmApiKey();
+      setApiKeySet(false);
+      setApiKey("");
+      setStatus(null);
     } finally {
       setBusy(false);
     }
@@ -126,10 +161,12 @@ export function LlmSettings() {
   return (
     <div className="field">
       <label>LLM für Zusammenfassungen</label>
-      <div className="seg" style={{ marginBottom: 8 }}>
+      <div className="seg" style={{ marginBottom: 8, flexWrap: "wrap" }}>
         {[
           ["ollama", "Ollama"],
           ["lmstudio", "LM Studio"],
+          ["openai", "OpenAI"],
+          ["openrouter", "OpenRouter"],
           ["custom", "Custom"],
         ].map(([v, l]) => (
           <button key={v} className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
@@ -149,6 +186,33 @@ export function LlmSettings() {
           Modelle laden
         </button>
       </div>
+
+      {KEY_PROVIDERS.has(provider) && (
+        <div style={{ marginBottom: 8 }}>
+          {apiKeySet && !apiKey ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+              <span className="badge ready">✓ API-Key hinterlegt</span>
+              <button className="btn ghost danger" onClick={removeApiKey} disabled={busy}>
+                Entfernen
+              </button>
+            </div>
+          ) : (
+            <input
+              type="password"
+              placeholder="API-Key (z.B. sk-…)"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+              style={{ width: "100%" }}
+            />
+          )}
+          <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
+            Für gehostete Anbieter (OpenAI, OpenRouter, …). Wird beim Klick auf „Modelle laden"
+            gespeichert &amp; geprüft und sicher in der OS-Keychain abgelegt.
+          </div>
+        </div>
+      )}
       {models.length > 0 && (
         <select
           value={model}

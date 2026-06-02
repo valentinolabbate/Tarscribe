@@ -229,6 +229,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_url: baseUrl }),
     }),
+  setLlmApiKey: (apiKey: string, baseUrl?: string) =>
+    request<{ saved: boolean; ok?: boolean; models?: string[]; error?: string; api_key_set: boolean }>(
+      "/api/llm/api-key",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+      },
+    ),
+  deleteLlmApiKey: () =>
+    request<{ saved: boolean; api_key_set: boolean }>("/api/llm/api-key", { method: "DELETE" }),
 
   // Summaries
   summarize: (recordingId: number, templateId: number) =>

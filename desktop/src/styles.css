@@ -435,6 +435,7 @@ button {
 }
 input[type="text"],
 input[type="url"],
+input[type="password"],
 textarea,
 select {
   background: var(--bg-input);
@@ -446,6 +447,8 @@ select {
   outline: none;
 }
 input[type="text"]:focus,
+input[type="url"]:focus,
+input[type="password"]:focus,
 textarea:focus {
   border-color: var(--accent);
 }
@@ -467,6 +470,70 @@ textarea:focus {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 6px;
+}
+
+/* Settings modal — sidebar navigation */
+.settings-modal {
+  width: 680px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* nav stays put; only the content panel scrolls */
+}
+.settings-layout {
+  display: flex;
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+}
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 168px;
+  flex-shrink: 0;
+}
+.settings-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-nav-btn:hover {
+  background: var(--bg-input);
+  color: var(--text);
+}
+.settings-nav-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.settings-nav-btn svg {
+  flex-shrink: 0;
+}
+.settings-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.settings-content .field:last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 560px) {
+  .settings-layout {
+    flex-direction: column;
+  }
+  .settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: auto;
+  }
 }
 
 .hw-pill {

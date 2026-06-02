@@ -23,25 +23,24 @@ desktop/src-tauri/target/release/bundle/macos/Tarscribe.app
 
 Schick die **.dmg** (oder die gezippte **.app**) per AirDrop / USB / Download weiter.
 
-## 2. So öffnen deine Freundin / dein Kumpel die App (einmalig)
+## 2. So installieren deine Freundin / dein Kumpel die App (einmalig)
 
 Weil die App nicht von Apple notarisiert ist, setzt macOS beim Download ein
 „Quarantäne"-Flag. Bei Apple Silicon erscheint dann oft **„Tarscribe ist beschädigt"**
 — das ist **kein** echter Defekt, sondern Gatekeeper. **Zuverlässigster Weg:**
 
-1. `Tarscribe.app` in den Ordner **Programme** ziehen.
-2. **Terminal** öffnen und einmalig ausführen:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Tarscribe.app
-   ```
-3. App per Doppelklick starten — läuft ab jetzt normal.
+1. DMG öffnen.
+2. Rechtsklick auf `Tarscribe installieren.command` → **Öffnen**.
+3. Falls macOS das Skript blockiert: einmalig unter **Systemeinstellungen → Datenschutz &
+   Sicherheit → Trotzdem öffnen** freigeben und das Skript erneut öffnen.
+4. Das Skript kopiert Tarscribe nach **Programme**, entfernt die Quarantäne-Flags und startet
+   die App. Danach läuft sie normal über Finder, Launchpad und Spotlight.
 
 > Tipp: Falls schon das **DMG** als „beschädigt" gemeldet wird, vorher
 > `xattr -cr ~/Downloads/Tarscribe_*.dmg` ausführen, dann das DMG öffnen.
 
-Alternativ (ohne Terminal) klappt manchmal **Rechtsklick auf die App → „Öffnen"** bzw.
-**Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem öffnen"** — bei der
-„beschädigt"-Meldung ist aber der `xattr`-Befehl oben am verlässlichsten.
+Der Installer ist absichtlich der einzige sichtbare Installationsweg im DMG. Die App direkt
+aus dem DMG zu starten oder manuell zu kopieren erzeugt zusätzliche Gatekeeper-Freigaben.
 
 ## 3. Erster Start
 

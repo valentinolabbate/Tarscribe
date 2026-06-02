@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build an enhanced Tarscribe DMG containing Tarscribe.app, an /Applications
-# symlink, and an install script that removes the macOS quarantine flag.
+# Build a Tarscribe DMG containing a hidden app payload and an install script.
+# The single visible install path avoids accidental app launches from the DMG.
 #
 # Usage: run from the repo root after `cargo tauri build`:
 #   cd desktop/src-tauri && cargo tauri build && cd ../..
@@ -45,8 +45,7 @@ STAGING=$(mktemp -d)
 trap 'rm -rf "$STAGING"' EXIT
 
 echo "Bereite Inhalt vor…"
-cp -r "$APP" "$STAGING/Tarscribe.app"
-ln -s /Applications "$STAGING/Applications"
+cp -r "$APP" "$STAGING/.Tarscribe.app"
 cp "$INSTALL_SRC" "$STAGING/Tarscribe installieren.command"
 chmod +x "$STAGING/Tarscribe installieren.command"
 

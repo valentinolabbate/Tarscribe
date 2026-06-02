@@ -26,7 +26,7 @@ import { invoke, isTauri } from "./lib/tauri";
 import type { Recording, Topic } from "./lib/types";
 
 const clampSidebarWidth = (width: number) =>
-  Math.max(160, Math.min(500, window.innerWidth - 640, Number.isFinite(width) ? width : 248));
+  Math.max(224, Math.min(320, window.innerWidth - 720, Number.isFinite(width) ? width : 264));
 
 function Splash({ error }: { error?: string }) {
   return (
@@ -118,8 +118,9 @@ function HardwarePill() {
       ? `Apple Silicon · Diarisierung: ${hw.has_mps ? "MPS" : "CPU"}`
       : "CPU";
   return (
-    <span className="hw-pill">
-      {dev} · ASR: {hw.recommended_asr}
+    <span className="hw-pill" title={`${dev} · ASR: ${hw.recommended_asr}`}>
+      <span className="hw-dot" />
+      Lokal bereit
     </span>
   );
 }
@@ -140,8 +141,8 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const v = localStorage.getItem("ts-sidebar-w");
-      return clampSidebarWidth(v ? Number(v) : 248);
-    } catch { return 248; }
+      return clampSidebarWidth(v ? Number(v) : 264);
+    } catch { return 264; }
   });
 
   const handleResizerDown = useCallback((e: React.MouseEvent) => {
@@ -300,12 +301,17 @@ export default function App() {
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}>
       <aside className="sidebar">
         <div className="brand">
-          <LogoIcon className="logo" />
-          Tarscribe
+          <div className="brand-mark">
+            <LogoIcon className="logo" />
+          </div>
+          <div>
+            <div>Tarscribe</div>
+            <span>Local audio studio</span>
+          </div>
         </div>
 
         <div className="section-label">
-          Themenbereiche
+          <span>Bibliothek</span>
           <button
             className="btn ghost"
             style={{ padding: 2 }}
@@ -335,6 +341,13 @@ export default function App() {
         )}
 
         <div style={{ flex: 1 }} />
+        <div className="sidebar-status">
+          <span className="sidebar-status-dot" />
+          <div>
+            <strong>Offline workspace</strong>
+            <span>Deine Daten bleiben lokal.</span>
+          </div>
+        </div>
         <button className="topic-item" onClick={() => setShowSettings(true)}>
           <SettingsIcon width={16} height={16} /> Einstellungen
         </button>
@@ -344,7 +357,10 @@ export default function App() {
 
       <main className="main">
         <div className="topbar">
-          <h1>{current ? current.name : "Tarscribe"}</h1>
+          <div className="topbar-title">
+            <span className="topbar-eyebrow">{openRecording ? "Aufnahme" : "Themenbereich"}</span>
+            <h1>{openRecording ? openRecording.title : current ? current.name : "Tarscribe"}</h1>
+          </div>
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
           {current && (
@@ -354,7 +370,7 @@ export default function App() {
               onClick={() => setShowTopicExport(true)}
             >
               <FolderIcon width={16} height={16} />
-              {current.export_path ? "Ordner ✓" : "Export-Ordner"}
+              {current.export_path ? "Export bereit" : "Export-Ordner"}
             </button>
           )}
           <HardwarePill />

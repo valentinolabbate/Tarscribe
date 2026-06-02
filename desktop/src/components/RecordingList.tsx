@@ -4,7 +4,7 @@ import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
 import { RecordControl } from "./RecordControl";
-import { TrashIcon, UploadIcon, WaveIcon } from "./icons";
+import { SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
 
 function RecordingRow({
   r,
@@ -73,6 +73,7 @@ export function RecordingList({
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
+  const [query, setQuery] = useState("");
 
   async function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -82,9 +83,14 @@ export function RecordingList({
   }
 
   const hasRecordings = recordings && recordings.length > 0;
+  const visibleRecordings = recordings?.filter((recording) =>
+    recording.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+  const totalDuration = recordings?.reduce((sum, recording) => sum + recording.duration_sec, 0) ?? 0;
 
   return (
     <div
+      className="recordings-page"
       onDragEnter={(e) => {
         e.preventDefault();
         dragDepth.current += 1;
@@ -123,45 +129,75 @@ export function RecordingList({
       {isLoading ? (
         <div className="empty">Lade…</div>
       ) : hasRecordings ? (
-        <div className="rec-list">
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 2 }}>
-            <RecordControl topicId={topic.id} topicName={topic.name} />
-            <button className="btn" onClick={() => fileInput.current?.click()}>
-              <UploadIcon /> Hochladen
-            </button>
-          </div>
-          {recordings!.map((r) => (
-            <RecordingRow
-              key={r.id}
-              r={r}
-              onOpen={() => onOpen(r)}
-              onDelete={() => del.mutate(r.id)}
-            />
-          ))}
-          {upload.isPending && (
-            <div className="rec-card" style={{ opacity: 0.6 }}>
-              <div className="rec-icon">
-                <WaveIcon />
-              </div>
-              <div className="rec-meta">
-                <div className="rec-title">Wird verarbeitet…</div>
-                <div className="rec-sub">Audio wird normalisiert</div>
-              </div>
+        <>
+          <header className="library-head">
+            <div>
+              <div className="page-kicker">Audio-Bibliothek</div>
+              <h2>{topic.name}</h2>
+              <p>
+                {recordings!.length} {recordings!.length === 1 ? "Aufnahme" : "Aufnahmen"}
+                <span>·</span>
+                {fmtDuration(totalDuration)} Gesamtzeit
+              </p>
             </div>
-          )}
-        </div>
+            <div className="library-actions">
+              <button className="btn" onClick={() => fileInput.current?.click()}>
+                <UploadIcon /> Importieren
+              </button>
+              <RecordControl topicId={topic.id} topicName={topic.name} primary />
+            </div>
+          </header>
+
+          <div className="library-tools">
+            <label className="search-field">
+              <SearchIcon width={16} height={16} />
+              <input
+                type="search"
+                placeholder="Aufnahmen durchsuchen"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            <span className="library-hint">Audio und Video hierher ziehen</span>
+          </div>
+
+          <div className={`rec-list ${dragOver ? "drag-active" : ""}`}>
+            {visibleRecordings!.map((r) => (
+              <RecordingRow
+                key={r.id}
+                r={r}
+                onOpen={() => onOpen(r)}
+                onDelete={() => del.mutate(r.id)}
+              />
+            ))}
+            {visibleRecordings!.length === 0 && (
+              <div className="list-empty">Keine Aufnahme passt zu deiner Suche.</div>
+            )}
+            {upload.isPending && (
+              <div className="rec-card" style={{ opacity: 0.6 }}>
+                <div className="rec-icon">
+                  <WaveIcon />
+                </div>
+                <div className="rec-meta">
+                  <div className="rec-title">Wird verarbeitet…</div>
+                  <div className="rec-sub">Audio wird normalisiert</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       ) : (
         <div className={`drop-hint ${dragOver ? "over" : ""}`}>
-          <div style={{ marginBottom: 8 }}>
-            Noch keine Aufnahmen in <strong>{topic.name}</strong>.
-          </div>
-          <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-            <RecordControl topicId={topic.id} topicName={topic.name} />
-            <button className="btn primary" onClick={() => fileInput.current?.click()}>
-              <UploadIcon /> Hochladen
+          <div className="drop-icon"><WaveIcon /></div>
+          <h2>Deine erste Aufnahme</h2>
+          <p>Nimm direkt auf oder importiere eine vorhandene Audio- oder Videodatei.</p>
+          <div className="drop-actions">
+            <RecordControl topicId={topic.id} topicName={topic.name} primary />
+            <button className="btn" onClick={() => fileInput.current?.click()}>
+              <UploadIcon /> Datei importieren
             </button>
           </div>
-          <div style={{ marginTop: 10, fontSize: 12 }}>oder Dateien hierher ziehen</div>
+          <div className="drop-footnote">Du kannst Dateien auch einfach hierher ziehen.</div>
         </div>
       )}
     </div>

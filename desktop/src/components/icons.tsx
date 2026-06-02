@@ -78,6 +78,13 @@ export const DownloadIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const SearchIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <circle cx="11" cy="11" r="6" />
+    <path d="m16 16 4 4" />
+  </svg>
+);
+
 /** Speaker identification / voiceprint icon (profile silhouette + voiceprint bars). */
 export const SpeakerIdIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>

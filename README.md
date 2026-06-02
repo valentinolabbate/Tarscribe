@@ -8,16 +8,15 @@ und lokaler LLM-Zusammenfassung (Ollama / LM Studio).
 ## Installation (macOS)
 
 1. **DMG herunterladen** von [Releases](https://github.com/valentinolabbate/Tarscribe/releases/latest)
-2. **DMG öffnen** — du siehst `Tarscribe.app`, einen `Applications`-Ordner und `Tarscribe installieren.command`
-3. **Doppelklick auf `Tarscribe installieren.command`**
-   - macOS fragt: *„Aus dem Internet heruntergeladen — trotzdem öffnen?"* → **Öffnen**
-   - Falls ein zweiter Dialog erscheint (für das Skript selbst): ebenfalls in **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben
-   - Terminal öffnet sich, kopiert die App nach `/Applications` und entfernt den Quarantäne-Flag
+2. **DMG öffnen** — du siehst `Tarscribe installieren.command`
+3. **Rechtsklick auf `Tarscribe installieren.command` → Öffnen**
+   - Falls macOS das Skript blockiert: einmalig in **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben und das Skript erneut öffnen
+   - Terminal öffnet sich, kopiert die App nach `/Applications`, entfernt den Quarantäne-Flag und registriert sie für Finder, Launchpad und Spotlight
 4. Tarscribe startet automatisch und ist danach in **Finder, Launchpad und Spotlight** sichtbar
 
 > **Warum das Skript?** macOS 26 blockiert nicht-notarisierte Apps in Finder und Launchpad,
-> auch nach manueller Security-Freigabe. Das Skript entfernt den `com.apple.quarantine`-Flag,
-> der dieses Verhalten auslöst.
+> auch nach manueller Security-Freigabe. Das Skript kopiert die App ohne geerbte Quarantäne,
+> entfernt vorsorglich verbleibende Flags und registriert die Installation bei macOS.
 
 ## Architektur
 
@@ -74,4 +73,4 @@ cd backend && .venv/bin/python -m pytest
 
 - **ffmpeg**: Die App findet Homebrew-Installationen automatisch (`/opt/homebrew/bin`, `/usr/local/bin`).
   Optional via `TARSCRIBE_FFMPEG_PATH` und `TARSCRIBE_FFPROBE_PATH` überschreibbar.
-- **Aktueller Stand**: v0.1.7 — macOS Apple Silicon
+- **Aktueller Stand**: v0.3.0 — macOS Apple Silicon

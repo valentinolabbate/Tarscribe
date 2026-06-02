@@ -1,12 +1,20 @@
 import { useRecording } from "../hooks/useRecording";
 import { MicIcon } from "./icons";
 
-export function RecordControl({ topicId, topicName }: { topicId: number; topicName: string }) {
+export function RecordControl({
+  topicId,
+  topicName,
+  primary = false,
+}: {
+  topicId: number;
+  topicName: string;
+  primary?: boolean;
+}) {
   const recording = useRecording();
 
   return (
     <button
-      className="btn"
+      className={primary ? "btn primary record-btn" : "btn record-btn"}
       disabled={recording.state !== "idle"}
       onClick={() => recording.start(topicId, topicName)}
     >

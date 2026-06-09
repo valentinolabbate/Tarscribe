@@ -26,6 +26,7 @@ struct CaptureState {
     AudioDeviceIOProcID ioProcID = nullptr;
     ExtAudioFileRef file = nullptr;
     AudioStreamBasicDescription format = {};
+    AudioStreamBasicDescription fileFormat = {};
     std::atomic<bool> paused = false;
 
     // Live-preview ring buffer (mono, tap sample rate).
@@ -221,17 +222,37 @@ std::string startCapture(const char* outputPath) {
             return statusMessage("Systemaudio-Format", status);
         }
 
+        state->fileFormat = state->format;
+        state->fileFormat.mFormatID = kAudioFormatLinearPCM;
+        state->fileFormat.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
+        state->fileFormat.mBitsPerChannel = 16;
+        state->fileFormat.mFramesPerPacket = 1;
+        state->fileFormat.mBytesPerFrame =
+            state->fileFormat.mChannelsPerFrame * (state->fileFormat.mBitsPerChannel / 8);
+        state->fileFormat.mBytesPerPacket =
+            state->fileFormat.mBytesPerFrame * state->fileFormat.mFramesPerPacket;
+
         NSURL* outputURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:outputPath]];
         status = ExtAudioFileCreateWithURL(
             (__bridge CFURLRef)outputURL,
             kAudioFileCAFType,
-            &state->format,
+            &state->fileFormat,
             nullptr,
             kAudioFileFlags_EraseFile,
             &state->file);
         if (status != noErr) {
             cleanUp(*state);
             return statusMessage("Aufnahmedatei", status);
+        }
+
+        status = ExtAudioFileSetProperty(
+            state->file,
+            kExtAudioFileProperty_ClientDataFormat,
+            sizeof(AudioStreamBasicDescription),
+            &state->format);
+        if (status != noErr) {
+            cleanUp(*state);
+            return statusMessage("Aufnahmeformat", status);
         }
 
         status = AudioDeviceCreateIOProcID(

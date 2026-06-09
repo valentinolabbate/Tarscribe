@@ -10,7 +10,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
-import { LivePcmCapture } from "../lib/livePcmCapture";
+import { LivePcmCapture, SystemAudioPcmCapture } from "../lib/livePcmCapture";
 import {
   NativeSystemAudioRecorder,
   SystemAudioAndMicrophoneRecorder,
@@ -46,7 +46,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const recorder = useRef<Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null>(null);
-  const pcmCapture = useRef<LivePcmCapture | null>(null);
+  const pcmCapture = useRef<LivePcmCapture | SystemAudioPcmCapture | null>(null);
   const elapsedBase = useRef(0);
   const elapsedStartedAt = useRef<number | null>(null);
   const [state, setState] = useState<RecordingState>("idle");
@@ -127,27 +127,33 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           minute: "2-digit",
         });
         const sessionTitle = `Aufnahme ${stamp}`;
-        if (next.audioStream) {
-          const sessionId = await startSession(nextTopicId, sessionTitle);
-          if (!sessionId) return;
+        const sessionId = await startSession(nextTopicId, sessionTitle);
+        if (sessionId) {
           try {
-            const capture = new LivePcmCapture();
-            pcmCapture.current = capture;
-            await capture.start({
-              stream: next.audioStream,
-              onChunk: (chunk, _seq) => enqueueChunk(chunk),
-              // Bundled recordings must feed every source into the live preview:
-              // mix the native system-audio tap in alongside the microphone.
-              systemAudio: next instanceof SystemAudioAndMicrophoneRecorder
-                ? { poll: pollSystemAudioPcm, sampleRate: systemAudioSampleRate }
-                : undefined,
-            });
+            if (next.audioStream) {
+              const capture = new LivePcmCapture();
+              pcmCapture.current = capture;
+              await capture.start({
+                stream: next.audioStream,
+                onChunk: (chunk, _seq) => enqueueChunk(chunk),
+                // Bundled recordings must feed every source into the live preview:
+                // mix the native system-audio tap in alongside the microphone.
+                systemAudio: next instanceof SystemAudioAndMicrophoneRecorder
+                  ? { poll: pollSystemAudioPcm, sampleRate: systemAudioSampleRate }
+                  : undefined,
+              });
+            } else if (next instanceof NativeSystemAudioRecorder) {
+              const capture = new SystemAudioPcmCapture();
+              pcmCapture.current = capture;
+              await capture.start({
+                onChunk: (chunk, _seq) => enqueueChunk(chunk),
+                systemAudio: { poll: pollSystemAudioPcm, sampleRate: systemAudioSampleRate },
+              });
+            }
           } catch (e) {
             console.warn("[live] PCM capture init failed:", e);
             // Live preview unavailable, archive recording continues.
           }
-        } else {
-          toast("Systemaudio wird aufgenommen. Die Live-Vorschau folgt in einem weiteren Schritt.", "info");
         }
       } catch (e) {
         next?.dispose();

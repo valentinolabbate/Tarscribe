@@ -114,6 +114,13 @@ export interface PcmCaptureOptions {
   systemAudio?: SystemAudioSource;
 }
 
+export interface SystemAudioCaptureOptions {
+  sampleRate?: number;
+  chunkDurationSec?: number;
+  onChunk: (chunk: ArrayBuffer, sequenceNumber: number) => void;
+  systemAudio: SystemAudioSource;
+}
+
 export class LivePcmCapture {
   private audioCtx: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
@@ -272,6 +279,155 @@ export class LivePcmCapture {
     this.systemPolling = false;
     this.systemNativeRate = 0;
     this.systemRemainder = new Float32Array(0);
+  }
+
+  get isStarted(): boolean {
+    return this.started;
+  }
+}
+
+/**
+ * Captures mono PCM16 from the native system-audio tap without requiring a
+ * MediaStream. This covers the "Systemaudio" recording source where no
+ * microphone stream exists to drive the AudioWorklet clock.
+ */
+export class SystemAudioPcmCapture {
+  private sequenceNumber = 0;
+  private started = false;
+  private paused = false;
+  private polling = false;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private targetSampleRate = 16000;
+  private nativeSampleRate = 0;
+  private chunkSamples = 32000;
+  private remainder = new Float32Array(0);
+  private pending = new Float32Array(0);
+  private options: SystemAudioCaptureOptions | null = null;
+
+  async start(opts: SystemAudioCaptureOptions): Promise<void> {
+    if (this.started) return;
+    this.options = opts;
+    this.targetSampleRate = opts.sampleRate ?? 16000;
+    const chunkDurationSec = opts.chunkDurationSec ?? 2;
+    this.chunkSamples = Math.round(this.targetSampleRate * chunkDurationSec);
+    this.nativeSampleRate = await this.readNativeSampleRate(opts.systemAudio);
+    if (!(this.nativeSampleRate > 0)) {
+      throw new Error("Systemaudio-Livequelle ist noch nicht bereit.");
+    }
+
+    this.started = true;
+    const intervalMs = opts.systemAudio.pollIntervalMs ?? 200;
+    this.timer = setInterval(() => void this.pollOnce(), intervalMs);
+    await this.pollOnce();
+  }
+
+  private async readNativeSampleRate(source: SystemAudioSource): Promise<number> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const rate = await source.sampleRate();
+      if (rate > 0) return rate;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return 0;
+  }
+
+  private async pollOnce(): Promise<void> {
+    if (!this.started || this.paused || this.polling || !this.options) return;
+    this.polling = true;
+    try {
+      const samples = await this.options.systemAudio.poll();
+      if (samples.length === 0) return;
+      const resampled = this.resample(samples);
+      if (resampled.length === 0) return;
+      this.emitChunks(resampled);
+    } catch (e) {
+      console.warn("[live] system-audio capture poll failed:", e);
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private resample(samples: Float32Array): Float32Array {
+    let input = samples;
+    if (this.remainder.length > 0) {
+      input = new Float32Array(this.remainder.length + samples.length);
+      input.set(this.remainder, 0);
+      input.set(samples, this.remainder.length);
+    }
+
+    const ratio = this.nativeSampleRate / this.targetSampleRate;
+    if (ratio <= 0) return new Float32Array(0);
+    if (Math.abs(ratio - 1) < 0.000001) {
+      this.remainder = new Float32Array(0);
+      return input;
+    }
+
+    const outLength = Math.floor((input.length - 1) / ratio);
+    if (outLength <= 0) {
+      this.remainder = input;
+      return new Float32Array(0);
+    }
+
+    const out = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+      const pos = i * ratio;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      out[i] = input[idx] + (input[idx + 1] - input[idx]) * frac;
+    }
+    const consumed = Math.floor(outLength * ratio);
+    this.remainder = input.slice(consumed);
+    return out;
+  }
+
+  private emitChunks(samples: Float32Array): void {
+    let input = samples;
+    if (this.pending.length > 0) {
+      input = new Float32Array(this.pending.length + samples.length);
+      input.set(this.pending, 0);
+      input.set(samples, this.pending.length);
+    }
+
+    let offset = 0;
+    while (input.length - offset >= this.chunkSamples) {
+      const pcm = new Int16Array(this.chunkSamples);
+      for (let i = 0; i < this.chunkSamples; i++) {
+        const sample = Math.max(-1, Math.min(1, input[offset + i]));
+        pcm[i] = Math.round(sample * 32767);
+      }
+      this.options?.onChunk(pcm.buffer, this.sequenceNumber++);
+      offset += this.chunkSamples;
+    }
+
+    this.pending = input.slice(offset);
+  }
+
+  pause(): void {
+    this.paused = true;
+    this.remainder = new Float32Array(0);
+    this.pending = new Float32Array(0);
+    void this.options?.systemAudio.poll().catch((e) => {
+      console.warn("[live] system-audio pause drain failed:", e);
+    });
+  }
+
+  resume(): void {
+    this.paused = false;
+    void this.pollOnce();
+  }
+
+  stop(): void {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.started = false;
+    this.paused = false;
+    this.polling = false;
+    this.sequenceNumber = 0;
+    this.nativeSampleRate = 0;
+    this.remainder = new Float32Array(0);
+    this.pending = new Float32Array(0);
+    this.options = null;
   }
 
   get isStarted(): boolean {

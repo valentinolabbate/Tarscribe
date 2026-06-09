@@ -57,13 +57,55 @@ def test_topic_crud(client):
 
     r = client.get("/api/topics")
     assert r.status_code == 200
-    assert any(t["id"] == topic["id"] for t in r.json())
+    overview = next(t for t in r.json() if t["id"] == topic["id"])
+    assert overview["recording_count"] == 0
+    assert overview["transcribed_count"] == 0
+    assert overview["diarized_count"] == 0
+    assert overview["exported_count"] == 0
 
     r = client.patch(f"/api/topics/{topic['id']}", json={"name": "Universität"})
     assert r.json()["name"] == "Universität"
 
     r = client.delete(f"/api/topics/{topic['id']}")
     assert r.status_code == 204
+
+
+def test_topic_overview_counts_artifacts_and_exports(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import DiarizationRun, Recording, Topic, Transcript, Word
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Vorlesung")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Termin 1", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.flush()
+        transcript = Transcript(recording_id=rec.id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Hallo"))
+        s.add(DiarizationRun(recording_id=rec.id, model="test"))
+        s.commit()
+        topic_id = topic.id
+        recording_id = rec.id
+
+    r = client.get("/api/topics")
+    assert r.status_code == 200
+    overview = next(t for t in r.json() if t["id"] == topic_id)
+    assert overview["recording_count"] == 1
+    assert overview["transcribed_count"] == 1
+    assert overview["diarized_count"] == 1
+    assert overview["exported_count"] == 0
+
+    r = client.get(f"/api/recordings/{recording_id}/export?format=txt")
+    assert r.status_code == 200
+
+    r = client.get("/api/topics")
+    overview = next(t for t in r.json() if t["id"] == topic_id)
+    assert overview["exported_count"] == 1
 
 
 def test_builtin_templates_seeded(client):

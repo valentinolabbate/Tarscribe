@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
@@ -14,6 +16,18 @@ class TopicUpdate(BaseModel):
     name: str | None = None
     color: str | None = None
     export_path: str | None = None
+
+
+class TopicOverview(BaseModel):
+    id: int
+    name: str
+    color: str
+    export_path: str | None = None
+    created_at: datetime
+    recording_count: int = 0
+    transcribed_count: int = 0
+    diarized_count: int = 0
+    exported_count: int = 0
 
 
 class RecordingCreate(BaseModel):

@@ -1,8 +1,6 @@
 import { useRecording } from "../hooks/useRecording";
+import { fmtDuration } from "../lib/format";
 import { StopIcon } from "./icons";
-
-const fmt = (seconds: number) =>
-  `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 
 export function GlobalRecordingIndicator() {
   const recording = useRecording();
@@ -18,7 +16,7 @@ export function GlobalRecordingIndicator() {
           ? "Startet..."
           : recording.state === "saving"
             ? "Speichert..."
-            : fmt(recording.elapsed)}
+            : fmtDuration(recording.elapsed)}
       </span>
       {active && (
         <>

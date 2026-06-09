@@ -50,6 +50,7 @@ def _run_lightweight_migrations() -> None:
 
     additive = [
         ("topics", "export_path", "TEXT"),
+        ("recordings", "exported_at", "DATETIME"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:

@@ -46,6 +46,7 @@ pub fn run() {
             sidecar::is_backend_ready,
             sidecar::setup_environment,
             menu::set_update_badge,
+            menu::set_tray_recording_state,
             system_audio::system_audio_capability,
             system_audio::start_system_audio_recording,
             system_audio::pause_system_audio_recording,

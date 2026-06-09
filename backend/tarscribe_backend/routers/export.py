@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as jsonlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -74,6 +75,12 @@ def _utterances(session: Session, recording_id: int, words, segments):
     return build_utterances(words, aligned, reassigns, relabel)
 
 
+def _mark_exported(session: Session, rec: Recording) -> None:
+    rec.exported_at = datetime.now(timezone.utc)
+    session.add(rec)
+    session.commit()
+
+
 @router.get("/{recording_id}/export")
 def export(
     recording_id: int, format: str = "txt", session: Session = Depends(get_session)
@@ -94,6 +101,7 @@ def export(
             body = "\n\n".join(f"{name(u.speaker)}: {u.text}" for u in utterances)
         else:
             body = "".join(w.text for w in words).strip()
+        _mark_exported(session, rec)
         return PlainTextResponse(body, headers=_dl(rec.title, "txt"))
 
     if fmt in ("srt", "vtt"):
@@ -122,6 +130,7 @@ def export(
             lines.append(f"{_ts(start, comma)} --> {_ts(end, comma)}")
             lines.append(text)
             lines.append("")
+        _mark_exported(session, rec)
         return PlainTextResponse("\n".join(lines), headers=_dl(rec.title, fmt))
 
     if fmt == "json":
@@ -136,6 +145,7 @@ def export(
                 for u in utterances
             ],
         }
+        _mark_exported(session, rec)
         return PlainTextResponse(
             jsonlib.dumps(payload, ensure_ascii=False, indent=2),
             media_type="application/json",
@@ -244,4 +254,5 @@ def send_to_folder(recording_id: int, session: Session = Depends(get_session)) -
         target.write_text(content, encoding="utf-8")
     except OSError as exc:
         raise HTTPException(500, f"Schreiben fehlgeschlagen: {exc}") from exc
+    _mark_exported(session, rec)
     return {"path": str(target)}

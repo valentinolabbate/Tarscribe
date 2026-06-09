@@ -83,6 +83,7 @@ class Recording(SQLModel, table=True):
     sample_rate: int = 16000
     language: Optional[str] = None
     status: RecordingStatus = RecordingStatus.uploaded
+    exported_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 

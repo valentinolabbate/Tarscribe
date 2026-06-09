@@ -47,6 +47,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const recorder = useRef<Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null>(null);
   const pcmCapture = useRef<LivePcmCapture | null>(null);
+  const elapsedBase = useRef(0);
+  const elapsedStartedAt = useRef<number | null>(null);
   const [state, setState] = useState<RecordingState>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [topicId, setTopicId] = useState<number | null>(null);
@@ -56,11 +58,25 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
   const { startSession, enqueueChunk, handle: liveHandle } = useLiveRecording();
 
+  const computeElapsed = useCallback(() => {
+    if (elapsedStartedAt.current == null) return elapsedBase.current;
+    const seconds = elapsedBase.current + Math.floor((Date.now() - elapsedStartedAt.current) / 1000);
+    return Math.max(0, seconds);
+  }, []);
+
   useEffect(() => {
     if (state !== "recording") return;
-    const timer = setInterval(() => setElapsed((current) => current + 1), 1000);
-    return () => clearInterval(timer);
-  }, [state]);
+    const tick = () => setElapsed(computeElapsed());
+    tick();
+    const timer = setInterval(tick, 1000);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [state, computeElapsed]);
 
   useEffect(() => () => {
     recorder.current?.dispose();
@@ -71,6 +87,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     recorder.current = null;
     pcmCapture.current?.stop();
     pcmCapture.current = null;
+    elapsedBase.current = 0;
+    elapsedStartedAt.current = null;
     setState("idle");
     setElapsed(0);
     setTopicId(null);
@@ -93,6 +111,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
         const usedFallback = await next.start(settings.recording_device_id);
         setTopicId(nextTopicId);
         setTopicName(nextTopicName);
+        elapsedBase.current = 0;
+        elapsedStartedAt.current = Date.now();
         setElapsed(0);
         setState("recording");
         if (usedFallback) {
@@ -142,19 +162,28 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     recorder.current?.pause();
     pcmCapture.current?.pause();
     liveHandle?.notifyPause();
+    const nextElapsed = computeElapsed();
+    elapsedBase.current = nextElapsed;
+    elapsedStartedAt.current = null;
+    setElapsed(nextElapsed);
     setState("paused");
-  }, [liveHandle]);
+  }, [computeElapsed, liveHandle]);
 
   const resume = useCallback(() => {
     recorder.current?.resume();
     pcmCapture.current?.resume();
     liveHandle?.notifyResume();
+    elapsedStartedAt.current = Date.now();
     setState("recording");
   }, [liveHandle]);
 
   const stop = useCallback(async () => {
     const current = recorder.current;
     if (!current || topicId == null) return;
+    const nextElapsed = computeElapsed();
+    elapsedBase.current = nextElapsed;
+    elapsedStartedAt.current = null;
+    setElapsed(nextElapsed);
     setState("saving");
 
     // Stop PCM capture immediately.
@@ -189,7 +218,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       current.dispose();
       reset();
     }
-  }, [queryClient, reset, toast, topicId, liveHandle]);
+  }, [computeElapsed, queryClient, reset, toast, topicId, liveHandle]);
 
   const dispatchLiveEvent = useCallback(
     (e: LiveEvent) => liveHandle?.onLiveEvent(e),

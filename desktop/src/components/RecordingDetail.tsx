@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AudioPlayer, type PlayerHandle } from "./AudioPlayer";
 import {
   useDiarization,
@@ -107,6 +108,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   const { reassign } = useSpeakerEdits(recording.id);
   const updateRec = useUpdateRecording();
   const toast = useToast();
+  const queryClient = useQueryClient();
   // "ready" = transcription + any diarization done
   // "diarizing" = transcription done, diarization in progress → still show transcript
   const isFullyReady = recording.status === "ready";
@@ -220,7 +222,18 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
               {exportOpen && (
                 <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
                   {["txt", "srt", "vtt", "json"].map((f) => (
-                    <button key={f} onClick={() => { api.downloadExport(recording.id, f, recording.title); setExportOpen(false); }}>
+                    <button
+                      key={f}
+                      onClick={async () => {
+                        setExportOpen(false);
+                        try {
+                          await api.downloadExport(recording.id, f, recording.title);
+                          await queryClient.invalidateQueries({ queryKey: ["topics"] });
+                        } catch (e) {
+                          toast((e as Error).message, "error");
+                        }
+                      }}
+                    >
                       .{f.toUpperCase()}
                     </button>
                   ))}
@@ -239,6 +252,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
                       try {
                         const res = await api.sendToFolder(recording.id);
                         toast(`Gesendet: ${res.path}`, "success");
+                        await queryClient.invalidateQueries({ queryKey: ["topics"] });
                       } catch (e) {
                         toast((e as Error).message, "error");
                       }

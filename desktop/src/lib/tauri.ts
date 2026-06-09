@@ -33,6 +33,25 @@ export async function getSystemAudioCapability(): Promise<SystemAudioCapability>
   return invoke<SystemAudioCapability>("system_audio_capability");
 }
 
+export type TrayRecordingState = "idle" | "starting" | "recording" | "paused" | "saving";
+
+export async function setTrayRecordingState(payload: {
+  state: TrayRecordingState;
+  elapsed: number;
+  topicName: string | null;
+  canStart: boolean;
+}): Promise<void> {
+  if (!isTauri()) return;
+  await invoke<void>("set_tray_recording_state", {
+    payload: {
+      state: payload.state,
+      elapsed: Math.max(0, Math.floor(payload.elapsed)),
+      topicName: payload.topicName,
+      canStart: payload.canStart,
+    },
+  });
+}
+
 /** Native folder picker (Tauri only); returns null in a plain browser. */
 export async function pickFolder(): Promise<string | null> {
   if (!isTauri()) return null;

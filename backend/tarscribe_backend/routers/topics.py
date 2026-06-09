@@ -6,16 +6,47 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Recording, Topic
-from ..schemas import TopicCreate, TopicUpdate
+from ..models import DiarizationRun, Recording, Topic, Transcript
+from ..schemas import TopicCreate, TopicOverview, TopicUpdate
 from ..security import require_token
 
 router = APIRouter(prefix="/api/topics", tags=["topics"], dependencies=[Depends(require_token)])
 
 
 @router.get("")
-def list_topics(session: Session = Depends(get_session)) -> list[Topic]:
-    return list(session.exec(select(Topic).order_by(Topic.created_at)).all())
+def list_topics(session: Session = Depends(get_session)) -> list[TopicOverview]:
+    topics = list(session.exec(select(Topic).order_by(Topic.created_at)).all())
+    recordings = list(session.exec(select(Recording)).all())
+    transcript_ids = set(session.exec(select(Transcript.recording_id).distinct()).all())
+    diarized_ids = set(
+        session.exec(
+            select(DiarizationRun.recording_id)
+            .where(DiarizationRun.is_active == True)  # noqa: E712
+            .distinct()
+        ).all()
+    )
+
+    by_topic: dict[int, list[Recording]] = {}
+    for rec in recordings:
+        by_topic.setdefault(rec.topic_id, []).append(rec)
+
+    result: list[TopicOverview] = []
+    for topic in topics:
+        rows = by_topic.get(topic.id or 0, [])
+        result.append(
+            TopicOverview(
+                id=topic.id or 0,
+                name=topic.name,
+                color=topic.color,
+                export_path=topic.export_path,
+                created_at=topic.created_at,
+                recording_count=len(rows),
+                transcribed_count=sum(1 for rec in rows if rec.id in transcript_ids),
+                diarized_count=sum(1 for rec in rows if rec.id in diarized_ids),
+                exported_count=sum(1 for rec in rows if rec.exported_at is not None),
+            )
+        )
+    return result
 
 
 @router.post("", status_code=201)

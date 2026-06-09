@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
 import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
@@ -22,7 +22,7 @@ import {
 import { useJobSocket } from "./hooks/useJobs";
 import { useRecording } from "./hooks/useRecording";
 import { api, waitForBackend } from "./lib/api";
-import { invoke, isTauri } from "./lib/tauri";
+import { invoke, isTauri, setTrayRecordingState } from "./lib/tauri";
 import type { Recording, Topic } from "./lib/types";
 
 const clampSidebarWidth = (width: number) =>
@@ -61,6 +61,26 @@ function TopicRow({
   const update = useUpdateTopic();
   const del = useDeleteTopic();
   const recording = useRecording();
+  const artifactBadges = [
+    {
+      key: "transcribed",
+      label: "T",
+      count: topic.transcribed_count,
+      title: `${topic.transcribed_count} transkribiert`,
+    },
+    {
+      key: "diarized",
+      label: "D",
+      count: topic.diarized_count,
+      title: `${topic.diarized_count} mit Sprechererkennung`,
+    },
+    {
+      key: "exported",
+      label: "E",
+      count: topic.exported_count,
+      title: `${topic.exported_count} exportiert`,
+    },
+  ].filter((item) => item.count > 0);
 
   if (editing) {
     return (
@@ -90,6 +110,15 @@ function TopicRow({
     >
       <span className="topic-dot" style={{ background: topic.color }} />
       <span className="topic-name">{topic.name}</span>
+      {artifactBadges.length > 0 && (
+        <span className="topic-artifacts" aria-label="Verarbeitungsstatus">
+          {artifactBadges.map((item) => (
+            <span key={item.key} className={`topic-artifact ${item.key}`} title={item.title}>
+              {item.label}{item.count}
+            </span>
+          ))}
+        </span>
+      )}
       <button
         className="topic-del"
         title={
@@ -171,7 +200,27 @@ export default function App() {
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
   const toast = useToast();
   const recording = useRecording();
+  const currentTopicRef = useRef<Topic | null>(null);
+  const recordingRef = useRef(recording);
   useJobSocket(recording.dispatchLiveEvent);
+  const current = topics?.find((t) => t.id === activeTopic);
+
+  useEffect(() => {
+    currentTopicRef.current = current ?? null;
+  }, [current]);
+
+  useEffect(() => {
+    recordingRef.current = recording;
+  }, [recording]);
+
+  useEffect(() => {
+    setTrayRecordingState({
+      state: recording.state,
+      elapsed: recording.elapsed,
+      topicName: recording.topicName ?? current?.name ?? null,
+      canStart: recording.state === "idle" && !!current,
+    }).catch(() => {});
+  }, [current, recording.elapsed, recording.state, recording.topicName]);
 
   // Keep openRecording in sync with live query data so status changes
   // (e.g. diarizing → ready) are reflected without navigating away.
@@ -260,6 +309,32 @@ export default function App() {
       listen<string>("menu", (e) => {
         if (e.payload === "settings") setShowSettings(true);
         if (e.payload === "new-topic") setShowTopicModal(true);
+        if (e.payload === "record-start") {
+          const topic = currentTopicRef.current;
+          const activeRecording = recordingRef.current;
+          if (!topic) {
+            setShowTopicModal(true);
+            toast("Wähle zuerst einen Themenbereich für die Aufnahme.", "info");
+            return;
+          }
+          if (activeRecording.state === "idle") {
+            void activeRecording.start(topic.id, topic.name);
+          }
+        }
+        if (e.payload === "record-pause") {
+          const activeRecording = recordingRef.current;
+          if (activeRecording.state === "recording") activeRecording.pause();
+        }
+        if (e.payload === "record-resume") {
+          const activeRecording = recordingRef.current;
+          if (activeRecording.state === "paused") activeRecording.resume();
+        }
+        if (e.payload === "record-stop") {
+          const activeRecording = recordingRef.current;
+          if (activeRecording.state === "recording" || activeRecording.state === "paused") {
+            void activeRecording.stop();
+          }
+        }
         if (e.payload === "check-update") {
           checkForUpdate().then((u) => {
             if (u) {
@@ -273,7 +348,7 @@ export default function App() {
       }).then((u) => (unlisten = u));
     });
     return () => unlisten?.();
-  }, []);
+  }, [toast]);
 
   // Keep the selection valid when the active topic is deleted.
   useEffect(() => {
@@ -294,8 +369,6 @@ export default function App() {
     );
   if (!ready) return <Splash error={error} />;
   if (needsSetup) return <FirstRunWizard onDone={() => setNeedsSetup(false)} />;
-
-  const current = topics?.find((t) => t.id === activeTopic);
 
   return (
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}>

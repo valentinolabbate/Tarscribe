@@ -4,6 +4,10 @@ export interface Topic {
   color: string;
   export_path: string | null;
   created_at: string;
+  recording_count: number;
+  transcribed_count: number;
+  diarized_count: number;
+  exported_count: number;
 }
 
 export type RecordingStatus =
@@ -24,6 +28,7 @@ export interface Recording {
   sample_rate: number;
   language: string | null;
   status: RecordingStatus;
+  exported_at: string | null;
   created_at: string;
 }
 

@@ -176,6 +176,36 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.topic-artifacts {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+.topic-artifact {
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-faint) 13%, transparent);
+  color: var(--text-faint);
+  font-size: 9px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  text-align: center;
+}
+.topic-artifact.transcribed {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.topic-artifact.diarized {
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: var(--warn);
+}
+.topic-artifact.exported {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
 .topic-del {
   opacity: 0;
   background: transparent;

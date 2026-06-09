@@ -2,10 +2,15 @@
 //!
 //! Custom items emit a `menu` event to the frontend (e.g. "settings", "new-topic",
 //! "check-update"); standard items use predefined system actions. The tray is kept
-//! in app state so an "update available" badge can be shown in the status bar.
+//! in app state so update and live-recording status can be shown in the status bar.
 
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
+use std::time::{Duration, Instant};
 
+use serde::Deserialize;
 use tauri::{
     menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{TrayIcon, TrayIconBuilder},
@@ -13,7 +18,58 @@ use tauri::{
 };
 
 #[derive(Default)]
-pub struct TrayState(pub Mutex<Option<TrayIcon>>);
+pub struct TrayState {
+    tray: Mutex<Option<TrayIcon>>,
+    meta: Mutex<TrayMeta>,
+    timer_running: AtomicBool,
+}
+
+#[derive(Clone)]
+struct TrayMeta {
+    update_available: bool,
+    update_version: Option<String>,
+    recording: TrayRecordingMeta,
+}
+
+impl Default for TrayMeta {
+    fn default() -> Self {
+        Self {
+            update_available: false,
+            update_version: None,
+            recording: TrayRecordingMeta::default(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TrayRecordingMeta {
+    state: String,
+    elapsed: u64,
+    topic_name: Option<String>,
+    can_start: bool,
+    updated_at: Instant,
+}
+
+impl Default for TrayRecordingMeta {
+    fn default() -> Self {
+        Self {
+            state: "idle".to_string(),
+            elapsed: 0,
+            topic_name: None,
+            can_start: false,
+            updated_at: Instant::now(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrayRecordingPayload {
+    state: String,
+    elapsed: u64,
+    topic_name: Option<String>,
+    can_start: bool,
+}
 
 pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     let settings = MenuItemBuilder::new("Einstellungen…")
@@ -84,10 +140,12 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItemBuilder::new("Tarscribe öffnen").id("show").build(app)?;
-    let check = MenuItemBuilder::new("Nach Updates suchen…").id("check-update").build(app)?;
-    let quit = MenuItemBuilder::new("Beenden").id("quit").build(app)?;
-    let tray_menu = MenuBuilder::new(app).items(&[&show, &check, &quit]).build()?;
+    let meta = {
+        let state = app.state::<TrayState>();
+        let meta = state.meta.lock().unwrap().clone();
+        meta
+    };
+    let tray_menu = tray_menu(app, &meta)?;
 
     let tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
@@ -95,41 +153,272 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&tray_menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => {
-                if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.show();
-                    let _ = w.set_focus();
-                }
+                show_main_window(app);
             }
             "check-update" => {
                 let _ = app.emit("menu", "check-update");
+            }
+            "record-start" => {
+                let _ = app.emit("menu", "record-start");
+            }
+            "record-pause" => {
+                let _ = app.emit("menu", "record-pause");
+            }
+            "record-resume" => {
+                let _ = app.emit("menu", "record-resume");
+            }
+            "record-stop" => {
+                let _ = app.emit("menu", "record-stop");
             }
             "quit" => app.exit(0),
             _ => {}
         })
         .build(app)?;
 
-    app.state::<TrayState>().0.lock().unwrap().replace(tray);
+    let state = app.state::<TrayState>();
+    state.tray.lock().unwrap().replace(tray);
+    apply_tray(app, &state);
     Ok(())
 }
 
 /// Show/clear an "update available" indicator in the status bar.
 #[tauri::command]
 pub fn set_update_badge(
+    app: AppHandle,
     state: tauri::State<TrayState>,
     available: bool,
     version: Option<String>,
 ) {
-    if let Some(tray) = state.0.lock().unwrap().as_ref() {
-        if available {
-            let _ = tray.set_title(Some("●"));
-            let label = match version {
-                Some(v) => format!("Tarscribe — Update verfügbar ({v})"),
-                None => "Tarscribe — Update verfügbar".to_string(),
-            };
-            let _ = tray.set_tooltip(Some(&label));
-        } else {
-            let _ = tray.set_title(None::<&str>);
-            let _ = tray.set_tooltip(Some("Tarscribe"));
+    {
+        let mut meta = state.meta.lock().unwrap();
+        meta.update_available = available;
+        meta.update_version = version;
+    }
+    apply_tray(&app, &state);
+}
+
+#[tauri::command]
+pub fn set_tray_recording_state(
+    app: AppHandle,
+    state: tauri::State<TrayState>,
+    payload: TrayRecordingPayload,
+) {
+    {
+        let mut meta = state.meta.lock().unwrap();
+        meta.recording = TrayRecordingMeta {
+            state: payload.state,
+            elapsed: payload.elapsed,
+            topic_name: payload.topic_name,
+            can_start: payload.can_start,
+            updated_at: Instant::now(),
+        };
+    }
+    apply_tray(&app, &state);
+    ensure_recording_timer(app, &state);
+}
+
+fn ensure_recording_timer(app: AppHandle, state: &TrayState) {
+    if !is_recording(state) || state.timer_running.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let state = app.state::<TrayState>();
+            if !is_recording(&state) {
+                state.timer_running.store(false, Ordering::SeqCst);
+                break;
+            }
+            apply_tray(&app, &state);
         }
+    });
+}
+
+fn is_recording(state: &TrayState) -> bool {
+    state.meta.lock().unwrap().recording.state == "recording"
+}
+
+fn apply_tray(app: &AppHandle, state: &TrayState) {
+    let meta = state.meta.lock().unwrap().clone();
+    let title = tray_title(&meta);
+    let tooltip = tray_tooltip(&meta);
+    let menu = tray_menu(app, &meta);
+    if let Some(tray) = state.tray.lock().unwrap().as_ref() {
+        let _ = tray.set_title(title.as_deref());
+        let _ = tray.set_tooltip(Some(&tooltip));
+        if let Ok(menu) = menu {
+            let _ = tray.set_menu(Some(menu));
+        }
+    }
+}
+
+fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    let show = MenuItemBuilder::new("Tarscribe öffnen").id("show").build(app)?;
+    let check_label = match &meta.update_version {
+        Some(version) if meta.update_available => format!("Update {version} anzeigen…"),
+        _ => "Nach Updates suchen…".to_string(),
+    };
+    let check = MenuItemBuilder::new(check_label).id("check-update").build(app)?;
+    let quit = MenuItemBuilder::new("Beenden").id("quit").build(app)?;
+
+    let recording = &meta.recording;
+    let elapsed = format_elapsed(recording.effective_elapsed());
+    let topic = recording
+        .topic_name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Aufnahme");
+
+    let menu = match recording.state.as_str() {
+        "recording" => {
+            let status = MenuItemBuilder::new(format!("Aufnahme läuft · {topic} · {elapsed}"))
+                .id("record-status")
+                .enabled(false)
+                .build(app)?;
+            let pause = MenuItemBuilder::new("Aufnahme pausieren")
+                .id("record-pause")
+                .build(app)?;
+            let stop = MenuItemBuilder::new("Aufnahme stoppen")
+                .id("record-stop")
+                .build(app)?;
+            MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&status)
+                .item(&pause)
+                .item(&stop)
+                .separator()
+                .item(&check)
+                .item(&quit)
+                .build()?
+        }
+        "paused" => {
+            let status = MenuItemBuilder::new(format!("Aufnahme pausiert · {topic} · {elapsed}"))
+                .id("record-status")
+                .enabled(false)
+                .build(app)?;
+            let resume = MenuItemBuilder::new("Aufnahme fortsetzen")
+                .id("record-resume")
+                .build(app)?;
+            let stop = MenuItemBuilder::new("Aufnahme stoppen")
+                .id("record-stop")
+                .build(app)?;
+            MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&status)
+                .item(&resume)
+                .item(&stop)
+                .separator()
+                .item(&check)
+                .item(&quit)
+                .build()?
+        }
+        "starting" | "saving" => {
+            let label = if recording.state == "starting" {
+                "Aufnahme startet…".to_string()
+            } else {
+                "Aufnahme wird gespeichert…".to_string()
+            };
+            let status = MenuItemBuilder::new(label)
+                .id("record-status")
+                .enabled(false)
+                .build(app)?;
+            MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&status)
+                .separator()
+                .item(&check)
+                .item(&quit)
+                .build()?
+        }
+        _ => {
+            let start_label = recording
+                .topic_name
+                .as_ref()
+                .filter(|name| !name.trim().is_empty())
+                .map(|name| format!("Aufnahme starten: {name}"))
+                .unwrap_or_else(|| "Aufnahme starten".to_string());
+            let start = MenuItemBuilder::new(start_label)
+                .id("record-start")
+                .enabled(recording.can_start)
+                .build(app)?;
+            MenuBuilder::new(app)
+                .item(&show)
+                .separator()
+                .item(&start)
+                .separator()
+                .item(&check)
+                .item(&quit)
+                .build()?
+        }
+    };
+    Ok(menu)
+}
+
+fn tray_title(meta: &TrayMeta) -> Option<String> {
+    let recording = &meta.recording;
+    match recording.state.as_str() {
+        "recording" => Some(format!("● {}", format_elapsed(recording.effective_elapsed()))),
+        "paused" => Some(format!("II {}", format_elapsed(recording.effective_elapsed()))),
+        "starting" => Some("●".to_string()),
+        "saving" => Some("…".to_string()),
+        _ if meta.update_available => Some("●".to_string()),
+        _ => None,
+    }
+}
+
+fn tray_tooltip(meta: &TrayMeta) -> String {
+    let recording = &meta.recording;
+    let topic = recording
+        .topic_name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Aufnahme");
+    match recording.state.as_str() {
+        "recording" => format!(
+            "Tarscribe — Aufnahme läuft: {topic} ({})",
+            format_elapsed(recording.effective_elapsed())
+        ),
+        "paused" => format!(
+            "Tarscribe — Aufnahme pausiert: {topic} ({})",
+            format_elapsed(recording.effective_elapsed())
+        ),
+        "starting" => "Tarscribe — Aufnahme startet".to_string(),
+        "saving" => "Tarscribe — Aufnahme wird gespeichert".to_string(),
+        _ if meta.update_available => match &meta.update_version {
+            Some(v) => format!("Tarscribe — Update verfügbar ({v})"),
+            None => "Tarscribe — Update verfügbar".to_string(),
+        },
+        _ => "Tarscribe".to_string(),
+    }
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+impl TrayRecordingMeta {
+    fn effective_elapsed(&self) -> u64 {
+        if self.state == "recording" {
+            self.elapsed.saturating_add(self.updated_at.elapsed().as_secs())
+        } else {
+            self.elapsed
+        }
+    }
+}
+
+fn format_elapsed(seconds: u64) -> String {
+    let h = seconds / 3600;
+    let m = (seconds % 3600) / 60;
+    let s = seconds % 60;
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
     }
 }

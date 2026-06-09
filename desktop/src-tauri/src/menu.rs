@@ -4,11 +4,7 @@
 //! "check-update"); standard items use predefined system actions. The tray is kept
 //! in app state so update and live-recording status can be shown in the status bar.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Mutex,
-};
-use std::time::{Duration, Instant};
+use std::sync::Mutex;
 
 use serde::Deserialize;
 use tauri::{
@@ -21,7 +17,6 @@ use tauri::{
 pub struct TrayState {
     tray: Mutex<Option<TrayIcon>>,
     meta: Mutex<TrayMeta>,
-    timer_running: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -47,7 +42,6 @@ struct TrayRecordingMeta {
     elapsed: u64,
     topic_name: Option<String>,
     can_start: bool,
-    updated_at: Instant,
 }
 
 impl Default for TrayRecordingMeta {
@@ -57,7 +51,6 @@ impl Default for TrayRecordingMeta {
             elapsed: 0,
             topic_name: None,
             can_start: false,
-            updated_at: Instant::now(),
         }
     }
 }
@@ -177,7 +170,7 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
     let state = app.state::<TrayState>();
     state.tray.lock().unwrap().replace(tray);
-    apply_tray(app, &state);
+    apply_tray(app, &state, true);
     Ok(())
 }
 
@@ -194,7 +187,7 @@ pub fn set_update_badge(
         meta.update_available = available;
         meta.update_version = version;
     }
-    apply_tray(&app, &state);
+    apply_tray(&app, &state, true);
 }
 
 #[tauri::command]
@@ -203,6 +196,14 @@ pub fn set_tray_recording_state(
     state: tauri::State<TrayState>,
     payload: TrayRecordingPayload,
 ) {
+    let should_apply = {
+        let meta = state.meta.lock().unwrap();
+        meta.recording.affects_native_tray(
+            &payload.state,
+            payload.topic_name.as_deref(),
+            payload.can_start,
+        )
+    };
     {
         let mut meta = state.meta.lock().unwrap();
         meta.recording = TrayRecordingMeta {
@@ -210,43 +211,22 @@ pub fn set_tray_recording_state(
             elapsed: payload.elapsed,
             topic_name: payload.topic_name,
             can_start: payload.can_start,
-            updated_at: Instant::now(),
         };
     }
-    apply_tray(&app, &state);
-    ensure_recording_timer(app, &state);
-}
-
-fn ensure_recording_timer(app: AppHandle, state: &TrayState) {
-    if !is_recording(state) || state.timer_running.swap(true, Ordering::SeqCst) {
-        return;
+    if should_apply {
+        apply_tray(&app, &state, true);
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        loop {
-            std::thread::sleep(Duration::from_secs(1));
-            let state = app.state::<TrayState>();
-            if !is_recording(&state) {
-                state.timer_running.store(false, Ordering::SeqCst);
-                break;
-            }
-            apply_tray(&app, &state);
-        }
-    });
 }
 
-fn is_recording(state: &TrayState) -> bool {
-    state.meta.lock().unwrap().recording.state == "recording"
-}
-
-fn apply_tray(app: &AppHandle, state: &TrayState) {
+fn apply_tray(app: &AppHandle, state: &TrayState, rebuild_menu: bool) {
     let meta = state.meta.lock().unwrap().clone();
     let title = tray_title(&meta);
     let tooltip = tray_tooltip(&meta);
-    let menu = tray_menu(app, &meta);
+    let menu = rebuild_menu.then(|| tray_menu(app, &meta));
     if let Some(tray) = state.tray.lock().unwrap().as_ref() {
         let _ = tray.set_title(title.as_deref());
         let _ = tray.set_tooltip(Some(&tooltip));
-        if let Ok(menu) = menu {
+        if let Some(Ok(menu)) = menu {
             let _ = tray.set_menu(Some(menu));
         }
     }
@@ -262,7 +242,6 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
     let quit = MenuItemBuilder::new("Beenden").id("quit").build(app)?;
 
     let recording = &meta.recording;
-    let elapsed = format_elapsed(recording.effective_elapsed());
     let topic = recording
         .topic_name
         .as_deref()
@@ -271,7 +250,7 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
 
     let menu = match recording.state.as_str() {
         "recording" => {
-            let status = MenuItemBuilder::new(format!("Aufnahme läuft · {topic} · {elapsed}"))
+            let status = MenuItemBuilder::new(format!("Aufnahme läuft · {topic}"))
                 .id("record-status")
                 .enabled(false)
                 .build(app)?;
@@ -293,6 +272,7 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
                 .build()?
         }
         "paused" => {
+            let elapsed = format_elapsed(recording.elapsed);
             let status = MenuItemBuilder::new(format!("Aufnahme pausiert · {topic} · {elapsed}"))
                 .id("record-status")
                 .enabled(false)
@@ -360,8 +340,8 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
 fn tray_title(meta: &TrayMeta) -> Option<String> {
     let recording = &meta.recording;
     match recording.state.as_str() {
-        "recording" => Some(format!("● {}", format_elapsed(recording.effective_elapsed()))),
-        "paused" => Some(format!("II {}", format_elapsed(recording.effective_elapsed()))),
+        "recording" => Some("● REC".to_string()),
+        "paused" => Some(format!("II {}", format_elapsed(recording.elapsed))),
         "starting" => Some("●".to_string()),
         "saving" => Some("…".to_string()),
         _ if meta.update_available => Some("●".to_string()),
@@ -377,13 +357,10 @@ fn tray_tooltip(meta: &TrayMeta) -> String {
         .filter(|name| !name.trim().is_empty())
         .unwrap_or("Aufnahme");
     match recording.state.as_str() {
-        "recording" => format!(
-            "Tarscribe — Aufnahme läuft: {topic} ({})",
-            format_elapsed(recording.effective_elapsed())
-        ),
+        "recording" => format!("Tarscribe — Aufnahme läuft: {topic}"),
         "paused" => format!(
             "Tarscribe — Aufnahme pausiert: {topic} ({})",
-            format_elapsed(recording.effective_elapsed())
+            format_elapsed(recording.elapsed)
         ),
         "starting" => "Tarscribe — Aufnahme startet".to_string(),
         "saving" => "Tarscribe — Aufnahme wird gespeichert".to_string(),
@@ -403,12 +380,10 @@ fn show_main_window(app: &AppHandle) {
 }
 
 impl TrayRecordingMeta {
-    fn effective_elapsed(&self) -> u64 {
-        if self.state == "recording" {
-            self.elapsed.saturating_add(self.updated_at.elapsed().as_secs())
-        } else {
-            self.elapsed
-        }
+    fn affects_native_tray(&self, state: &str, topic_name: Option<&str>, can_start: bool) -> bool {
+        self.state != state
+            || self.topic_name.as_deref() != topic_name
+            || self.can_start != can_start
     }
 }
 

@@ -73,4 +73,4 @@ cd backend && .venv/bin/python -m pytest
 
 - **ffmpeg**: Die App findet Homebrew-Installationen automatisch (`/opt/homebrew/bin`, `/usr/local/bin`).
   Optional via `TARSCRIBE_FFMPEG_PATH` und `TARSCRIBE_FFPROBE_PATH` überschreibbar.
-- **Aktueller Stand**: v0.3.2 — macOS Apple Silicon
+- **Aktueller Stand**: v0.3.3 — macOS Apple Silicon

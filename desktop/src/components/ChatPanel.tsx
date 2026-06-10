@@ -1,4 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css";
 import { api } from "../lib/api";
 import { fmtDuration } from "../lib/format";
 import type { ChatMessage, RagSource, RagStatus, Topic } from "../lib/types";
@@ -6,6 +10,14 @@ import { ChatIcon, SearchIcon } from "./icons";
 
 interface UiMessage extends ChatMessage {
   sources?: RagSource[];
+}
+
+function Markdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+      {children}
+    </ReactMarkdown>
+  );
 }
 
 export function ChatPanel({
@@ -20,6 +32,8 @@ export function ChatPanel({
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which source snippet is expanded, keyed by message + source index.
+  const [openSnippet, setOpenSnippet] = useState<{ m: number; s: number } | null>(null);
   const [status, setStatus] = useState<RagStatus | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -138,34 +152,102 @@ export function ChatPanel({
             style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%" }}
           >
             <div
+              className={m.role === "assistant" ? "markdown" : undefined}
               style={{
                 padding: "10px 14px",
                 borderRadius: 12,
                 background: m.role === "user" ? "var(--accent)" : "var(--bg-elevated)",
                 color: m.role === "user" ? "var(--accent-ink)" : "var(--text)",
                 border: m.role === "user" ? "none" : "1px solid var(--border)",
-                whiteSpace: "pre-wrap",
+                whiteSpace: m.role === "user" ? "pre-wrap" : undefined,
                 lineHeight: 1.55,
               }}
             >
-              {m.content || (streaming && i === messages.length - 1 ? "…" : "")}
+              {m.role === "assistant" ? (
+                m.content ? (
+                  <Markdown>{m.content}</Markdown>
+                ) : streaming && i === messages.length - 1 ? (
+                  "…"
+                ) : (
+                  ""
+                )
+              ) : (
+                m.content
+              )}
             </div>
             {m.sources && m.sources.length > 0 && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {m.sources.map((s) => (
-                  <button
-                    key={s.index}
-                    className="badge"
-                    title={`${s.recording_title}${s.source_type === "summary" ? " · Zusammenfassung" : ""}`}
-                    onClick={() => onOpenSource(s.recording_id)}
-                    style={{ cursor: "pointer", fontSize: 11.5 }}
-                  >
-                    [{s.index}] {s.recording_title}
-                    {s.start_sec != null ? ` · ${fmtDuration(s.start_sec)}` : ""}
-                  </button>
-                ))}
+                {m.sources.map((s) => {
+                  const open = openSnippet?.m === i && openSnippet?.s === s.index;
+                  return (
+                    <button
+                      key={s.index}
+                      className="badge"
+                      title="Klicken: Textausschnitt anzeigen"
+                      onClick={() =>
+                        setOpenSnippet(open ? null : { m: i, s: s.index })
+                      }
+                      style={{
+                        cursor: "pointer",
+                        fontSize: 11.5,
+                        borderColor: open ? "var(--accent)" : undefined,
+                      }}
+                    >
+                      [{s.index}] {s.recording_title}
+                      {s.start_sec != null ? ` · ${fmtDuration(s.start_sec)}` : ""}
+                    </button>
+                  );
+                })}
               </div>
             )}
+            {(() => {
+              const s = m.sources?.find(
+                (src) => openSnippet?.m === i && openSnippet?.s === src.index,
+              );
+              if (!s) return null;
+              return (
+                <div
+                  style={{
+                    marginTop: 6,
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: "var(--bg-input)",
+                    border: "1px solid var(--border)",
+                    fontSize: 12.5,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 6,
+                      color: "var(--text-faint)",
+                      fontSize: 11.5,
+                    }}
+                  >
+                    <span>
+                      [{s.index}] {s.recording_title}
+                      {s.source_type === "summary" ? " · Zusammenfassung" : ""}
+                      {s.start_sec != null
+                        ? ` · ${fmtDuration(s.start_sec)}${s.end_sec != null ? `–${fmtDuration(s.end_sec)}` : ""}`
+                        : ""}
+                    </span>
+                    <div style={{ flex: 1 }} />
+                    <button
+                      className="btn ghost"
+                      style={{ padding: "2px 8px", fontSize: 11.5 }}
+                      onClick={() => onOpenSource(s.recording_id)}
+                    >
+                      Im Dokument öffnen
+                    </button>
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap", color: "var(--text)", lineHeight: 1.5 }}>
+                    {s.text}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         ))}
       </div>

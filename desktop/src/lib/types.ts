@@ -272,7 +272,10 @@ export interface RagSource {
   recording_title: string;
   source_type: "transcript" | "summary";
   start_sec?: number | null;
+  end_sec?: number | null;
   speaker?: string | null;
+  /** The retrieved passage text, shown inline when a source chip is clicked. */
+  text?: string;
 }
 
 export interface ChatMessage {

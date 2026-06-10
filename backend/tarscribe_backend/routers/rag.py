@@ -178,7 +178,9 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                 "recording_title": h["recording_title"],
                 "source_type": h["source_type"],
                 "start_sec": h.get("start_sec"),
+                "end_sec": h.get("end_sec"),
                 "speaker": h.get("speaker"),
+                "text": h["text"],
             }
         )
     context = "\n\n".join(context_lines) if context_lines else "(keine relevanten Ausschnitte gefunden)"

@@ -131,5 +131,12 @@ def get_summary(summary_id: int, session: Session = Depends(get_session)) -> Sum
 def delete_summary(summary_id: int, session: Session = Depends(get_session)) -> None:
     summ = session.get(Summary, summary_id)
     if summ:
+        # Remove indexed chunks first — RagChunk.summary_id FK would block the delete.
+        from ..db import vec_available
+
+        if vec_available():
+            from .. import rag
+
+            rag.delete_summary_index(session, summary_id)
         session.delete(summ)
         session.commit()

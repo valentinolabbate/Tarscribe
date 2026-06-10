@@ -95,49 +95,59 @@ def _run_lightweight_migrations() -> None:
     _mark_stale_live_sessions()
 
 
-def _ensure_vec_table() -> None:
-    """Create the sqlite-vec virtual table for chunk embeddings.
+def _ensure_vec_table() -> bool:
+    """Create/repair the sqlite-vec table for chunk embeddings.
 
-    The embedding dimension is model-dependent, so it is read from prefs. If the
-    configured dimension changes, the vec table and all indexed chunks are dropped
-    so a re-index rebuilds them at the new dimension.
+    Embeddings from different models (or dimensions) are not comparable, so when
+    the configured embedding model or its dimension changes, the existing index is
+    wiped and must be rebuilt. Returns True if an existing index was invalidated
+    (so the caller can trigger a re-index).
     """
     if not vec_available():
-        return
+        return False
     from sqlalchemy import text
 
     from .settings_store import load_prefs
 
-    dim = int((load_prefs().get("rag") or {}).get("dimension") or 768)
+    rag = load_prefs().get("rag") or {}
+    dim = int(rag.get("dimension") or 768)
+    model = rag.get("model") or "nomic-embed-text"
+    invalidated = False
     with get_engine().begin() as conn:
         conn.execute(
             text(
                 "CREATE TABLE IF NOT EXISTS rag_index_meta (key TEXT PRIMARY KEY, value TEXT)"
             )
         )
-        row = conn.execute(
-            text("SELECT value FROM rag_index_meta WHERE key='dimension'")
-        ).fetchone()
-        stored_dim = int(row[0]) if row else None
-        if stored_dim is not None and stored_dim != dim:
-            # Dimension changed -> wipe the index; chunks must be re-embedded.
-            conn.execute(text("DROP TABLE IF EXISTS rag_chunk_vec"))
+        meta = {r[0]: r[1] for r in conn.execute(text("SELECT key, value FROM rag_index_meta"))}
+        stored_dim = int(meta["dimension"]) if "dimension" in meta else None
+        stored_model = meta.get("model")
+        dim_changed = stored_dim is not None and stored_dim != dim
+        model_changed = stored_model is not None and stored_model != model
+        if dim_changed or model_changed:
+            # Dimension change needs a fresh table (different vector width); a
+            # model change at the same dimension only needs the rows cleared.
+            if dim_changed:
+                conn.execute(text("DROP TABLE IF EXISTS rag_chunk_vec"))
+            else:
+                conn.execute(text("DELETE FROM rag_chunk_vec"))
             conn.execute(text("DELETE FROM rag_chunks"))
-            stored_dim = None
+            invalidated = True
         conn.execute(
             text(
                 f"CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunk_vec USING vec0("
                 f"embedding float[{dim}], topic_id integer, recording_id integer)"
             )
         )
-        if stored_dim != dim:
+        for key, value in (("dimension", str(dim)), ("model", str(model))):
             conn.execute(
                 text(
-                    "INSERT INTO rag_index_meta (key, value) VALUES ('dimension', :d) "
+                    "INSERT INTO rag_index_meta (key, value) VALUES (:k, :v) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
                 ),
-                {"d": str(dim)},
+                {"k": key, "v": value},
             )
+    return invalidated
 
 
 def _mark_stale_live_sessions() -> None:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from .. import jobs
 from ..db import get_session
 from ..models import ManualEdit, Recording, SpeakerLabel
 from ..security import require_token
@@ -54,6 +55,7 @@ def rename_speaker(
     label.display_name = payload.name.strip() or None
     session.add(label)
     session.commit()
+    jobs.schedule_reindex(recording_id)
     return {"ok": True}
 
 
@@ -72,6 +74,7 @@ def merge_speakers(
         )
     )
     session.commit()
+    jobs.schedule_reindex(recording_id)
     return {"ok": True}
 
 
@@ -90,6 +93,7 @@ def reassign_segment(
         )
     )
     session.commit()
+    jobs.schedule_reindex(recording_id)
     return {"ok": True}
 
 
@@ -105,4 +109,5 @@ def reset_overlay(recording_id: int, session: Session = Depends(get_session)) ->
     ).all():
         session.delete(lab)
     session.commit()
+    jobs.schedule_reindex(recording_id)
     return {"ok": True}

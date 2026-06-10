@@ -337,6 +337,22 @@ def delete_recording_index(session: Session, recording_id: int) -> None:
     session.commit()
 
 
+def delete_summary_index(session: Session, summary_id: int) -> None:
+    """Remove a summary's chunks (+ vec rows) before the summary itself is deleted.
+
+    RagChunk.summary_id is a FK to summaries; without this, deleting an indexed
+    summary fails with a foreign-key constraint error.
+    """
+    conn = session.connection()
+    rows = session.exec(
+        select(RagChunk).where(RagChunk.summary_id == summary_id)
+    ).all()
+    for row in rows:
+        conn.exec_driver_sql("DELETE FROM rag_chunk_vec WHERE rowid = ?", (row.id,))
+        session.delete(row)
+    session.flush()
+
+
 # --- retrieval -------------------------------------------------------------
 def search(
     session: Session,

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from .. import jobs
 from ..db import get_session
 from ..ml.embedding import embed_speaker_segments, from_blob, to_blob, update_mean
 from ..ml.speaker_matching import apply_matches, match_recording
@@ -125,6 +126,7 @@ def enroll_from_label(
     sl.known_speaker_id = k.id
     session.add(sl)
     session.commit()
+    jobs.schedule_reindex(recording_id)
 
     from ..ml.lifecycle import unload_all
 
@@ -138,6 +140,7 @@ def match_now(recording_id: int, session: Session = Depends(get_session)) -> dic
     threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
     matches = match_recording(session, recording_id, threshold)
     apply_matches(session, recording_id, matches)
+    jobs.schedule_reindex(recording_id)
 
     from ..ml.lifecycle import unload_all
 

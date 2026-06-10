@@ -142,6 +142,62 @@ def test_topic_filter(env):
     assert all(h["topic_id"] == tid_a for h in hits)
 
 
+def test_delete_summary_index_removes_summary_chunks(env):
+    """Bug 1: deleting an indexed summary must not hit a FK constraint."""
+    db, rag = env
+    from tarscribe_backend.models import RagChunk, Summary
+    from sqlmodel import func, select
+
+    rid, _tid = _make_recording(db)
+    with db.session_scope() as s:
+        rec_summary = Summary(recording_id=rid, model="m", content="Launch in Q3. Budget 50k.")
+        s.add(rec_summary)
+        s.flush()
+        sid = rec_summary.id
+    with db.session_scope() as s:
+        rag.index_recording(s, rid)
+    with db.session_scope() as s:
+        before = s.exec(
+            select(func.count(RagChunk.id)).where(RagChunk.summary_id == sid)
+        ).one()
+    assert before >= 1
+    # Mirror the delete_summary flow: clear chunks, then delete the summary.
+    with db.session_scope() as s:
+        rag.delete_summary_index(s, sid)
+        s.delete(s.get(Summary, sid))  # would raise IntegrityError without the cleanup
+    with db.session_scope() as s:
+        after = s.exec(
+            select(func.count(RagChunk.id)).where(RagChunk.summary_id == sid)
+        ).one()
+        transcript_chunks = s.exec(
+            select(func.count(RagChunk.id)).where(RagChunk.recording_id == rid)
+        ).one()
+    assert after == 0
+    assert transcript_chunks >= 1  # transcript chunks survive
+
+
+def test_model_change_invalidates_index(env):
+    """Bug 3/4: switching the embedding model wipes the (now-incomparable) index."""
+    db, rag = env
+    from tarscribe_backend.models import RagChunk
+    from tarscribe_backend.settings_store import save_prefs
+    from sqlmodel import func, select
+
+    rid, _tid = _make_recording(db)
+    with db.session_scope() as s:
+        rag.index_recording(s, rid)
+    with db.session_scope() as s:
+        assert s.exec(select(func.count(RagChunk.id))).one() >= 1
+
+    # Change the embedding model -> ensure_vec_table reports invalidation + wipes.
+    prefs_rag = {"base_url": "http://x/v1", "model": "other-embed", "dimension": 768}
+    save_prefs({"rag": prefs_rag})
+    invalidated = db._ensure_vec_table()
+    assert invalidated is True
+    with db.session_scope() as s:
+        assert s.exec(select(func.count(RagChunk.id))).one() == 0
+
+
 def test_cascade_delete_removes_chunks(env):
     db, rag = env
     from tarscribe_backend.models import RagChunk

@@ -15,6 +15,6 @@ def _no_rag_autotrigger(monkeypatch):
     try:
         import tarscribe_backend.jobs as jobs
 
-        monkeypatch.setattr(jobs, "_maybe_enqueue_embedding", lambda *_a, **_k: None)
+        monkeypatch.setattr(jobs, "schedule_reindex", lambda *_a, **_k: None)
     except Exception:  # noqa: BLE001 - jobs may not be imported in some test runs
         pass

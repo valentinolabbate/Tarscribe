@@ -69,7 +69,7 @@ def get_config() -> dict:
 
 
 @router.put("/config")
-def set_config(payload: RagConfigIn) -> dict:
+def set_config(payload: RagConfigIn, session: Session = Depends(get_session)) -> dict:
     data = payload.model_dump(exclude_unset=True)
     patch: dict = {}
     if "enabled" in data:
@@ -80,12 +80,20 @@ def set_config(payload: RagConfigIn) -> dict:
         patch["rag"] = rag
     if patch:
         save_prefs(patch)
-    # Recreate the vec table if the dimension changed.
-    if "rag" in patch and "dimension" in data:
-        from ..db import _ensure_vec_table
 
-        _ensure_vec_table()
-    return get_config()
+    # If the embedding model or dimension changed, the old vectors are unusable:
+    # the index is wiped and re-indexed automatically so it never silently empties.
+    reindexing = 0
+    from sqlmodel import select
+
+    from ..db import _ensure_vec_table
+
+    if vec_available() and _ensure_vec_table() and R.rag_enabled():
+        from ..jobs import enqueue_embedding
+
+        rec_ids = session.exec(select(Recording.id)).all()
+        reindexing = len([j for j in (enqueue_embedding(r) for r in rec_ids) if j is not None])
+    return {**get_config(), "reindexing": reindexing}
 
 
 @router.get("/models")

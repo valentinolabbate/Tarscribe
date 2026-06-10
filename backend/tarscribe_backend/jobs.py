@@ -31,6 +31,9 @@ from .ws import hub
 
 # Heavy models are not thread-safe and saturate the device; serialize to 1 worker.
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-job")
+# Embedding (RAG) jobs are I/O-bound HTTP calls, not heavy local ML. Run them on a
+# dedicated worker so a bulk reindex never blocks ASR / diarization / summaries.
+_embed_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-embed")
 
 
 def serialize_job(job: Job) -> dict:
@@ -152,7 +155,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 s.add(rec)
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)
-        _maybe_enqueue_embedding(recording_id)
+        schedule_reindex(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
@@ -246,6 +249,8 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
             traceback.print_exc()
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+        # Re-diarization changes speaker assignment -> re-embed the (re-labeled) text.
+        schedule_reindex(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
@@ -379,7 +384,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
-        _maybe_enqueue_embedding(recording_id)
+        schedule_reindex(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         if acc:
@@ -424,12 +429,15 @@ def enqueue_embedding(recording_id: int) -> int | None:
         s.add(job)
         s.flush()
         job_id = job.id
-    _executor.submit(_run_embedding, recording_id, job_id)
+    _embed_executor.submit(_run_embedding, recording_id, job_id)
     return job_id
 
 
-def _maybe_enqueue_embedding(recording_id: int) -> None:
-    """Best-effort RAG reindex trigger (called after ASR / summary completes)."""
+def schedule_reindex(recording_id: int) -> None:
+    """Best-effort RAG reindex trigger after transcript/speaker/summary changes.
+
+    Call via the module (``jobs.schedule_reindex``) so it stays patchable in tests.
+    """
     try:
         enqueue_embedding(recording_id)
     except Exception:  # noqa: BLE001

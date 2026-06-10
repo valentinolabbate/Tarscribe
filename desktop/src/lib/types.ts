@@ -282,3 +282,16 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
 }
+
+export interface RagHit {
+  chunk_id: number;
+  recording_id: number;
+  recording_title: string;
+  topic_id: number;
+  source_type: "transcript" | "summary";
+  text: string;
+  start_sec?: number | null;
+  end_sec?: number | null;
+  speaker?: string | null;
+  distance: number;
+}

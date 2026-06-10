@@ -16,7 +16,8 @@ import { api } from "../lib/api";
 import { fmtDuration, jobPhaseLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
 import { useToast } from "./Toast";
-import { SpeakerIdIcon, WaveIcon } from "./icons";
+import { ChatIcon, SpeakerIdIcon, WaveIcon } from "./icons";
+import { ChatPanel } from "./ChatPanel";
 import { SummaryPanel } from "./SummaryPanel";
 import { TuningPanel } from "./TuningPanel";
 
@@ -120,6 +121,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
 
   const [showTuning, setShowTuning] = useState(false);
+  const [showAsk, setShowAsk] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const playerRef = useRef<PlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -276,6 +278,32 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
           )}
 
           <SummaryPanel recordingId={recording.id} />
+
+          <div style={{ marginBottom: 14 }}>
+            <button
+              className={showAsk ? "btn active" : "btn"}
+              onClick={() => setShowAsk((v) => !v)}
+            >
+              <ChatIcon width={15} height={15} /> Aufnahme fragen & durchsuchen {showAsk ? "▴" : "▾"}
+            </button>
+            {showAsk && (
+              <div
+                style={{
+                  marginTop: 10,
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  padding: 12,
+                  background: "var(--bg)",
+                }}
+              >
+                <ChatPanel
+                  embedded
+                  scopeRecording={{ id: recording.id, title: recording.title }}
+                  onOpenSource={(_rec, start) => playerRef.current?.seek(start ?? 0)}
+                />
+              </div>
+            )}
+          </div>
 
           {diar ? (
             <>

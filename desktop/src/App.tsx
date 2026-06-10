@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChatPanel } from "./components/ChatPanel";
+import { StartPage } from "./components/StartPage";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
 import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
@@ -11,7 +11,7 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { ChatIcon, FolderIcon, LogoIcon, PlusIcon, SettingsIcon, TrashIcon } from "./components/icons";
+import { FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TrashIcon } from "./components/icons";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
   useDeleteTopic,
@@ -163,7 +163,7 @@ export default function App() {
   const [activeTopic, setActiveTopic] = useState<number | null>(null);
   const [openRecording, setOpenRecording] = useState<Recording | null>(null);
   const [showTopicModal, setShowTopicModal] = useState(false);
-  const [showChat, setShowChat] = useState(false);
+  const [showHome, setShowHome] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
@@ -238,6 +238,7 @@ export default function App() {
     const rec = recording.lastFinishedRecording;
     recording.clearLastFinished();
     setActiveTopic(rec.topic_id);
+    setShowHome(false);
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
@@ -277,7 +278,7 @@ export default function App() {
     try {
       const rec = await api.getRecording(recordingId);
       setActiveTopic(rec.topic_id);
-      setShowChat(false);
+      setShowHome(false);
       setOpenRecording(rec);
     } catch {
       toast("Aufnahme konnte nicht geöffnet werden.", "error");
@@ -397,6 +398,16 @@ export default function App() {
           </div>
         </div>
 
+        <button
+          className={`topic-item ${showHome ? "active" : ""}`}
+          onClick={() => {
+            setShowHome(true);
+            setOpenRecording(null);
+          }}
+        >
+          <HomeIcon width={16} height={16} /> Start
+        </button>
+
         <div className="section-label">
           <span>Bibliothek</span>
           <button
@@ -413,11 +424,11 @@ export default function App() {
           <TopicRow
             key={t.id}
             topic={t}
-            active={t.id === activeTopic && !showChat}
+            active={t.id === activeTopic && !showHome}
             onSelect={() => {
               setActiveTopic(t.id);
               setOpenRecording(null);
-              setShowChat(false);
+              setShowHome(false);
             }}
           />
         ))}
@@ -429,15 +440,6 @@ export default function App() {
         )}
 
         <div style={{ flex: 1 }} />
-        <button
-          className={`topic-item ${showChat ? "active" : ""}`}
-          onClick={() => {
-            setShowChat(true);
-            setOpenRecording(null);
-          }}
-        >
-          <ChatIcon width={16} height={16} /> Wissens-Chat
-        </button>
         <div className="sidebar-status">
           <span className="sidebar-status-dot" />
           <div>
@@ -456,11 +458,11 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-title">
             <span className="topbar-eyebrow">
-              {showChat ? "Assistent" : openRecording ? "Aufnahme" : "Themenbereich"}
+              {showHome ? "Start" : openRecording ? "Aufnahme" : "Themenbereich"}
             </span>
             <h1>
-              {showChat
-                ? "Wissens-Chat"
+              {showHome
+                ? "Tarscribe"
                 : openRecording
                   ? openRecording.title
                   : current
@@ -470,7 +472,7 @@ export default function App() {
           </div>
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
-          {current && (
+          {current && !showHome && (
             <button
               className="btn ghost"
               title={current.export_path ? `Export-Ordner: ${current.export_path}` : "Export-Ordner festlegen"}
@@ -493,8 +495,8 @@ export default function App() {
               onResume={recording.resume}
               onStop={recording.stop}
             />
-          ) : showChat ? (
-            <ChatPanel topics={topics ?? []} onOpenSource={openRecordingById} />
+          ) : showHome ? (
+            <StartPage topics={topics ?? []} onOpenSource={openRecordingById} />
           ) : openRecording ? (
             <RecordingDetail
               recording={openRecording}
@@ -503,10 +505,7 @@ export default function App() {
           ) : current ? (
             <RecordingList topic={current} onOpen={setOpenRecording} />
           ) : (
-            <div className="empty">
-              <div className="big">Willkommen bei Tarscribe</div>
-              <div>Lege links einen Themenbereich an, um loszulegen.</div>
-            </div>
+            <StartPage topics={topics ?? []} onOpenSource={openRecordingById} />
           )}
         </div>
       </main>

@@ -103,6 +103,15 @@ export const SummaryIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+/** House — used for the start page nav entry. */
+export const HomeIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M3 11.5 12 4l9 7.5" />
+    <path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9" />
+    <path d="M9.5 20v-6h5v6" />
+  </svg>
+);
+
 /** Speech bubble — used for the knowledge chat. */
 export const ChatIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>

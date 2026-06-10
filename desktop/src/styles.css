@@ -1446,6 +1446,21 @@ button.utt-time:hover {
 }
 
 /* Markdown */
+.cite-link {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: 4px;
+  padding: 0 4px;
+  margin: 0 1px;
+  font-size: 0.7em;
+  font-weight: 650;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.cite-link:hover {
+  background: var(--accent-hover);
+}
 .markdown > :first-child {
   margin-top: 0;
 }

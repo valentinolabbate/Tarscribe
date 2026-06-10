@@ -49,6 +49,13 @@ class ChatIn(BaseModel):
     top_k: int | None = None
 
 
+class SearchIn(BaseModel):
+    query: str
+    topic_id: int | None = None
+    recording_id: int | None = None
+    top_k: int | None = None
+
+
 SYSTEM_PROMPT = (
     "Du bist der Wissensassistent von Tarscribe. Beantworte Fragen ausschließlich "
     "auf Basis der bereitgestellten Kontext-Ausschnitte aus Transkripten und "
@@ -146,6 +153,26 @@ def reindex(session: Session = Depends(get_session)) -> dict:
     recs = session.exec(select(Recording.id)).all()
     enqueued = [enqueue_embedding(rid) for rid in recs]
     return {"enqueued": len([j for j in enqueued if j is not None])}
+
+
+@router.post("/search")
+def semantic_search(payload: SearchIn, session: Session = Depends(get_session)) -> dict:
+    """Pure semantic retrieval (no LLM) — usable without a chat model configured."""
+    if not R.rag_enabled():
+        raise HTTPException(400, "RAG ist deaktiviert oder sqlite-vec nicht verfügbar.")
+    if not payload.query.strip():
+        return {"hits": []}
+    try:
+        hits = R.search(
+            session,
+            payload.query,
+            top_k=payload.top_k,
+            topic_id=payload.topic_id,
+            recording_id=payload.recording_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Suche fehlgeschlagen: {exc}") from exc
+    return {"hits": hits}
 
 
 @router.post("/chat")

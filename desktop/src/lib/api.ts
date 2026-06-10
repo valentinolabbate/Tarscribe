@@ -9,6 +9,7 @@ import type {
   LiveEvent,
   LiveSession,
   RagConfig,
+  RagHit,
   RagSource,
   RagStatus,
   Recording,
@@ -291,6 +292,20 @@ export const api = {
     request<{ saved: boolean; api_key_set: boolean }>("/api/rag/api-key", { method: "DELETE" }),
   getRagStatus: () => request<RagStatus>("/api/rag/status"),
   reindexRag: () => request<{ enqueued: number }>("/api/rag/reindex", { method: "POST" }),
+  ragSearch: (
+    query: string,
+    opts: { topicId?: number | null; recordingId?: number | null; topK?: number } = {},
+  ) =>
+    request<{ hits: RagHit[] }>("/api/rag/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        topic_id: opts.topicId ?? null,
+        recording_id: opts.recordingId ?? null,
+        top_k: opts.topK ?? null,
+      }),
+    }),
 
   /** Stream a RAG chat answer (SSE): sources first, then content deltas. */
   async ragChat(

@@ -61,6 +61,9 @@ pub fn run() {
             remove_quarantine();
 
             let handle = app.handle().clone();
+            // On a packaged install whose env predates an update, install any deps
+            // added since (e.g. sqlite-vec for RAG) before starting the backend.
+            sidecar::sync_dependencies_if_stale(&handle);
             match sidecar::start_if_ready(&handle) {
                 Ok(true) => {}
                 Ok(false) => {

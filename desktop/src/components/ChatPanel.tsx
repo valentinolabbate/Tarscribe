@@ -141,8 +141,9 @@ export function ChatPanel({
               style={{
                 padding: "10px 14px",
                 borderRadius: 12,
-                background: m.role === "user" ? "var(--accent, #6366f1)" : "var(--surface-2, #1e1e28)",
-                color: m.role === "user" ? "#fff" : "var(--text)",
+                background: m.role === "user" ? "var(--accent)" : "var(--bg-elevated)",
+                color: m.role === "user" ? "var(--accent-ink)" : "var(--text)",
+                border: m.role === "user" ? "none" : "1px solid var(--border)",
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.55,
               }}

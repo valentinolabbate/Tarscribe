@@ -179,6 +179,47 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn deps_stamp_path(app: &AppHandle) -> PathBuf {
+    app_data(app).join("runtime/.deps-version")
+}
+
+/// Re-sync the Python deps when the app version changed since the runtime env was
+/// last provisioned. The env lives in app data and survives updates, so without
+/// this an update that adds a dependency (e.g. sqlite-vec for RAG) would never
+/// install it. Runs only on a packaged install (the dev tree uses its own venv);
+/// a no-op once the stamp matches the current version.
+pub fn sync_dependencies_if_stale(app: &AppHandle) {
+    let venv_python = runtime_venv_python(app);
+    if !venv_python.exists() {
+        return; // No runtime env: dev machine, or first run handled by setup_environment.
+    }
+    let current = app.package_info().version.to_string();
+    let stamp = deps_stamp_path(app);
+    if std::fs::read_to_string(&stamp).unwrap_or_default().trim() == current {
+        return;
+    }
+    let Some(backend) = backend_source(app) else {
+        return;
+    };
+    let uv = uv_binary(app);
+    let target = format!("{}[asr-common,diarization,mac]", backend.to_string_lossy());
+    let _ = app.emit("setup-progress", "Aktualisiere Abhängigkeiten…".to_string());
+    let mut cmd = Command::new(&uv);
+    cmd.args([
+        "pip",
+        "install",
+        "--python",
+        &venv_python.to_string_lossy(),
+        &target,
+    ]);
+    match run_streaming(app, cmd, "Aktualisierung") {
+        Ok(()) => {
+            let _ = std::fs::write(&stamp, &current);
+        }
+        Err(e) => eprintln!("Abhängigkeiten-Sync fehlgeschlagen: {e}"),
+    }
+}
+
 /// Start the sidecar if an environment already exists. Returns Ok(false) if the
 /// environment still needs to be set up (first run on a packaged build).
 pub fn start_if_ready(app: &AppHandle) -> Result<bool, String> {
@@ -247,6 +288,8 @@ pub async fn setup_environment(app: AppHandle) -> Result<(), String> {
             &target,
         ]);
         run_streaming(&app, pip_cmd, "Installation")?;
+        // Stamp the version so later updates can detect when deps need re-syncing.
+        let _ = std::fs::write(deps_stamp_path(&app), app.package_info().version.to_string());
 
         let _ = app.emit("setup-progress", "Starte Backend…".to_string());
         start_if_ready(&app).map(|_| ())

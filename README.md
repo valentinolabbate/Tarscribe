@@ -1,76 +1,138 @@
 # Tarscribe
 
-Lokale Transkriptions- & Speaker-Diarisierungs-App für **macOS (Apple Silicon)**.  
-Themenbereiche anlegen, Aufnahmen hochladen oder direkt aufnehmen, vollständig **offline**
-transkribieren und Sprecher trennen — mit feinjustierbarer Diarisierung, Stimmproben-Identifikation
-und lokaler LLM-Zusammenfassung (Ollama / LM Studio).
+Tarscribe ist eine lokale macOS-App für Aufnahmen, Transkription, Sprechererkennung,
+Zusammenfassungen und Wissenssuche über Audioinhalte. Die App läuft auf Apple Silicon
+und verarbeitet deine Daten lokal auf dem Mac.
 
-## Installation (macOS)
+**Aktueller Stand:** v0.4.3 · macOS Apple Silicon · Tauri + React + FastAPI
 
-1. **DMG herunterladen** von [Releases](https://github.com/valentinolabbate/Tarscribe/releases/latest)
-2. **DMG öffnen** — du siehst `Tarscribe installieren.command`
-3. **Rechtsklick auf `Tarscribe installieren.command` → Öffnen**
-   - Falls macOS das Skript blockiert: einmalig in **Systemeinstellungen → Datenschutz & Sicherheit → Trotzdem öffnen** freigeben und das Skript erneut öffnen
-   - Terminal öffnet sich, kopiert die App nach `/Applications`, entfernt den Quarantäne-Flag und registriert sie für Finder, Launchpad und Spotlight
-4. Tarscribe startet automatisch und ist danach in **Finder, Launchpad und Spotlight** sichtbar
+## Was Tarscribe kann
 
-> **Warum das Skript?** macOS 26 blockiert nicht-notarisierte Apps in Finder und Launchpad,
-> auch nach manueller Security-Freigabe. Das Skript kopiert die App ohne geerbte Quarantäne,
-> entfernt vorsorglich verbleibende Flags und registriert die Installation bei macOS.
+- Audio oder Video importieren und direkt im Themenbereich organisieren
+- Mikrofon, System-Audio oder beides aufnehmen
+- Aufnahmen lokal transkribieren
+- Sprecher erkennen, benennen, zusammenführen und als bekannte Stimmen speichern
+- KI-Zusammenfassungen mit lokalen LLM-Servern wie Ollama oder LM Studio erstellen
+- Transkripte und Zusammenfassungen semantisch durchsuchen
+- Einzelne Aufnahmen oder die gesamte Bibliothek per Wissens-Chat befragen
+- TXT, SRT, VTT, JSON und WAV exportieren
 
-## Architektur
+## Installation auf macOS
 
-```
-desktop/        Tauri v2 Shell (Rust) + React/TS/Vite Frontend
-  src/          UI (Themenbereiche, Aufnahmen, Transcript-Editor, Tuning)
-  src-tauri/    Rust: startet das Python-Backend als Sidecar, native Integration
-backend/        Python FastAPI Sidecar (ASR, Diarisierung, DB, Jobs)
-  tarscribe_backend/
-```
+1. Lade die aktuelle DMG aus den [GitHub Releases](https://github.com/valentinolabbate/Tarscribe/releases/latest).
+2. Öffne die DMG.
+3. Rechtsklick auf `Tarscribe installieren.command` -> **Öffnen**.
+4. Falls macOS blockiert: **Systemeinstellungen -> Datenschutz & Sicherheit -> Trotzdem öffnen** wählen und das Installationsskript erneut öffnen.
 
-Die Rust-Shell wählt beim Start einen freien Loopback-Port + Token, startet das Backend
-(`python -m tarscribe_backend`) und reicht die Verbindungsdaten via `backend_config`-Command
-an das Frontend. Daten liegen im macOS App-Data-Verzeichnis (SQLite + Audio).
+Das Skript kopiert Tarscribe nach `/Applications`, entfernt den Quarantäne-Flag und startet
+die App. Danach ist Tarscribe über Finder, Launchpad und Spotlight verfügbar.
+
+> Tarscribe ist derzeit ad-hoc signiert und nicht Apple-notarisiert. Die einmalige
+> Rechtsklick-Freigabe ist deshalb normal. Nach der Installation laufen spätere App-Updates
+> über den integrierten Updater.
+
+## Erster Start
+
+Beim ersten Start prüft Tarscribe die lokale Umgebung und richtet die benötigten Komponenten ein.
+Modell-Downloads benötigen einmalig Internet. Danach funktionieren Transkription, Suche und
+lokale Verarbeitung offline. Zusammenfassungen und Chat benötigen zusätzlich einen lokalen
+LLM-Server, zum Beispiel Ollama oder LM Studio.
+
+Für Sprechererkennung mit bestimmten Modellen kann ein Hugging Face Token nötig sein. Die App
+fragt diesen bei Bedarf im Einrichtungsassistenten ab.
+
+## Arbeitsweise in der App
+
+1. Lege einen Themenbereich an, zum Beispiel `Interviews`, `Meetings` oder `Vorlesungen`.
+2. Nimm Audio auf oder importiere eine vorhandene Datei.
+3. Öffne die Aufnahme und transkribiere sie.
+4. Nutze die Detailseite in getrennten Bereichen:
+   - **Transkript** für Text, Zeitmarken und Wiedergabe
+   - **Zusammenfassung** für KI-Auswertungen
+   - **Fragen** für Suche und Chat innerhalb der Aufnahme
+   - **Sprecher** für Namen, Stimmprofile und Diarisierungs-Tuning
+5. Exportiere Text, Untertitel, JSON oder Audio bei Bedarf in deinen Zielordner.
 
 ## Entwicklung
 
-Voraussetzungen: Node, Rust (`rustup`), Python 3.11/3.12, [`uv`](https://docs.astral.sh/uv/), `ffmpeg`.
+Voraussetzungen:
+
+- macOS auf Apple Silicon
+- Node.js
+- Rust mit `rustup`
+- Python 3.11 oder 3.12
+- [`uv`](https://docs.astral.sh/uv/)
+- `ffmpeg`
 
 ```bash
-# Backend-Env
-cd backend && uv venv --python 3.12 .venv && uv pip install -e ".[dev]"
+# Backend-Umgebung
+cd backend
+uv venv --python 3.12 .venv
+uv pip install -e ".[dev]"
 
-# Frontend-Deps
-cd ../desktop && npm install
+# Frontend-Abhängigkeiten
+cd ../desktop
+npm install
 
-# Komplette App (startet Backend-Sidecar automatisch)
+# Komplette Desktop-App starten
 npm run tauri dev
 ```
 
-### Schnelles UI-Testing im Browser (ohne Rust-Build)
+### UI schnell im Browser testen
 
 ```bash
-# 1) Backend ohne Auth starten
-cd backend && TARSCRIBE_AUTH_TOKEN="" .venv/bin/python -m uvicorn tarscribe_backend.main:app --port 8765
-# 2) Frontend
-cd desktop && npm run dev   # http://localhost:1420 (Fallback auf 127.0.0.1:8765)
+# Terminal 1: Backend ohne Auth
+cd backend
+TARSCRIBE_AUTH_TOKEN="" .venv/bin/python -m uvicorn tarscribe_backend.main:app --port 8765
+
+# Terminal 2: Frontend
+cd desktop
+npm run dev
 ```
 
-## Release bauen
+Das Vite-Frontend läuft dann unter `http://localhost:1420` und verbindet sich mit dem Backend
+auf `127.0.0.1:8765`.
+
+## Architektur
+
+```text
+desktop/        Tauri v2 Desktop-Shell mit React, TypeScript und Vite
+  src/          UI, Aufnahmefluss, Suche, Chat, Einstellungen
+  src-tauri/    Rust-Shell, Sidecar-Start, native macOS-Integration
+
+backend/        FastAPI-Sidecar für ASR, Diarisierung, Jobs, SQLite und RAG
+  tarscribe_backend/
+```
+
+Die Tauri-Shell startet das Python-Backend als lokalen Sidecar-Prozess. Das Frontend bekommt
+Port und Auth-Token über einen Tauri-Command. Nutzerdaten liegen im macOS-App-Data-Verzeichnis
+als SQLite-Datenbank plus Audiodateien.
+
+## Tests und Build
 
 ```bash
-cd desktop && npx tauri build   # erstellt .app in src-tauri/target/release/bundle/macos/
-cd .. && ./scripts/build-dmg.sh # verpackt .app + Installer-Skript in eine DMG
+# Frontend
+cd desktop
+npm run build
+
+# Backend
+cd backend
+.venv/bin/python -m pytest
+
+# Release-Build
+cd desktop
+npm run tauri build
+cd ..
+./scripts/build-dmg.sh
 ```
 
-## Tests
-
-```bash
-cd backend && .venv/bin/python -m pytest
-```
+Weitere Details zu Releases und Auto-Updates stehen in [RELEASING.md](RELEASING.md).
 
 ## Hinweise
 
-- **ffmpeg**: Die App findet Homebrew-Installationen automatisch (`/opt/homebrew/bin`, `/usr/local/bin`).
-  Optional via `TARSCRIBE_FFMPEG_PATH` und `TARSCRIBE_FFPROBE_PATH` überschreibbar.
-- **Aktueller Stand**: v0.3.4 — macOS Apple Silicon
+- `ffmpeg` wird für Import, Normalisierung und Export benötigt. Homebrew-Installationen unter
+  `/opt/homebrew/bin` oder `/usr/local/bin` werden automatisch erkannt.
+- Ohne Apple Developer ID kann die App nicht vollständig notarisiert werden. Für interne Tests
+  und private Weitergabe ist der Installer-Workflow in der DMG der vorgesehene Weg.
+- Tarscribe ist auf lokale Verarbeitung ausgelegt. Externe LLM- oder Embedding-Server werden nur
+  genutzt, wenn du sie in den Einstellungen konfigurierst.

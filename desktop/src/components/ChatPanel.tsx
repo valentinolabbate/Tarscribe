@@ -219,11 +219,11 @@ export function ChatPanel({
 
   return (
     <div
-      className="chat-panel"
+      className={`chat-panel ${embedded ? "embedded" : ""}`}
       style={{
         display: "flex",
         flexDirection: "column",
-        height: embedded ? 460 : "100%",
+        height: embedded ? "min(520px, calc(100vh - 405px))" : "100%",
         gap: 12,
       }}
     >

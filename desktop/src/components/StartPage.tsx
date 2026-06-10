@@ -13,19 +13,36 @@ export function StartPage({
   topics: Topic[];
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
 }) {
+  const recordingCount = topics.reduce((sum, topic) => sum + topic.recording_count, 0);
+  const transcribedCount = topics.reduce((sum, topic) => sum + topic.transcribed_count, 0);
+  const diarizedCount = topics.reduce((sum, topic) => sum + topic.diarized_count, 0);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
-      <div style={{ textAlign: "center", paddingTop: 4 }}>
-        <div className="big" style={{ fontSize: 23 }}>
-          Willkommen bei Tarscribe
+    <div className="start-page">
+      <header className="start-hero">
+        <div>
+          <span className="page-kicker">Start</span>
+          <h2>Finde jede Stelle in deinen Aufnahmen</h2>
+          <p>Semantische Suche funktioniert lokal über Transkripte und Zusammenfassungen. Wenn ein Chat-Modell konfiguriert ist, kannst du direkt Fragen stellen.</p>
         </div>
-        <div style={{ color: "var(--text-faint)", marginTop: 4 }}>
-          Durchsuche deine Aufnahmen semantisch — oder starte einen Wissens-Chat.
+        <div className="start-stats">
+          <div>
+            <strong>{recordingCount}</strong>
+            <span>Aufnahmen</span>
+          </div>
+          <div>
+            <strong>{transcribedCount}</strong>
+            <span>Transkribiert</span>
+          </div>
+          <div>
+            <strong>{diarizedCount}</strong>
+            <span>Sprecher</span>
+          </div>
         </div>
-      </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      </header>
+      <section className="start-search">
         <ChatPanel topics={topics} onOpenSource={onOpenSource} />
-      </div>
+      </section>
     </div>
   );
 }

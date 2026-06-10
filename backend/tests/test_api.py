@@ -120,6 +120,84 @@ def test_builtin_templates_seeded(client):
     assert len(rows) >= 5
 
 
+def test_known_speaker_list_merges_duplicate_names(client):
+    import numpy as np
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.ml.embedding import to_blob
+    from tarscribe_backend.models import KnownSpeaker, Recording, SpeakerLabel, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Stimmen")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Interview", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.flush()
+        first = KnownSpeaker(
+            name="Ada",
+            embedding_blob=to_blob(np.array([1.0, 0.0], dtype=np.float32)),
+            sample_count=1,
+        )
+        duplicate = KnownSpeaker(
+            name="Ada",
+            embedding_blob=to_blob(np.array([0.0, 1.0], dtype=np.float32)),
+            sample_count=2,
+        )
+        s.add(first)
+        s.add(duplicate)
+        s.flush()
+        s.add(
+            SpeakerLabel(
+                recording_id=rec.id,
+                original_label="SPEAKER_01",
+                display_name=duplicate.name,
+                known_speaker_id=duplicate.id,
+            )
+        )
+        s.commit()
+        first_id = first.id
+        duplicate_id = duplicate.id
+
+    r = client.get("/api/known-speakers")
+    assert r.status_code == 200
+    speakers = [s for s in r.json() if s["name"] == "Ada"]
+    assert speakers == [{"id": first_id, "name": "Ada", "color": "#10b981", "sample_count": 3}]
+
+    with Session(db.get_engine()) as s:
+        assert s.get(KnownSpeaker, duplicate_id) is None
+        label = s.exec(select(SpeakerLabel).where(SpeakerLabel.original_label == "SPEAKER_01")).one()
+        assert label.known_speaker_id == first_id
+        assert label.display_name == "Ada"
+
+
+def test_known_speaker_rename_merges_same_name(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import KnownSpeaker
+
+    with Session(db.get_engine()) as s:
+        first = KnownSpeaker(name="Sam", sample_count=1)
+        second = KnownSpeaker(name="Taylor", sample_count=4)
+        s.add(first)
+        s.add(second)
+        s.commit()
+        first_id = first.id
+        second_id = second.id
+
+    r = client.patch(f"/api/known-speakers/{second_id}", json={"name": "Sam"})
+    assert r.status_code == 200
+    assert r.json()["id"] == second_id
+    assert r.json()["name"] == "Sam"
+    assert r.json()["sample_count"] == 5
+
+    with Session(db.get_engine()) as s:
+        assert s.get(KnownSpeaker, first_id) is None
+        assert s.get(KnownSpeaker, second_id).sample_count == 5
+
+
 def test_import_local_recording_accepts_native_capture_file(client, monkeypatch):
     from pathlib import Path
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AudioPlayer, type PlayerHandle } from "./AudioPlayer";
 import {
@@ -7,28 +7,31 @@ import {
   useEnrollSpeaker,
   useSpeakerEdits,
   useLatestJob,
+  useSummaries,
   useTranscribe,
   useTranscript,
   useUpdateRecording,
 } from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
-import { fmtDuration, jobPhaseLabel } from "../lib/format";
+import { fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
 import { useToast } from "./Toast";
-import { ChatIcon, SpeakerIdIcon, WaveIcon } from "./icons";
+import { ChatIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
 import { ChatPanel } from "./ChatPanel";
 import { SummaryPanel } from "./SummaryPanel";
 import { TuningPanel } from "./TuningPanel";
 
 const SPEAKER_COLORS = [
-  "#6366f1", "#10b981", "#f59e0b", "#ec4899",
-  "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16",
+  "#0f766e", "#2563eb", "#b45309", "#be185d",
+  "#0891b2", "#7c3aed", "#dc2626", "#4d7c0f",
 ];
 const colorFor = (label: string, all: string[]) =>
   SPEAKER_COLORS[Math.max(0, all.indexOf(label)) % SPEAKER_COLORS.length];
 
 const ts = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+
+type DetailTab = "transcript" | "summary" | "ask" | "speakers";
 
 function SpeakerLegend({
   recordingId,
@@ -82,7 +85,7 @@ function SpeakerLegend({
               }}
               title="Mit anderem Sprecher zusammenführen"
             >
-              <option value="">zusammenführen…</option>
+              <option value="">zusammenführen...</option>
               {diar.speakers
                 .filter((o) => o.label !== sp.label)
                 .map((o) => (
@@ -102,6 +105,60 @@ function SpeakerLegend({
   );
 }
 
+function DetailTabButton({
+  id,
+  activeTab,
+  label,
+  meta,
+  onSelect,
+}: {
+  id: DetailTab;
+  activeTab: DetailTab;
+  label: string;
+  meta: string;
+  onSelect: (tab: DetailTab) => void;
+}) {
+  return (
+    <button
+      className={`detail-tab ${activeTab === id ? "active" : ""}`}
+      onClick={() => onSelect(id)}
+      type="button"
+    >
+      <span>{label}</span>
+      <small>{meta}</small>
+    </button>
+  );
+}
+
+function DetailEmptyState({
+  running,
+  startingPhase,
+  transcribePending,
+  error,
+  onTranscribe,
+}: {
+  running: boolean;
+  startingPhase: string | null;
+  transcribePending: boolean;
+  error?: string | null;
+  onTranscribe: () => void;
+}) {
+  if (running || startingPhase) return null;
+  return (
+    <div className="detail-empty-state">
+      <div className="rec-icon"><WaveIcon /></div>
+      <div>
+        <h2>Bereit zum Transkribieren</h2>
+        <p>Erstelle zuerst ein Transkript. Danach erscheinen Zusammenfassung, Fragen und Sprecherbereiche als eigene Tabs.</p>
+      </div>
+      <button className="btn primary" disabled={transcribePending} onClick={onTranscribe}>
+        Jetzt transkribieren
+      </button>
+      {error && <div className="detail-error">{error}</div>}
+    </div>
+  );
+}
+
 export function RecordingDetail({ recording, onBack }: { recording: Recording; onBack: () => void }) {
   const job = useJobFor(recording.id);
   const transcribe = useTranscribe();
@@ -110,18 +167,16 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   const updateRec = useUpdateRecording();
   const toast = useToast();
   const queryClient = useQueryClient();
-  // "ready" = transcription + any diarization done
-  // "diarizing" = transcription done, diarization in progress → still show transcript
   const isFullyReady = recording.status === "ready";
   const isTranscribed = isFullyReady || recording.status === "diarizing";
-  // Fallback: recording.status reflects backend state even if WS event was missed
   const statusRunning = recording.status === "transcribing" || recording.status === "diarizing";
 
   const { data: transcript } = useTranscript(recording.id, isTranscribed);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
+  const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
 
   const [showTuning, setShowTuning] = useState(false);
-  const [showAsk, setShowAsk] = useState(false);
+  const [activeTab, setActiveTab] = useState<DetailTab>("transcript");
   const [exportOpen, setExportOpen] = useState(false);
   const playerRef = useRef<PlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -131,13 +186,12 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
   const activeStart =
     diar?.utterances.find((u) => currentTime >= u.start && currentTime < u.end)?.start ?? -1;
   useEffect(() => {
-    if (playing && activeRef.current) {
+    if (activeTab === "transcript" && playing && activeRef.current) {
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-  }, [activeStart, playing]);
+  }, [activeStart, activeTab, playing]);
 
   const localRunning = job?.status === "running" || job?.status === "pending";
-  // Poll alongside WebSocket updates so missed events cannot freeze the UI at 0%.
   const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning);
   const activeJob = preferJobEvent(job, polledJob);
   const running =
@@ -149,94 +203,92 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
       ? "Starte Sprechererkennung"
       : null;
   const pct = Math.round((activeJob?.progress ?? 0) * 100);
-  // Phase label: prefer live job data, fall back to recording.status
   const phaseLabel = activeJob
     ? jobPhaseLabel(activeJob.phase)
     : recording.status === "diarizing"
       ? jobPhaseLabel("diarization")
       : jobPhaseLabel("asr");
   const labels = diar?.speakers.map((s) => s.label) ?? [];
+  const summaryCount = summaries?.filter((summary) => summary.content).length ?? 0;
+  const transcriptMeta = diar
+    ? `${diar.utterances.length} Abschnitte`
+    : transcript
+      ? `${transcript.words.length} Wörter`
+      : "Noch nicht erstellt";
+
+  const tabs = useMemo(
+    () => [
+      { id: "transcript" as const, label: "Transkript", meta: transcriptMeta },
+      {
+        id: "summary" as const,
+        label: "Zusammenfassung",
+        meta: summaryCount > 0 ? `${summaryCount} gespeichert` : "Erstellen",
+      },
+      { id: "ask" as const, label: "Fragen", meta: "Suche & Chat" },
+      {
+        id: "speakers" as const,
+        label: "Sprecher",
+        meta: diar ? `${diar.speakers.length} erkannt` : "Optional",
+      },
+    ],
+    [diar, summaryCount, transcriptMeta],
+  );
+
+  async function exportRecording(format: string) {
+    setExportOpen(false);
+    try {
+      await api.downloadExport(recording.id, format, recording.title);
+      await queryClient.invalidateQueries({ queryKey: ["topics"] });
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
 
   return (
     <div className="detail">
-      <div className="detail-head">
-        <button className="btn ghost" onClick={onBack}>← Zurück</button>
-        <input
-          className="detail-title-input"
-          defaultValue={recording.title}
-          key={recording.id}
-          onBlur={(e) => {
-            const v = e.target.value.trim();
-            if (v && v !== recording.title) updateRec.mutate({ id: recording.id, patch: { title: v } });
-          }}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-          title="Zum Umbenennen klicken"
-        />
-        <span className="rec-sub">{fmtDuration(recording.duration_sec)}</span>
-      </div>
-
-      {(running || startingPhase) && (
-        <div className="transcribe-box" style={{ marginBottom: 14 }}>
-          <div className="rec-sub" style={{ marginBottom: 8 }}>
-            {startingPhase ? `${startingPhase}…` : `${phaseLabel}… ${pct}%`}
-          </div>
-          <div className="progress"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>
-        </div>
-      )}
-
-      {!isTranscribed && !running && (
-        <div className="transcribe-box" style={{ textAlign: "center" }}>
-          <div className="rec-icon" style={{ margin: "0 auto 12px" }}><WaveIcon /></div>
-          <div style={{ marginBottom: 12 }}>Diese Aufnahme wurde noch nicht transkribiert.</div>
-          <button className="btn primary" disabled={transcribe.isPending} onClick={() => transcribe.mutate({ id: recording.id })}>
-            Jetzt transkribieren
-          </button>
-          {job?.status === "failed" && <div style={{ color: "var(--danger)", marginTop: 10 }}>{job.error}</div>}
-        </div>
-      )}
-
-      {isTranscribed && transcript && (
-        <>
-          <AudioPlayer
-            ref={playerRef}
-            recordingId={recording.id}
-            onTime={setCurrentTime}
-            onPlaying={setPlaying}
+      <header className="detail-hero">
+        <button className="btn ghost detail-back" onClick={onBack}>← Aufnahmen</button>
+        <div className="detail-title-block">
+          <input
+            className="detail-title-input"
+            defaultValue={recording.title}
+            key={recording.id}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== recording.title) updateRec.mutate({ id: recording.id, patch: { title: v } });
+            }}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            title="Zum Umbenennen klicken"
           />
+          <div className="detail-meta">
+            <span>{fmtDuration(recording.duration_sec)}</span>
+            <span>{statusLabel(recording.status)}</span>
+            {transcript && <span>{transcript.asr_model}</span>}
+            {diar && <span>{diar.speakers.length} Sprecher</span>}
+          </div>
+        </div>
 
-          <div className="toolbar">
-            <div className="rec-sub">
-              {transcript.words.length} Wörter · {transcript.asr_model}
-              {diar ? ` · ${diar.speakers.length} Sprecher` : ""}
-            </div>
-            <div className="spacer" />
-            {!diar ? (
-              <button className="btn" disabled={diarizeFirst.isPending || running} onClick={() => diarizeFirst.mutate({ id: recording.id })}>
-                <SpeakerIdIcon width={16} height={16} /> Sprecher erkennen
-              </button>
-            ) : (
-              <button className={showTuning ? "btn active" : "btn"} onClick={() => setShowTuning((v) => !v)}>
-                Tuning
-              </button>
-            )}
+        <div className="detail-actions">
+          {isTranscribed && transcript && !diar && (
+            <button
+              className="btn"
+              disabled={diarizeFirst.isPending || running}
+              onClick={() => {
+                setActiveTab("speakers");
+                diarizeFirst.mutate({ id: recording.id });
+              }}
+            >
+              <SpeakerIdIcon width={16} height={16} /> Sprecher erkennen
+            </button>
+          )}
+          {isTranscribed && transcript && (
             <div className="export-wrap">
               <button className="btn ghost" onClick={() => setExportOpen((v) => !v)}>Export ▾</button>
               {exportOpen && (
                 <div className="export-menu" onMouseLeave={() => setExportOpen(false)}>
-                  {["txt", "srt", "vtt", "json"].map((f) => (
-                    <button
-                      key={f}
-                      onClick={async () => {
-                        setExportOpen(false);
-                        try {
-                          await api.downloadExport(recording.id, f, recording.title);
-                          await queryClient.invalidateQueries({ queryKey: ["topics"] });
-                        } catch (e) {
-                          toast((e as Error).message, "error");
-                        }
-                      }}
-                    >
-                      .{f.toUpperCase()}
+                  {["txt", "srt", "vtt", "json"].map((format) => (
+                    <button key={format} onClick={() => exportRecording(format)}>
+                      .{format.toUpperCase()}
                     </button>
                   ))}
                   <button
@@ -260,93 +312,195 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
                       }
                     }}
                   >
-                    📁 An Ordner senden
+                    An Ordner senden
                   </button>
                 </div>
               )}
             </div>
+          )}
+        </div>
+      </header>
+
+      {(running || startingPhase) && (
+        <div className="detail-progress">
+          <div>
+            <strong>{startingPhase ? `${startingPhase}...` : `${phaseLabel}... ${pct}%`}</strong>
+            <span>{running ? "Die Ansicht aktualisiert sich automatisch." : "Der Auftrag wird vorbereitet."}</span>
           </div>
+          <div className="progress"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>
+        </div>
+      )}
 
-          {job?.status === "failed" && job.phase === "diarization" && (
-            <div className="transcribe-box" style={{ color: "var(--danger)", marginBottom: 14 }}>
-              Diarisierung fehlgeschlagen: {job.error}
-            </div>
-          )}
+      {job?.status === "failed" && job.phase === "diarization" && (
+        <div className="detail-error detail-error-box">
+          Diarisierung fehlgeschlagen: {job.error}
+        </div>
+      )}
 
-          {diar && showTuning && (
-            <TuningPanel recordingId={recording.id} initial={diar.params} disabled={!!running} />
-          )}
+      {!isTranscribed && (
+        <DetailEmptyState
+          running={!!running}
+          startingPhase={startingPhase}
+          transcribePending={transcribe.isPending}
+          error={job?.status === "failed" ? job.error : null}
+          onTranscribe={() => transcribe.mutate({ id: recording.id })}
+        />
+      )}
 
-          <SummaryPanel recordingId={recording.id} />
+      {isTranscribed && transcript && (
+        <>
+          <AudioPlayer
+            ref={playerRef}
+            recordingId={recording.id}
+            onTime={setCurrentTime}
+            onPlaying={setPlaying}
+          />
 
-          <div style={{ marginBottom: 14 }}>
-            <button
-              className={showAsk ? "btn active" : "btn"}
-              onClick={() => setShowAsk((v) => !v)}
-            >
-              <ChatIcon width={15} height={15} /> Aufnahme fragen & durchsuchen {showAsk ? "▴" : "▾"}
-            </button>
-            {showAsk && (
-              <div
-                style={{
-                  marginTop: 10,
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "var(--bg)",
-                }}
-              >
+          <nav className="detail-tabs" aria-label="Bereiche der Aufnahme">
+            {tabs.map((tab) => (
+              <DetailTabButton
+                key={tab.id}
+                id={tab.id}
+                activeTab={activeTab}
+                label={tab.label}
+                meta={tab.meta}
+                onSelect={setActiveTab}
+              />
+            ))}
+          </nav>
+
+          <div className="detail-workspace">
+            {activeTab === "transcript" && (
+              <section className="detail-panel transcript-workspace">
+                <div className="detail-panel-head">
+                  <div>
+                    <h2>Transkript</h2>
+                    <p>{transcriptMeta} · Klick auf einen Abschnitt springt im Audio dorthin.</p>
+                  </div>
+                  {diar && (
+                    <button className="btn ghost" onClick={() => setActiveTab("speakers")}>
+                      Sprecher bearbeiten
+                    </button>
+                  )}
+                </div>
+
+                {diar ? (
+                  <div className="transcript transcript-focused">
+                    {diar.utterances.map((u, i) => {
+                      const active = currentTime >= u.start && currentTime < u.end;
+                      return (
+                        <div
+                          className={`utterance ${active ? "active" : ""}`}
+                          key={i}
+                          ref={active ? activeRef : undefined}
+                        >
+                          <div className="utt-head">
+                            <select
+                              className="speaker-chip-sel"
+                              style={{ background: colorFor(u.speaker, labels) }}
+                              value={u.speaker}
+                              onChange={(e) => {
+                                if (e.target.value !== u.speaker)
+                                  reassign.mutate({ start: u.start, end: u.end, speaker: e.target.value });
+                              }}
+                              title="Diesen Abschnitt einem Sprecher zuweisen"
+                            >
+                              {diar.speakers.map((s) => (
+                                <option key={s.label} value={s.label}>{s.name}</option>
+                              ))}
+                            </select>
+                            <button className="utt-time" onClick={() => playerRef.current?.seek(u.start)} title="Abspielen ab hier">
+                              ▶ {ts(u.start)}
+                            </button>
+                          </div>
+                          <p className="utt-text" onClick={() => playerRef.current?.seek(u.start)}>
+                            {u.text}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="transcript transcript-focused">
+                    <p className="transcript-text">{transcript.text}</p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === "summary" && (
+              <section className="detail-panel summary-workspace">
+                <div className="detail-panel-head">
+                  <div>
+                    <h2>Zusammenfassung</h2>
+                    <p>Erstelle oder verwalte KI-Zusammenfassungen getrennt vom Transkript.</p>
+                  </div>
+                  <SummaryIcon width={20} height={20} />
+                </div>
+                <SummaryPanel recordingId={recording.id} />
+              </section>
+            )}
+
+            {activeTab === "ask" && (
+              <section className="detail-panel ask-workspace">
+                <div className="detail-panel-head">
+                  <div>
+                    <h2>Fragen & Suchen</h2>
+                    <p>Durchsuche nur diese Aufnahme oder frage den lokalen Wissens-Chat.</p>
+                  </div>
+                  <ChatIcon width={20} height={20} />
+                </div>
                 <ChatPanel
                   embedded
                   scopeRecording={{ id: recording.id, title: recording.title }}
                   onOpenSource={(_rec, start) => playerRef.current?.seek(start ?? 0)}
                 />
-              </div>
+              </section>
+            )}
+
+            {activeTab === "speakers" && (
+              <section className="detail-panel speakers-workspace">
+                <div className="detail-panel-head">
+                  <div>
+                    <h2>Sprecher</h2>
+                    <p>Namen korrigieren, Stimmen speichern und die Diarisierung feinjustieren.</p>
+                  </div>
+                  {diar && (
+                    <button className={showTuning ? "btn active" : "btn"} onClick={() => setShowTuning((v) => !v)}>
+                      Tuning
+                    </button>
+                  )}
+                </div>
+
+                {diar ? (
+                  <>
+                    <SpeakerLegend recordingId={recording.id} diar={diar} labels={labels} />
+                    {showTuning && (
+                      <TuningPanel recordingId={recording.id} initial={diar.params} disabled={!!running} />
+                    )}
+                    <div className="speaker-note">
+                      Sprecherzuweisung einzelner Textstellen änderst du direkt im Tab „Transkript".
+                    </div>
+                  </>
+                ) : (
+                  <div className="speaker-empty">
+                    <div className="rec-icon"><SpeakerIdIcon /></div>
+                    <div>
+                      <h3>Noch keine Sprechererkennung</h3>
+                      <p>Starte die Erkennung, wenn diese Aufnahme mehrere Stimmen enthält oder du bekannte Stimmen speichern willst.</p>
+                    </div>
+                    <button
+                      className="btn primary"
+                      disabled={diarizeFirst.isPending || running}
+                      onClick={() => diarizeFirst.mutate({ id: recording.id })}
+                    >
+                      Sprecher erkennen
+                    </button>
+                  </div>
+                )}
+              </section>
             )}
           </div>
-
-          {diar ? (
-            <>
-              <SpeakerLegend recordingId={recording.id} diar={diar} labels={labels} />
-              <div className="transcript">
-                {diar.utterances.map((u, i) => {
-                  const active = currentTime >= u.start && currentTime < u.end;
-                  return (
-                    <div
-                      className={`utterance ${active ? "active" : ""}`}
-                      key={i}
-                      ref={active ? activeRef : undefined}
-                    >
-                      <div className="utt-head">
-                        <select
-                          className="speaker-chip-sel"
-                          style={{ background: colorFor(u.speaker, labels) }}
-                          value={u.speaker}
-                          onChange={(e) => {
-                            if (e.target.value !== u.speaker)
-                              reassign.mutate({ start: u.start, end: u.end, speaker: e.target.value });
-                          }}
-                          title="Diesen Abschnitt einem Sprecher zuweisen"
-                        >
-                          {diar.speakers.map((s) => (
-                            <option key={s.label} value={s.label}>{s.name}</option>
-                          ))}
-                        </select>
-                        <button className="utt-time" onClick={() => playerRef.current?.seek(u.start)} title="Abspielen ab hier">
-                          ▶ {ts(u.start)}
-                        </button>
-                      </div>
-                      <p className="utt-text" onClick={() => playerRef.current?.seek(u.start)}>
-                        {u.text}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          ) : (
-            <div className="transcript"><p className="transcript-text">{transcript.text}</p></div>
-          )}
         </>
       )}
     </div>

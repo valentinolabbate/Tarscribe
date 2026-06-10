@@ -394,7 +394,7 @@ export default function App() {
           </div>
           <div>
             <div>Tarscribe</div>
-            <span>Local audio studio</span>
+            <span>Lokal & privat</span>
           </div>
         </div>
 
@@ -443,8 +443,8 @@ export default function App() {
         <div className="sidebar-status">
           <span className="sidebar-status-dot" />
           <div>
-            <strong>Offline workspace</strong>
-            <span>Deine Daten bleiben lokal.</span>
+            <strong>Lokaler Arbeitsbereich</strong>
+            <span>Audio, Transkripte und Chat bleiben auf diesem Mac.</span>
           </div>
         </div>
         <button className="topic-item" onClick={() => setShowSettings(true)}>

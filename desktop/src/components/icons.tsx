@@ -102,3 +102,10 @@ export const SummaryIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M8 13h7M8 17h5" />
   </svg>
 );
+
+/** Speech bubble — used for the knowledge chat. */
+export const ChatIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
+  </svg>
+);

@@ -152,6 +152,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 s.add(rec)
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+        _maybe_enqueue_embedding(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
@@ -378,6 +379,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+        _maybe_enqueue_embedding(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         if acc:
@@ -386,6 +388,52 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True, "error": str(exc)}
         )
+
+
+def _run_embedding(recording_id: int, job_id: int) -> None:
+    from . import rag
+
+    try:
+        _update_job(job_id, status=JobStatus.running, progress=0.0)
+
+        last = {"t": 0.0}
+
+        def progress(frac: float) -> None:
+            now = time.monotonic()
+            if now - last["t"] >= 0.25 or frac >= 0.99:
+                last["t"] = now
+                _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
+
+        with session_scope() as s:
+            rag.index_recording(s, recording_id, progress=progress)
+
+        _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+
+
+def enqueue_embedding(recording_id: int) -> int | None:
+    """Schedule a RAG (re)index for one recording. No-op when RAG is disabled."""
+    from . import rag
+
+    if not rag.rag_enabled():
+        return None
+    with session_scope() as s:
+        job = Job(recording_id=recording_id, phase=JobPhase.embedding, status=JobStatus.pending)
+        s.add(job)
+        s.flush()
+        job_id = job.id
+    _executor.submit(_run_embedding, recording_id, job_id)
+    return job_id
+
+
+def _maybe_enqueue_embedding(recording_id: int) -> None:
+    """Best-effort RAG reindex trigger (called after ASR / summary completes)."""
+    try:
+        enqueue_embedding(recording_id)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
 
 
 def enqueue_summary(recording_id: int, template_id: int, summary_id: int) -> int:

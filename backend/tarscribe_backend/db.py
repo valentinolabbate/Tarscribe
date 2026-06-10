@@ -14,12 +14,45 @@ from .models import SummaryTemplate
 
 _engine: Engine | None = None
 
+# Set on first connection: whether sqlite-vec loaded successfully. RAG features
+# degrade gracefully (stay disabled) when this is False instead of crashing.
+VEC_AVAILABLE: bool | None = None
+
 
 def _on_connect(dbapi_connection, _record) -> None:  # pragma: no cover - sqlite pragma
     cur = dbapi_connection.cursor()
     cur.execute("PRAGMA foreign_keys=ON")
     cur.execute("PRAGMA journal_mode=WAL")
+    # Wait briefly for a competing writer instead of failing immediately, so a
+    # background index job and the job-progress writer don't collide.
+    cur.execute("PRAGMA busy_timeout=5000")
     cur.close()
+    _load_vec_extension(dbapi_connection)
+
+
+def _load_vec_extension(dbapi_connection) -> None:
+    """Load the sqlite-vec extension on a raw connection; record availability once."""
+    global VEC_AVAILABLE
+    try:
+        import sqlite_vec
+
+        dbapi_connection.enable_load_extension(True)
+        sqlite_vec.load(dbapi_connection)
+        dbapi_connection.enable_load_extension(False)
+        if VEC_AVAILABLE is None:
+            VEC_AVAILABLE = True
+    except Exception as exc:  # noqa: BLE001
+        if VEC_AVAILABLE is None:
+            VEC_AVAILABLE = False
+            print(f"[tarscribe] sqlite-vec unavailable, RAG disabled: {exc}")
+
+
+def vec_available() -> bool:
+    """True if the sqlite-vec extension loaded. Forces a connection if needed."""
+    if VEC_AVAILABLE is None:
+        with get_engine().connect() as conn:  # triggers _on_connect
+            conn.exec_driver_sql("SELECT 1")
+    return bool(VEC_AVAILABLE)
 
 
 def get_engine() -> Engine:
@@ -58,7 +91,53 @@ def _run_lightweight_migrations() -> None:
             if column not in cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
 
+    _ensure_vec_table()
     _mark_stale_live_sessions()
+
+
+def _ensure_vec_table() -> None:
+    """Create the sqlite-vec virtual table for chunk embeddings.
+
+    The embedding dimension is model-dependent, so it is read from prefs. If the
+    configured dimension changes, the vec table and all indexed chunks are dropped
+    so a re-index rebuilds them at the new dimension.
+    """
+    if not vec_available():
+        return
+    from sqlalchemy import text
+
+    from .settings_store import load_prefs
+
+    dim = int((load_prefs().get("rag") or {}).get("dimension") or 768)
+    with get_engine().begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS rag_index_meta (key TEXT PRIMARY KEY, value TEXT)"
+            )
+        )
+        row = conn.execute(
+            text("SELECT value FROM rag_index_meta WHERE key='dimension'")
+        ).fetchone()
+        stored_dim = int(row[0]) if row else None
+        if stored_dim is not None and stored_dim != dim:
+            # Dimension changed -> wipe the index; chunks must be re-embedded.
+            conn.execute(text("DROP TABLE IF EXISTS rag_chunk_vec"))
+            conn.execute(text("DELETE FROM rag_chunks"))
+            stored_dim = None
+        conn.execute(
+            text(
+                f"CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunk_vec USING vec0("
+                f"embedding float[{dim}], topic_id integer, recording_id integer)"
+            )
+        )
+        if stored_dim != dim:
+            conn.execute(
+                text(
+                    "INSERT INTO rag_index_meta (key, value) VALUES ('dimension', :d) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+                ),
+                {"d": str(dim)},
+            )
 
 
 def _mark_stale_live_sessions() -> None:

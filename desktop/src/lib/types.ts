@@ -244,3 +244,38 @@ export type LiveEvent =
   | LiveSpeakersEvent
   | LiveFinalizedEvent
   | LiveDegradedEvent;
+
+// ── RAG / Wissens-Chat ──────────────────────────────────────────────────
+export interface RagConfig {
+  base_url?: string;
+  model?: string;
+  dimension?: number;
+  top_k?: number;
+  enabled?: boolean;
+  /** Read-only: whether a (secret) embedding API key is stored in the keychain. */
+  api_key_set?: boolean;
+  /** Read-only: whether the sqlite-vec extension loaded successfully. */
+  vec_available?: boolean;
+}
+
+export interface RagStatus {
+  vec_available: boolean;
+  chunks: number;
+  recordings_indexed: number;
+  model?: string;
+  dimension?: number;
+}
+
+export interface RagSource {
+  index: number;
+  recording_id: number;
+  recording_title: string;
+  source_type: "transcript" | "summary";
+  start_sec?: number | null;
+  speaker?: string | null;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}

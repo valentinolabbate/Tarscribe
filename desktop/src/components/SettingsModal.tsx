@@ -3,8 +3,9 @@ import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
 import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
 import { getSystemAudioCapability, type SystemAudioCapability } from "../lib/tauri";
-import { SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
+import { ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
+import { RagSettings } from "./RagSettings";
 import { TemplatesModal } from "./TemplatesModal";
 import type { AppSettings } from "../lib/types";
 
@@ -47,7 +48,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
-  const [tab, setTab] = useState<"general" | "summaries" | "speakers">("general");
+  const [tab, setTab] = useState<"general" | "summaries" | "rag" | "speakers">("general");
 
   useEffect(() => {
     api.getSettings().then(setSettings);
@@ -101,6 +102,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const TABS = [
     { id: "general", label: "Allgemein", icon: <SettingsIcon width={16} height={16} /> },
     { id: "summaries", label: "Zusammenfassung", icon: <SummaryIcon width={16} height={16} /> },
+    { id: "rag", label: "Wissens-Chat", icon: <ChatIcon width={16} height={16} /> },
     { id: "speakers", label: "Sprecher", icon: <SpeakerIdIcon width={16} height={16} /> },
   ] as const;
 
@@ -215,6 +217,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
               </>
             )}
+
+            {/* ── Wissens-Chat (RAG) ──────────────────────────────────────── */}
+            {tab === "rag" && <RagSettings />}
 
             {/* ── Sprecher & Diarisierung ─────────────────────────────────── */}
             {tab === "speakers" && (

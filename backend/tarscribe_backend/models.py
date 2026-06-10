@@ -198,6 +198,32 @@ class Summary(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class RagChunk(SQLModel, table=True):
+    """A retrievable passage of a transcript or summary, embedded for RAG search.
+
+    The embedding vector itself lives in the ``rag_chunk_vec`` sqlite-vec virtual
+    table (keyed by this row's ``id``); this table holds the text + metadata.
+    """
+
+    __tablename__ = "rag_chunks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    # Denormalized for fast topic-filtered KNN (mirrored into the vec0 table).
+    topic_id: int = Field(index=True)
+    summary_id: Optional[int] = Field(default=None, foreign_key="summaries.id")
+    source_type: str = "transcript"  # transcript | summary
+    chunk_index: int = 0
+    text: str = ""
+    start_sec: Optional[float] = None
+    end_sec: Optional[float] = None
+    speaker: Optional[str] = None
+    # Hash of the source text; lets re-indexing skip unchanged content.
+    content_hash: str = ""
+    embed_model: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class Job(SQLModel, table=True):
     __tablename__ = "jobs"
 

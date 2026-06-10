@@ -229,6 +229,15 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         session.delete(run)
     session.flush()
 
+    # RAG chunks reference both summaries and the recording (FKs) — clear them
+    # (incl. the sqlite-vec rows) before deleting those rows.
+    from ..db import vec_available
+
+    if vec_available():
+        from .. import rag
+
+        rag._delete_recording_chunks(session, recording_id)
+
     for model in (SpeakerLabel, ManualEdit, Summary):
         for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
             session.delete(row)

@@ -19,6 +19,7 @@ from .config import get_settings
 SERVICE = "Tarscribe"
 HF_TOKEN_KEY = "hf_token"
 LLM_API_KEY_KEY = "llm_api_key"
+RAG_API_KEY_KEY = "rag_api_key"
 
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
@@ -28,6 +29,14 @@ DEFAULT_PREFS: dict[str, Any] = {
     "diarization_model": "pyannote/speaker-diarization-community-1",
     "speaker_match_threshold": 0.5,
     "llm": {"provider": "ollama", "base_url": "http://localhost:11434/v1", "model": None},
+    # RAG embedding endpoint — configured independently from the chat `llm` block.
+    "rag_enabled": True,
+    "rag": {
+        "base_url": "http://localhost:11434/v1",
+        "model": "nomic-embed-text",
+        "dimension": 768,
+        "top_k": 6,
+    },
     "setup_complete": False,
     # Live transcription feature flags (plan §10).
     "live_transcription_enabled": True,
@@ -154,3 +163,15 @@ def set_llm_api_key(key: str | None) -> None:
 
 def has_llm_api_key() -> bool:
     return bool(get_llm_api_key())
+
+
+def get_rag_api_key() -> str | None:
+    return _secret_get(RAG_API_KEY_KEY)
+
+
+def set_rag_api_key(key: str | None) -> None:
+    _secret_set(RAG_API_KEY_KEY, key)
+
+
+def has_rag_api_key() -> bool:
+    return bool(get_rag_api_key())

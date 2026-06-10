@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChatPanel } from "./components/ChatPanel";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
 import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
@@ -10,7 +11,7 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { FolderIcon, LogoIcon, PlusIcon, SettingsIcon, TrashIcon } from "./components/icons";
+import { ChatIcon, FolderIcon, LogoIcon, PlusIcon, SettingsIcon, TrashIcon } from "./components/icons";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
   useDeleteTopic,
@@ -162,6 +163,7 @@ export default function App() {
   const [activeTopic, setActiveTopic] = useState<number | null>(null);
   const [openRecording, setOpenRecording] = useState<Recording | null>(null);
   const [showTopicModal, setShowTopicModal] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
@@ -269,6 +271,18 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Open a recording by id (used by chat source chips, which may reference any topic).
+  const openRecordingById = useCallback(async (recordingId: number) => {
+    try {
+      const rec = await api.getRecording(recordingId);
+      setActiveTopic(rec.topic_id);
+      setShowChat(false);
+      setOpenRecording(rec);
+    } catch {
+      toast("Aufnahme konnte nicht geöffnet werden.", "error");
+    }
+  }, [toast]);
 
   const proceed = useCallback(() => {
     waitForBackend()
@@ -399,10 +413,11 @@ export default function App() {
           <TopicRow
             key={t.id}
             topic={t}
-            active={t.id === activeTopic}
+            active={t.id === activeTopic && !showChat}
             onSelect={() => {
               setActiveTopic(t.id);
               setOpenRecording(null);
+              setShowChat(false);
             }}
           />
         ))}
@@ -414,6 +429,15 @@ export default function App() {
         )}
 
         <div style={{ flex: 1 }} />
+        <button
+          className={`topic-item ${showChat ? "active" : ""}`}
+          onClick={() => {
+            setShowChat(true);
+            setOpenRecording(null);
+          }}
+        >
+          <ChatIcon width={16} height={16} /> Wissens-Chat
+        </button>
         <div className="sidebar-status">
           <span className="sidebar-status-dot" />
           <div>
@@ -431,8 +455,18 @@ export default function App() {
       <main className="main">
         <div className="topbar">
           <div className="topbar-title">
-            <span className="topbar-eyebrow">{openRecording ? "Aufnahme" : "Themenbereich"}</span>
-            <h1>{openRecording ? openRecording.title : current ? current.name : "Tarscribe"}</h1>
+            <span className="topbar-eyebrow">
+              {showChat ? "Assistent" : openRecording ? "Aufnahme" : "Themenbereich"}
+            </span>
+            <h1>
+              {showChat
+                ? "Wissens-Chat"
+                : openRecording
+                  ? openRecording.title
+                  : current
+                    ? current.name
+                    : "Tarscribe"}
+            </h1>
           </div>
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
@@ -459,6 +493,8 @@ export default function App() {
               onResume={recording.resume}
               onStop={recording.stop}
             />
+          ) : showChat ? (
+            <ChatPanel topics={topics ?? []} onOpenSource={openRecordingById} />
           ) : openRecording ? (
             <RecordingDetail
               recording={openRecording}

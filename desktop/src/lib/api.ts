@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  ChatMessage,
   DiarizationData,
   HardwareInfo,
   JobEvent,
@@ -7,6 +8,9 @@ import type {
   LlmConfig,
   LiveEvent,
   LiveSession,
+  RagConfig,
+  RagSource,
+  RagStatus,
   Recording,
   Summary,
   SummaryEvent,
@@ -125,6 +129,7 @@ export const api = {
 
   listRecordings: (topicId?: number) =>
     request<Recording[]>(`/api/recordings${topicId != null ? `?topic_id=${topicId}` : ""}`),
+  getRecording: (id: number) => request<Recording>(`/api/recordings/${id}`),
   uploadRecording: (topicId: number, file: File, title?: string) => {
     const form = new FormData();
     form.set("topic_id", String(topicId));
@@ -254,6 +259,91 @@ export const api = {
     ),
   deleteLlmApiKey: () =>
     request<{ saved: boolean; api_key_set: boolean }>("/api/llm/api-key", { method: "DELETE" }),
+
+  // RAG / Wissens-Chat
+  getRagConfig: () => request<RagConfig>("/api/rag/config"),
+  setRagConfig: (cfg: RagConfig) =>
+    request<RagConfig>("/api/rag/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg),
+    }),
+  listRagModels: (baseUrl?: string) =>
+    request<{ models: string[] }>(
+      `/api/rag/models${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ""}`,
+    ),
+  testRag: (baseUrl?: string) =>
+    request<{ ok: boolean; models?: string[]; error?: string }>("/api/rag/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_url: baseUrl }),
+    }),
+  setRagApiKey: (apiKey: string, baseUrl?: string) =>
+    request<{ saved: boolean; ok?: boolean; models?: string[]; error?: string; api_key_set: boolean }>(
+      "/api/rag/api-key",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
+      },
+    ),
+  deleteRagApiKey: () =>
+    request<{ saved: boolean; api_key_set: boolean }>("/api/rag/api-key", { method: "DELETE" }),
+  getRagStatus: () => request<RagStatus>("/api/rag/status"),
+  reindexRag: () => request<{ enqueued: number }>("/api/rag/reindex", { method: "POST" }),
+
+  /** Stream a RAG chat answer (SSE): sources first, then content deltas. */
+  async ragChat(
+    messages: ChatMessage[],
+    opts: { topicId?: number | null; recordingId?: number | null; topK?: number } = {},
+    handlers: {
+      onSources?: (s: RagSource[]) => void;
+      onDelta?: (text: string) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<void> {
+    const cfg = await getConfig();
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
+    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
+    const res = await fetch(`${cfg.base_url}/api/rag/chat`, {
+      method: "POST",
+      headers,
+      signal: handlers.signal,
+      body: JSON.stringify({
+        messages,
+        topic_id: opts.topicId ?? null,
+        recording_id: opts.recordingId ?? null,
+        top_k: opts.topK ?? null,
+      }),
+    });
+    if (!res.ok || !res.body) {
+      let detail = res.statusText;
+      try { detail = (await res.json()).detail ?? detail; } catch { /* ignore */ }
+      throw new Error(detail);
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // SSE events are separated by a blank line.
+      let sep: number;
+      while ((sep = buf.indexOf("\n\n")) !== -1) {
+        const raw = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        const line = raw.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: { type: string; sources?: RagSource[]; content?: string; error?: string };
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "sources") handlers.onSources?.(evt.sources ?? []);
+        else if (evt.type === "delta") handlers.onDelta?.(evt.content ?? "");
+        else if (evt.type === "error") throw new Error(evt.error ?? "Chat-Fehler");
+      }
+    }
+  },
 
   // Summaries
   summarize: (recordingId: number, templateId: number) =>

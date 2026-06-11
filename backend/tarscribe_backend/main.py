@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
+from .config import get_settings
 from .db import init_db
 from .routers import (
     diarization,
@@ -62,6 +63,12 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket) -> None:
+        # Same shared secret as the REST API; browsers can open localhost
+        # WebSockets cross-origin, so the handshake must be authenticated too.
+        expected = get_settings().auth_token
+        if expected and websocket.query_params.get("token", "") != expected:
+            await websocket.close(code=1008)
+            return
         await hub.connect(websocket)
         try:
             while True:

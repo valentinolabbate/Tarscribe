@@ -467,7 +467,10 @@ export const api = {
     onLive?: (e: LiveEvent) => void,
   ): Promise<() => void> {
     const cfg = await getConfig();
-    const url = cfg.base_url.replace(/^http/, "ws") + "/ws";
+    const url =
+      cfg.base_url.replace(/^http/, "ws") +
+      "/ws" +
+      (cfg.token ? `?token=${encodeURIComponent(cfg.token)}` : "");
     let ws: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let closed = false;

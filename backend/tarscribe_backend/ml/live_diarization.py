@@ -101,8 +101,8 @@ def _map_labels(
 
     for label in sorted(new_labels):
         new_in_zone = [
-            (s, e) for s, e, l in new_global
-            if l == label and e > overlap_start and s < overlap_end
+            (s, e) for s, e, lbl in new_global
+            if lbl == label and e > overlap_start and s < overlap_end
         ]
         if not new_in_zone:
             assigned[label] = state.new_cluster().id
@@ -172,7 +172,7 @@ def run_window(
         if state.last_window_end == 0.0:
             # First run — every label is a new cluster.
             mapping: dict[str, str] = {}
-            for label in {l for *_, l in global_segs}:
+            for label in {lbl for *_, lbl in global_segs}:
                 mapping[label] = state.new_cluster().id
         else:
             mapping = _map_labels(global_segs, state, overlap_start, overlap_end)

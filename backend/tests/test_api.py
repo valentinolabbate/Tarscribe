@@ -429,3 +429,47 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
 
     with Session(db.get_engine()) as s:
         assert s.get(Job, job_id).status == JobStatus.done
+
+
+def test_stale_jobs_failed_on_startup(client):
+    """Jobs left pending/running by a crashed backend are failed on init."""
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import (
+        Job,
+        JobPhase,
+        JobStatus,
+        Recording,
+        RecordingStatus,
+        Topic,
+    )
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Crash")
+        s.add(topic)
+        s.flush()
+        rec = Recording(
+            topic_id=topic.id,
+            title="Unterbrochen",
+            audio_path="/tmp/missing.wav",
+            status=RecordingStatus.transcribing,
+        )
+        s.add(rec)
+        s.flush()
+        stuck = Job(recording_id=rec.id, phase=JobPhase.asr, status=JobStatus.running)
+        queued = Job(recording_id=rec.id, phase=JobPhase.summarize, status=JobStatus.pending)
+        done = Job(recording_id=rec.id, phase=JobPhase.diarization, status=JobStatus.done)
+        s.add(stuck)
+        s.add(queued)
+        s.add(done)
+        s.commit()
+        rec_id, stuck_id, queued_id, done_id = rec.id, stuck.id, queued.id, done.id
+
+    db._mark_stale_jobs()  # what init_db runs on the next startup
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Job, stuck_id).status == JobStatus.failed
+        assert s.get(Job, queued_id).status == JobStatus.failed
+        assert s.get(Job, done_id).status == JobStatus.done
+        assert s.get(Recording, rec_id).status == RecordingStatus.failed

@@ -10,6 +10,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ..config import get_settings
+
 DEFAULT_MODEL = "pyannote/speaker-diarization-community-1"
 
 ProgressCb = Callable[[float, str], None]
@@ -51,12 +53,18 @@ class DiarizationBackend:
             import torch
             from pyannote.audio import Pipeline
 
+            # Without an explicit cache_dir, pyannote's speechbrain wrapper
+            # builds savedir as f"{None}/speechbrain" and litters a "None"
+            # directory into the current working directory.
+            cache_dir = get_settings().models_dir / "pyannote"
             try:
-                pipeline = Pipeline.from_pretrained(self.model_id, token=self.hf_token)
+                pipeline = Pipeline.from_pretrained(
+                    self.model_id, token=self.hf_token, cache_dir=cache_dir
+                )
             except TypeError:
                 # Older pyannote.audio used use_auth_token.
                 pipeline = Pipeline.from_pretrained(
-                    self.model_id, use_auth_token=self.hf_token
+                    self.model_id, use_auth_token=self.hf_token, cache_dir=cache_dir
                 )
             if pipeline is None:
                 raise RuntimeError(

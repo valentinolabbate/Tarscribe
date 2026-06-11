@@ -315,3 +315,30 @@ def test_build_wav_window(tmp_path):
         assert wf.getnchannels() == 1
         assert wf.getframerate() == 16000
         assert abs(wf.getnframes() / 16000 - 1.0) < 0.01
+
+
+def test_chunk_mismatched_audio_format_rejected(client):
+    topic_id = _make_topic(client)
+    sid = client.post("/api/live-recordings", json={"topic_id": topic_id}).json()["id"]
+
+    r = client.post(
+        f"/api/live-recordings/{sid}/chunks",
+        content=_make_pcm_chunk(),
+        headers={
+            "Content-Type": "application/octet-stream",
+            "X-Sequence-Number": "0",
+            "X-Sample-Rate": "44100",
+            "X-Channels": "1",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_finish_with_unknown_recording_id_rejected(client):
+    topic_id = _make_topic(client)
+    sid = client.post("/api/live-recordings", json={"topic_id": topic_id}).json()["id"]
+
+    r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": 99999})
+    assert r.status_code == 404
+    # Session must stay active so a finish with the real recording can follow.
+    assert client.get(f"/api/live-recordings/{sid}").json()["status"] == "recording"

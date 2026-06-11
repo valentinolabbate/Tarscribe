@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 import threading
 
@@ -19,6 +19,7 @@ from ..live_audio import cleanup_session_dir, validate_and_append_chunk
 from ..models import (
     LiveRecordingSession,
     LiveSessionStatus,
+    Recording,
     Topic,
 )
 from ..schemas import LiveSessionCreate, LiveSessionFinish
@@ -113,6 +114,14 @@ async def upload_chunk(
     if live_session.status not in (LiveSessionStatus.recording, LiveSessionStatus.paused):
         raise HTTPException(409, f"Session ist nicht aktiv: {live_session.status}")
 
+    if x_sample_rate != live_session.sample_rate or x_channels != live_session.channels:
+        raise HTTPException(
+            422,
+            f"Audioformat passt nicht zur Session: erwartet "
+            f"{live_session.sample_rate} Hz/{live_session.channels} Kanal/Kanäle, "
+            f"erhalten {x_sample_rate} Hz/{x_channels}",
+        )
+
     chunk_data = await request.body()
     pcm_path = Path(live_session.pcm_path)
     expected_next = live_session.last_sequence_number + 1
@@ -200,6 +209,8 @@ def finish_session(
         raise HTTPException(404, "Session nicht gefunden")
     if live_session.status not in (LiveSessionStatus.recording, LiveSessionStatus.paused):
         raise HTTPException(409, f"Session kann nicht finalisiert werden: {live_session.status}")
+    if payload.recording_id is not None and not session.get(Recording, payload.recording_id):
+        raise HTTPException(404, "Aufnahme nicht gefunden")
 
     live_session.status = LiveSessionStatus.completed
     live_session.finalized_recording_id = payload.recording_id

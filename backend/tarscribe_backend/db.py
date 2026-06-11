@@ -93,6 +93,7 @@ def _run_lightweight_migrations() -> None:
 
     _ensure_vec_table()
     _mark_stale_live_sessions()
+    _mark_stale_jobs()
 
 
 def _ensure_vec_table() -> bool:
@@ -180,6 +181,34 @@ def _mark_stale_live_sessions() -> None:
                 shutil.rmtree(Path(pcm_path).parent, ignore_errors=True)
             except Exception:
                 pass
+
+
+def _mark_stale_jobs() -> None:
+    """Fail jobs left pending/running by a previous run and reset their recordings.
+
+    The in-process executor dies with the backend, so these jobs can never
+    finish; without this they stay "running" in the UI forever.
+    """
+    from sqlalchemy import text
+
+    with get_engine().begin() as conn:
+        tables = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+        if "jobs" not in tables:
+            return
+        conn.execute(
+            text(
+                "UPDATE jobs SET status='failed', error='Backend unerwartet beendet'"
+                " WHERE status IN ('pending','running')"
+            )
+        )
+        # Mirror the job error path: recordings stuck mid-pipeline become failed
+        # so the user can retry them.
+        conn.execute(
+            text(
+                "UPDATE recordings SET status='failed'"
+                " WHERE status IN ('queued','transcribing','diarizing')"
+            )
+        )
 
 
 @contextmanager

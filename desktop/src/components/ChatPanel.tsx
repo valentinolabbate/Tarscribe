@@ -107,6 +107,10 @@ export function ChatPanel({
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
+  const [speakerFilter, setSpeakerFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<RagStatus | null>(null);
@@ -136,9 +140,16 @@ export function ChatPanel({
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, mode]);
 
+  const activeFilterCount =
+    (speakerFilter.trim() ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
   const scopeOpts = scoped
-    ? { recordingId: scopeRecording!.id }
-    : { topicId: topicFilter };
+    ? { recordingId: scopeRecording!.id, speaker: speakerFilter.trim() || null }
+    : {
+        topicId: topicFilter,
+        speaker: speakerFilter.trim() || null,
+        dateFrom: dateFrom || null,
+        dateTo: dateTo || null,
+      };
 
   async function runSearch() {
     const q = input.trim();
@@ -255,6 +266,13 @@ export function ChatPanel({
               : "…"}
         </span>
         <div style={{ flex: 1 }} />
+        <button
+          className={showFilters || activeFilterCount > 0 ? "btn ghost active" : "btn ghost"}
+          style={{ padding: "4px 10px", fontSize: 12 }}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+        </button>
         {!scoped && (
           <>
             <label style={{ fontSize: 12, color: "var(--text-faint)" }}>Bereich:</label>
@@ -273,6 +291,45 @@ export function ChatPanel({
           </>
         )}
       </div>
+
+      {showFilters && (
+        <div className="search-filters">
+          <label>
+            Sprecher
+            <input
+              type="text"
+              value={speakerFilter}
+              onChange={(e) => setSpeakerFilter(e.target.value)}
+              placeholder="z. B. Anna"
+            />
+          </label>
+          {!scoped && (
+            <>
+              <label>
+                Von
+                <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+              </label>
+              <label>
+                Bis
+                <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+              </label>
+            </>
+          )}
+          {activeFilterCount > 0 && (
+            <button
+              className="btn ghost"
+              style={{ padding: "4px 10px", fontSize: 12 }}
+              onClick={() => {
+                setSpeakerFilter("");
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              Zurücksetzen
+            </button>
+          )}
+        </div>
+      )}
 
       {ragOff && (
         <div style={{ fontSize: 13, color: "var(--danger)" }}>

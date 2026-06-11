@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
+import type { ActionItem } from "../lib/types";
 import { trackPendingJob } from "./useJobs";
 
 export function useHardware() {
@@ -191,6 +192,79 @@ export function useDeleteSummary(recordingId: number) {
 
 export function useLlmConfig() {
   return useQuery({ queryKey: ["llm-config"], queryFn: api.getLlmConfig });
+}
+
+// ── Insights: Action-Items, Kapitel, Sprecher-Statistiken ────────────────
+
+export function useActionItems(opts: { topicId?: number | null; done?: boolean | null } = {}) {
+  return useQuery({
+    queryKey: ["action-items", opts.topicId ?? null, opts.done ?? null],
+    queryFn: () => api.listActionItems(opts),
+  });
+}
+
+export function useRecordingActionItems(recordingId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["action-items", "recording", recordingId],
+    queryFn: () => api.listRecordingActionItems(recordingId),
+    enabled,
+  });
+}
+
+export function useExtractActionItems(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.extractActionItems(recordingId),
+    onSuccess: (data) => {
+      trackPendingJob(recordingId, data.job_id, "action_items");
+      qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
+    },
+  });
+}
+
+export function useUpdateActionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: number; patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due">> }) =>
+      api.updateActionItem(id, patch),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
+  });
+}
+
+export function useDeleteActionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteActionItem(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
+  });
+}
+
+export function useChapters(recordingId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["chapters", recordingId],
+    queryFn: () => api.listChapters(recordingId),
+    enabled,
+  });
+}
+
+export function useGenerateChapters(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.generateChapters(recordingId),
+    onSuccess: (data) => {
+      trackPendingJob(recordingId, data.job_id, "chapters");
+      qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
+    },
+  });
+}
+
+export function useSpeakerStats(recordingId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["speaker-stats", recordingId],
+    queryFn: () => api.getSpeakerStats(recordingId),
+    enabled,
+    retry: false,
+  });
 }
 
 export function useKnownSpeakers() {

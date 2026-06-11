@@ -215,3 +215,89 @@ def test_cascade_delete_removes_chunks(env):
         ).fetchone()[0]
     assert count == 0
     assert vec_count == 0
+
+
+# ── Hybrid search (FTS5 + vector) ────────────────────────────────────────────
+
+def test_fts_table_stays_in_sync(env):
+    db, rag = env
+    if not db.fts_available():
+        pytest.skip("FTS5 not available")
+
+    rid, _tid = _make_recording(db)
+    with db.session_scope() as s:
+        rag.index_recording(s, rid)
+    with db.session_scope() as s:
+        fts = s.connection().exec_driver_sql("SELECT count(*) FROM rag_chunk_fts").fetchone()[0]
+        chunks = s.connection().exec_driver_sql("SELECT count(*) FROM rag_chunks").fetchone()[0]
+    assert fts == chunks >= 1
+
+    with db.session_scope() as s:
+        rag.delete_recording_index(s, rid)
+    with db.session_scope() as s:
+        fts = s.connection().exec_driver_sql("SELECT count(*) FROM rag_chunk_fts").fetchone()[0]
+    assert fts == 0
+
+
+def test_hybrid_search_falls_back_to_keywords_when_embeddings_down(env, monkeypatch):
+    db, rag = env
+    if not db.fts_available():
+        pytest.skip("FTS5 not available")
+
+    rid, _tid = _make_recording(db, words_text="Der Liefertermin für das Velociraptor Projekt ist Montag " * 3)
+    with db.session_scope() as s:
+        rag.index_recording(s, rid)
+
+    def boom(_text):
+        raise RuntimeError("embedding server down")
+
+    monkeypatch.setattr(rag, "embed_query", boom)
+    with db.session_scope() as s:
+        hits = rag.search(s, "Velociraptor", top_k=5)
+    assert hits
+    assert hits[0]["recording_id"] == rid
+    assert hits[0]["distance"] is None  # keyword-only hit
+    assert hits[0]["score"] > 0
+
+
+def test_hybrid_search_keyword_boosts_exact_term(env):
+    db, rag = env
+    if not db.fts_available():
+        pytest.skip("FTS5 not available")
+
+    rid_a, _ = _make_recording(db, title="Mit Begriff", words_text="Zephyrium Konfiguration Setup Server " * 5)
+    rid_b, _ = _make_recording(db, title="Ohne Begriff", words_text="Frühstück Kaffee Wetter Wochenende " * 5)
+    with db.session_scope() as s:
+        rag.index_recording(s, rid_a)
+        rag.index_recording(s, rid_b)
+    with db.session_scope() as s:
+        hits = rag.search(s, "Zephyrium", top_k=2)
+    assert hits
+    assert hits[0]["recording_id"] == rid_a
+
+
+def test_search_date_and_speaker_filters(env):
+    db, rag = env
+    from datetime import datetime, timezone
+
+    from sqlmodel import select
+
+    from tarscribe_backend.models import RagChunk, Recording
+
+    rid, _tid = _make_recording(db)
+    with db.session_scope() as s:
+        rag.index_recording(s, rid)
+        # Annotate chunks with a speaker and pin the recording date.
+        for chunk in s.exec(select(RagChunk)).all():
+            chunk.speaker = "Anna"
+            s.add(chunk)
+        rec = s.get(Recording, rid)
+        rec.created_at = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        s.add(rec)
+
+    with db.session_scope() as s:
+        assert rag.search(s, "Budget", top_k=5, speaker="anna")
+        assert not rag.search(s, "Budget", top_k=5, speaker="Bernd")
+        assert rag.search(s, "Budget", top_k=5, date_from="2026-05-01", date_to="2026-06-30")
+        assert not rag.search(s, "Budget", top_k=5, date_to="2026-05-31")
+        assert not rag.search(s, "Budget", top_k=5, date_from="2026-06-02")

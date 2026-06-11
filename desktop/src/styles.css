@@ -2107,3 +2107,318 @@ button.utt-time:hover {
 .live-degraded-badge::before {
   content: "⚠ ";
 }
+
+/* ── Action items (Aufgaben & Entscheidungen) ────────────────────────────── */
+.action-item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.action-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.action-item input[type="checkbox"] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.action-item .topic-del {
+  opacity: 0;
+}
+.action-item:hover .topic-del {
+  opacity: 1;
+}
+.action-item.done .action-item-text {
+  text-decoration: line-through;
+  color: var(--text-faint);
+}
+.action-item-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.action-item-text {
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.action-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  align-items: center;
+}
+.action-kind {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-weight: 600;
+}
+.action-kind.decision {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.action-kind.task {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.action-item-rec {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 11.5px;
+}
+.action-item-rec:hover {
+  color: var(--accent);
+}
+
+/* Global tasks page */
+.tasks-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 860px;
+}
+.tasks-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tasks-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-faint);
+  padding: 48px 0;
+  text-align: center;
+}
+.tasks-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tasks-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.tasks-group-title {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  cursor: pointer;
+}
+.tasks-group-title:hover {
+  color: var(--accent);
+}
+
+/* ── Chapters bar ────────────────────────────────────────────────────────── */
+.chapters-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  position: relative;
+  flex-wrap: wrap;
+}
+.chapters-bar.empty {
+  align-items: center;
+  color: var(--text-faint);
+  font-size: 12.5px;
+}
+.chapters-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.chapters-chips {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.chapter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-dim);
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chapter-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.chapter-chip.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.chapter-time {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.chapters-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.chapters-strip {
+  flex-basis: 100%;
+  position: relative;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  overflow: hidden;
+}
+.chapters-strip-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-right: 2px solid var(--bg-elevated);
+  cursor: pointer;
+}
+.chapters-strip-seg.active {
+  background: var(--accent);
+}
+
+/* ── Speaker statistics ──────────────────────────────────────────────────── */
+.speaker-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.speaker-stats h3 {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.speaker-stats-bars,
+.speaker-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.speaker-stat-row,
+.speaker-timeline-row {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.speaker-timeline-row {
+  grid-template-columns: 140px 1fr;
+}
+.speaker-stat-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.speaker-stat-bar-track {
+  height: 10px;
+  background: var(--bg-input);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.speaker-stat-bar {
+  height: 100%;
+  border-radius: 999px;
+}
+.speaker-stat-value {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.speaker-timeline-track {
+  display: flex;
+  height: 14px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-input);
+}
+.speaker-timeline-cell {
+  flex: 1;
+}
+.speaker-timeline-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  padding-left: 150px;
+}
+.speaker-stats-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.speaker-stats-fact {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.speaker-stats-note {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin: 0;
+}
+
+/* ── Search filters (hybrid search) ──────────────────────────────────────── */
+.search-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+}
+.search-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.search-filters input {
+  font-size: 12.5px;
+}

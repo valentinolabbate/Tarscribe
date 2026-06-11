@@ -47,6 +47,9 @@ class ChatIn(BaseModel):
     topic_id: int | None = None
     recording_id: int | None = None
     top_k: int | None = None
+    speaker: str | None = None
+    date_from: str | None = None  # ISO date YYYY-MM-DD
+    date_to: str | None = None
 
 
 class SearchIn(BaseModel):
@@ -54,6 +57,9 @@ class SearchIn(BaseModel):
     topic_id: int | None = None
     recording_id: int | None = None
     top_k: int | None = None
+    speaker: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
 
 
 SYSTEM_PROMPT = (
@@ -169,6 +175,9 @@ def semantic_search(payload: SearchIn, session: Session = Depends(get_session)) 
             top_k=payload.top_k,
             topic_id=payload.topic_id,
             recording_id=payload.recording_id,
+            speaker=payload.speaker,
+            date_from=payload.date_from,
+            date_to=payload.date_to,
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Suche fehlgeschlagen: {exc}") from exc
@@ -194,6 +203,9 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
             top_k=payload.top_k,
             topic_id=payload.topic_id,
             recording_id=payload.recording_id,
+            speaker=payload.speaker,
+            date_from=payload.date_from,
+            date_to=payload.date_to,
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Retrieval fehlgeschlagen: {exc}") from exc

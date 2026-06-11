@@ -15,6 +15,7 @@ from .routers import (
     diarization,
     editing,
     export,
+    insights,
     live_recordings,
     llm,
     rag,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(topics.router)
     app.include_router(recordings.router)
     app.include_router(live_recordings.router)
+    app.include_router(insights.router)
     app.include_router(transcription.router)
     app.include_router(diarization.router)
     app.include_router(editing.router)

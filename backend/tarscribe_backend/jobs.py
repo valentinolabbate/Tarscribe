@@ -395,6 +395,145 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         )
 
 
+def _llm_chat_fn():
+    """Non-streaming chat callable from the configured LLM (raises if unconfigured)."""
+    from . import llm as L
+
+    cfg = L.get_llm_config()
+    if not cfg["model"]:
+        raise RuntimeError("Kein LLM-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
+
+    def _chat(msgs: list[dict]) -> str:
+        return "".join(
+            L.stream_chat(
+                msgs,
+                cfg["model"],
+                cfg["base_url"],
+                temperature=cfg.get("temperature", 0.3),
+                top_p=cfg.get("top_p"),
+                top_k=cfg.get("top_k"),
+                max_tokens=cfg.get("max_tokens"),
+                api_key=cfg.get("api_key"),
+            )
+        )
+
+    return _chat
+
+
+def _run_action_items(recording_id: int, job_id: int) -> None:
+    from . import analysis
+    from .models import ActionItem
+    from .settings_store import load_prefs
+
+    try:
+        _update_job(job_id, status=JobStatus.running, progress=0.05)
+        chat = _llm_chat_fn()
+        with session_scope() as s:
+            text, speakers = _assemble_transcript(s, recording_id)
+        if not text:
+            raise RuntimeError("Kein Transkript vorhanden")
+
+        chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
+
+        def progress(frac: float) -> None:
+            _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
+
+        items = analysis.extract_action_items(
+            chat, text, speakers, chunk_size=chunk_size, progress=progress
+        )
+
+        with session_scope() as s:
+            old = s.exec(
+                select(ActionItem).where(ActionItem.recording_id == recording_id)
+            ).all()
+            # Re-extraction replaces the list but keeps check-offs for unchanged texts.
+            done_texts = {analysis._norm_text(o.text) for o in old if o.done}
+            for o in old:
+                s.delete(o)
+            s.flush()
+            for it in items:
+                s.add(
+                    ActionItem(
+                        recording_id=recording_id,
+                        kind=it["kind"],
+                        text=it["text"],
+                        assignee=it.get("assignee"),
+                        due=it.get("due"),
+                        done=analysis._norm_text(it["text"]) in done_texts,
+                    )
+                )
+        _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+
+
+def _run_chapters(recording_id: int, job_id: int) -> None:
+    from . import analysis
+    from .models import Chapter
+    from .rag import load_utterances
+    from .settings_store import load_prefs
+
+    try:
+        _update_job(job_id, status=JobStatus.running, progress=0.1)
+        chat = _llm_chat_fn()
+        with session_scope() as s:
+            rec = s.get(Recording, recording_id)
+            if not rec:
+                raise RuntimeError("Aufnahme nicht gefunden")
+            duration = rec.duration_sec
+            utts = load_utterances(s, recording_id)
+        if not utts:
+            raise RuntimeError("Kein Transkript vorhanden")
+
+        chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
+        _update_job(job_id, progress=0.3)
+        chapters = analysis.generate_chapters(chat, utts, duration, chunk_size=chunk_size)
+        if not chapters:
+            raise RuntimeError("Das LLM hat keine verwertbaren Kapitel geliefert.")
+
+        with session_scope() as s:
+            for old in s.exec(
+                select(Chapter).where(Chapter.recording_id == recording_id)
+            ).all():
+                s.delete(old)
+            s.flush()
+            for i, ch in enumerate(chapters):
+                s.add(
+                    Chapter(
+                        recording_id=recording_id,
+                        idx=i,
+                        start=ch["start"],
+                        end=ch.get("end"),
+                        title=ch["title"],
+                    )
+                )
+        _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+
+
+def enqueue_action_items(recording_id: int) -> int:
+    with session_scope() as s:
+        job = Job(recording_id=recording_id, phase=JobPhase.action_items, status=JobStatus.pending)
+        s.add(job)
+        s.flush()
+        job_id = job.id
+    _executor.submit(_run_action_items, recording_id, job_id)
+    return job_id
+
+
+def enqueue_chapters(recording_id: int) -> int:
+    with session_scope() as s:
+        job = Job(recording_id=recording_id, phase=JobPhase.chapters, status=JobStatus.pending)
+        s.add(job)
+        s.flush()
+        job_id = job.id
+    _executor.submit(_run_chapters, recording_id, job_id)
+    return job_id
+
+
 def _run_embedding(recording_id: int, job_id: int) -> None:
     from . import rag
 

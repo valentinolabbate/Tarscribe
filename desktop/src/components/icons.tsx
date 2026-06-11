@@ -118,3 +118,19 @@ export const ChatIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z" />
   </svg>
 );
+
+/** Checked square — used for the action items (Aufgaben) nav entry. */
+export const TasksIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <rect x="4" y="4" width="16" height="16" rx="3" />
+    <path d="m8.5 12 2.5 2.5 5-5" />
+  </svg>
+);
+
+/** Bookmark list — used for chapters. */
+export const ChaptersIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M4 6h9M4 12h7M4 18h9" />
+    <path d="M16.5 5H21v14l-2.25-2-2.25 2z" />
+  </svg>
+);

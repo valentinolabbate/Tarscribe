@@ -48,6 +48,8 @@ class JobPhase(str, Enum):
     alignment = "alignment"
     summarize = "summarize"
     embedding = "embedding"
+    action_items = "action_items"
+    chapters = "chapters"
 
 
 class JobStatus(str, Enum):
@@ -221,6 +223,35 @@ class RagChunk(SQLModel, table=True):
     # Hash of the source text; lets re-indexing skip unchanged content.
     content_hash: str = ""
     embed_model: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ActionItem(SQLModel, table=True):
+    """An LLM-extracted task or decision from one recording, checkable by the user."""
+
+    __tablename__ = "action_items"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    kind: str = "task"  # task | decision
+    text: str
+    assignee: Optional[str] = None
+    due: Optional[str] = None  # free-text deadline as spoken ("bis Freitag")
+    done: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Chapter(SQLModel, table=True):
+    """An LLM-detected topic chapter within a recording."""
+
+    __tablename__ = "chapters"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    idx: int = 0
+    start: float = 0.0
+    end: Optional[float] = None
+    title: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
 

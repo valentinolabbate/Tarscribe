@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import importlib
-import struct
 import tempfile
-from pathlib import Path
 
 import pytest
 

@@ -315,8 +315,28 @@ def index_recording(session: Session, recording_id: int, progress=None) -> int:
             "VALUES (?, ?, ?, ?)",
             (row.id, sqlite_vec.serialize_float32(vec), topic_id, recording_id),
         )
+        _fts_insert(conn, row.id, row.text)
     session.commit()
     return len(pending)
+
+
+def _fts_insert(conn, rowid: int, text: str) -> None:
+    from .db import fts_available
+
+    if fts_available():
+        conn.exec_driver_sql(
+            "INSERT INTO rag_chunk_fts(rowid, text) VALUES (?, ?)", (rowid, text)
+        )
+
+
+def _fts_delete(conn, rowids: list[int]) -> None:
+    from .db import fts_available
+
+    if fts_available() and rowids:
+        placeholders = ",".join("?" for _ in rowids)
+        conn.exec_driver_sql(
+            f"DELETE FROM rag_chunk_fts WHERE rowid IN ({placeholders})", tuple(rowids)
+        )
 
 
 def _delete_recording_chunks(session: Session, recording_id: int) -> None:
@@ -324,9 +344,11 @@ def _delete_recording_chunks(session: Session, recording_id: int) -> None:
     conn.exec_driver_sql(
         "DELETE FROM rag_chunk_vec WHERE recording_id = ?", (recording_id,)
     )
-    for row in session.exec(
+    rows = session.exec(
         select(RagChunk).where(RagChunk.recording_id == recording_id)
-    ).all():
+    ).all()
+    _fts_delete(conn, [row.id for row in rows])
+    for row in rows:
         session.delete(row)
     session.flush()
 
@@ -347,6 +369,7 @@ def delete_summary_index(session: Session, summary_id: int) -> None:
     rows = session.exec(
         select(RagChunk).where(RagChunk.summary_id == summary_id)
     ).all()
+    _fts_delete(conn, [row.id for row in rows])
     for row in rows:
         conn.exec_driver_sql("DELETE FROM rag_chunk_vec WHERE rowid = ?", (row.id,))
         session.delete(row)
@@ -354,24 +377,17 @@ def delete_summary_index(session: Session, summary_id: int) -> None:
 
 
 # --- retrieval -------------------------------------------------------------
-def search(
-    session: Session,
-    query: str,
-    top_k: int | None = None,
-    topic_id: int | None = None,
-    recording_id: int | None = None,
-) -> list[dict]:
-    """KNN search over chunk embeddings. Returns hits with source metadata."""
+RRF_K = 60  # standard reciprocal-rank-fusion constant
+
+
+def _vector_ranks(
+    conn, query: str, k: int, topic_id: int | None, recording_id: int | None
+) -> tuple[dict[int, int], dict[int, float]]:
+    """KNN search → ({chunk_id: rank}, {chunk_id: distance})."""
     import sqlite_vec
 
-    cfg = get_rag_config()
-    k = top_k or cfg["top_k"]
     qvec = sqlite_vec.serialize_float32(embed_query(query))
-
-    sql = (
-        "SELECT rowid, distance FROM rag_chunk_vec "
-        "WHERE embedding MATCH ? AND k = ?"
-    )
+    sql = "SELECT rowid, distance FROM rag_chunk_vec WHERE embedding MATCH ? AND k = ?"
     params: list = [qvec, k]
     if topic_id is not None:
         sql += " AND topic_id = ?"
@@ -379,16 +395,102 @@ def search(
     if recording_id is not None:
         sql += " AND recording_id = ?"
         params.append(recording_id)
-
-    conn = session.connection()
     rows = conn.exec_driver_sql(sql, tuple(params)).fetchall()
+    ranks = {int(rowid): rank for rank, (rowid, _d) in enumerate(rows)}
+    distances = {int(rowid): float(d) for rowid, d in rows}
+    return ranks, distances
+
+
+def _fts_match_query(query: str) -> str:
+    """Sanitize free text into an FTS5 OR-query of quoted tokens."""
+    import re
+
+    tokens = re.findall(r"\w+", query, re.UNICODE)
+    return " OR ".join(f'"{t}"' for t in tokens[:24])
+
+
+def _fts_ranks(
+    conn, query: str, k: int, topic_id: int | None, recording_id: int | None
+) -> dict[int, int]:
+    """BM25 keyword search → {chunk_id: rank}. Empty when FTS is unavailable."""
+    from .db import fts_available
+
+    if not fts_available():
+        return {}
+    match = _fts_match_query(query)
+    if not match:
+        return {}
+    sql = (
+        "SELECT f.rowid FROM rag_chunk_fts f JOIN rag_chunks c ON c.id = f.rowid "
+        "WHERE rag_chunk_fts MATCH ?"
+    )
+    params: list = [match]
+    if topic_id is not None:
+        sql += " AND c.topic_id = ?"
+        params.append(topic_id)
+    if recording_id is not None:
+        sql += " AND c.recording_id = ?"
+        params.append(recording_id)
+    sql += " ORDER BY rank LIMIT ?"
+    params.append(k)
+    rows = conn.exec_driver_sql(sql, tuple(params)).fetchall()
+    return {int(row[0]): rank for rank, row in enumerate(rows)}
+
+
+def search(
+    session: Session,
+    query: str,
+    top_k: int | None = None,
+    topic_id: int | None = None,
+    recording_id: int | None = None,
+    speaker: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[dict]:
+    """Hybrid retrieval: semantic KNN + FTS5 keyword search, fused via RRF.
+
+    Falls back to keyword-only when the embedding endpoint is unreachable (and
+    vice versa). ``speaker`` and ``date_from``/``date_to`` (ISO dates) are
+    post-filters on the fused result.
+    """
+    cfg = get_rag_config()
+    k = top_k or cfg["top_k"]
+    extra_filters = bool(speaker or date_from or date_to)
+    fetch_k = k * (4 if extra_filters else 2)
+    conn = session.connection()
+
+    vec_err: Exception | None = None
+    try:
+        vec_ranks, distances = _vector_ranks(conn, query, fetch_k, topic_id, recording_id)
+    except Exception as exc:  # noqa: BLE001 - embedding server down → keyword-only
+        vec_ranks, distances = {}, {}
+        vec_err = exc
+    fts_ranks = _fts_ranks(conn, query, fetch_k, topic_id, recording_id)
+    if not vec_ranks and not fts_ranks and vec_err is not None:
+        raise vec_err
+
+    scores: dict[int, float] = {}
+    for ranks in (vec_ranks, fts_ranks):
+        for chunk_id, rank in ranks.items():
+            scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (RRF_K + rank + 1)
+
+    ordered = sorted(scores.items(), key=lambda kv: -kv[1])
 
     hits: list[dict] = []
-    for rowid, distance in rows:
-        chunk = session.get(RagChunk, rowid)
+    speaker_lc = speaker.lower() if speaker else None
+    for chunk_id, score in ordered:
+        chunk = session.get(RagChunk, chunk_id)
         if not chunk:
             continue
         rec = session.get(Recording, chunk.recording_id)
+        if speaker_lc and speaker_lc not in (chunk.speaker or "").lower():
+            continue
+        if (date_from or date_to) and rec:
+            rec_date = rec.created_at.strftime("%Y-%m-%d")
+            if date_from and rec_date < date_from:
+                continue
+            if date_to and rec_date > date_to:
+                continue
         hits.append(
             {
                 "chunk_id": chunk.id,
@@ -400,9 +502,12 @@ def search(
                 "start_sec": chunk.start_sec,
                 "end_sec": chunk.end_sec,
                 "speaker": chunk.speaker,
-                "distance": float(distance),
+                "distance": distances.get(chunk_id),
+                "score": round(score, 6),
             }
         )
+        if len(hits) >= k:
+            break
     return hits
 
 

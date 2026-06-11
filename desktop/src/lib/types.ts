@@ -293,5 +293,54 @@ export interface RagHit {
   start_sec?: number | null;
   end_sec?: number | null;
   speaker?: string | null;
-  distance: number;
+  /** Vector distance; null when the hit came only from the keyword index. */
+  distance?: number | null;
+  /** Hybrid (RRF) relevance score. */
+  score?: number;
+}
+
+// ── Insights: Action-Items, Kapitel, Sprecher-Statistiken ───────────────
+export interface ActionItem {
+  id: number;
+  recording_id: number;
+  kind: "task" | "decision";
+  text: string;
+  assignee: string | null;
+  due: string | null;
+  done: boolean;
+  created_at: string;
+  recording_title: string | null;
+  topic_id: number | null;
+  topic_name: string | null;
+  topic_color: string | null;
+}
+
+export interface Chapter {
+  id: number;
+  recording_id: number;
+  idx: number;
+  start: number;
+  end: number | null;
+  title: string;
+}
+
+export interface SpeakerStat {
+  label: string;
+  name: string;
+  talk_sec: number;
+  share: number;
+  segments: number;
+  longest_sec: number;
+  interruptions_made: number;
+  interruptions_received: number;
+  timeline: number[];
+}
+
+export interface SpeakerStats {
+  recording_id: number;
+  duration_sec: number;
+  total_talk_sec: number;
+  bucket_sec: number;
+  num_buckets: number;
+  speakers: SpeakerStat[];
 }

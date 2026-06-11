@@ -35,5 +35,8 @@ const JOB_PHASE_LABEL: Record<string, string> = {
   asr: "Transkribiere",
   diarization: "Erkenne Sprecher",
   summarize: "Erstelle Zusammenfassung",
+  embedding: "Indexiere für Suche",
+  action_items: "Extrahiere Aufgaben",
+  chapters: "Erkenne Kapitel",
 };
 export const jobPhaseLabel = (phase?: string) => JOB_PHASE_LABEL[phase ?? ""] ?? "Verarbeite";

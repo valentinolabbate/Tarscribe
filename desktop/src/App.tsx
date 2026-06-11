@@ -11,7 +11,8 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TrashIcon } from "./components/icons";
+import { FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
+import { TasksPage } from "./components/TasksPage";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
   useDeleteTopic,
@@ -164,6 +165,7 @@ export default function App() {
   const [openRecording, setOpenRecording] = useState<Recording | null>(null);
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [showHome, setShowHome] = useState(true);
+  const [showTasks, setShowTasks] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
@@ -239,6 +241,7 @@ export default function App() {
     recording.clearLastFinished();
     setActiveTopic(rec.topic_id);
     setShowHome(false);
+    setShowTasks(false);
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
@@ -279,6 +282,7 @@ export default function App() {
       const rec = await api.getRecording(recordingId);
       setActiveTopic(rec.topic_id);
       setShowHome(false);
+      setShowTasks(false);
       setOpenRecording(rec);
     } catch {
       toast("Aufnahme konnte nicht geöffnet werden.", "error");
@@ -402,10 +406,22 @@ export default function App() {
           className={`topic-item ${showHome ? "active" : ""}`}
           onClick={() => {
             setShowHome(true);
+            setShowTasks(false);
             setOpenRecording(null);
           }}
         >
           <HomeIcon width={16} height={16} /> Start
+        </button>
+
+        <button
+          className={`topic-item ${showTasks ? "active" : ""}`}
+          onClick={() => {
+            setShowTasks(true);
+            setShowHome(false);
+            setOpenRecording(null);
+          }}
+        >
+          <TasksIcon width={16} height={16} /> Aufgaben
         </button>
 
         <div className="section-label">
@@ -429,6 +445,7 @@ export default function App() {
               setActiveTopic(t.id);
               setOpenRecording(null);
               setShowHome(false);
+              setShowTasks(false);
             }}
           />
         ))}
@@ -458,21 +475,23 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-title">
             <span className="topbar-eyebrow">
-              {showHome ? "Start" : openRecording ? "Aufnahme" : "Themenbereich"}
+              {showTasks ? "Aufgaben" : showHome ? "Start" : openRecording ? "Aufnahme" : "Themenbereich"}
             </span>
             <h1>
-              {showHome
-                ? "Tarscribe"
-                : openRecording
-                  ? openRecording.title
-                  : current
-                    ? current.name
-                    : "Tarscribe"}
+              {showTasks
+                ? "Action-Items"
+                : showHome
+                  ? "Tarscribe"
+                  : openRecording
+                    ? openRecording.title
+                    : current
+                      ? current.name
+                      : "Tarscribe"}
             </h1>
           </div>
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
-          {current && !showHome && (
+          {current && !showHome && !showTasks && (
             <button
               className="btn ghost"
               title={current.export_path ? `Export-Ordner: ${current.export_path}` : "Export-Ordner festlegen"}
@@ -495,6 +514,8 @@ export default function App() {
               onResume={recording.resume}
               onStop={recording.stop}
             />
+          ) : showTasks ? (
+            <TasksPage topics={topics ?? []} onOpenRecording={openRecordingById} />
           ) : showHome ? (
             <StartPage topics={topics ?? []} onOpenSource={openRecordingById} />
           ) : openRecording ? (

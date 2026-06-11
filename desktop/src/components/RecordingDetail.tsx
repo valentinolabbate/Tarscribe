@@ -18,7 +18,10 @@ import { fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { DiarizationData, Recording } from "../lib/types";
 import { useToast } from "./Toast";
 import { ChatIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
+import { ActionItemsPanel } from "./ActionItemsPanel";
+import { ChaptersBar } from "./ChaptersBar";
 import { ChatPanel } from "./ChatPanel";
+import { SpeakerStatsPanel } from "./SpeakerStatsPanel";
 import { SummaryPanel } from "./SummaryPanel";
 import { TuningPanel } from "./TuningPanel";
 
@@ -356,6 +359,14 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
             onPlaying={setPlaying}
           />
 
+          <ChaptersBar
+            recordingId={recording.id}
+            recordingTitle={recording.title}
+            durationSec={recording.duration_sec}
+            currentTime={currentTime}
+            onSeek={(sec) => playerRef.current?.seek(sec)}
+          />
+
           <nav className="detail-tabs" aria-label="Bereiche der Aufnahme">
             {tabs.map((tab) => (
               <DetailTabButton
@@ -438,6 +449,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
                   <SummaryIcon width={20} height={20} />
                 </div>
                 <SummaryPanel recordingId={recording.id} />
+                <ActionItemsPanel recordingId={recording.id} />
               </section>
             )}
 
@@ -478,6 +490,11 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
                     {showTuning && (
                       <TuningPanel recordingId={recording.id} initial={diar.params} disabled={!!running} />
                     )}
+                    <SpeakerStatsPanel
+                      recordingId={recording.id}
+                      labels={labels}
+                      colorFor={(label) => colorFor(label, labels)}
+                    />
                     <div className="speaker-note">
                       Sprecherzuweisung einzelner Textstellen änderst du direkt im Tab „Transkript".
                     </div>

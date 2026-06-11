@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 
 from tarscribe_backend import media_tools
 

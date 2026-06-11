@@ -18,6 +18,9 @@ _engine: Engine | None = None
 # degrade gracefully (stay disabled) when this is False instead of crashing.
 VEC_AVAILABLE: bool | None = None
 
+# Whether the FTS5 keyword index could be created (set during migrations).
+FTS_AVAILABLE: bool = False
+
 
 def _on_connect(dbapi_connection, _record) -> None:  # pragma: no cover - sqlite pragma
     cur = dbapi_connection.cursor()
@@ -92,6 +95,7 @@ def _run_lightweight_migrations() -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
 
     _ensure_vec_table()
+    _ensure_fts_table()
     _mark_stale_live_sessions()
     _mark_stale_jobs()
 
@@ -149,6 +153,41 @@ def _ensure_vec_table() -> bool:
                 {"k": key, "v": value},
             )
     return invalidated
+
+
+def fts_available() -> bool:
+    return FTS_AVAILABLE
+
+
+def _ensure_fts_table() -> None:
+    """Create the FTS5 keyword index over rag_chunks and backfill it.
+
+    Standalone FTS table (text duplicated) so plain INSERT/DELETE keep it in
+    sync; rowid mirrors RagChunk.id. Rebuilt automatically when row counts
+    diverge (first run after update, or after the vec index was wiped).
+    """
+    global FTS_AVAILABLE
+    from sqlalchemy import text
+
+    try:
+        with get_engine().begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunk_fts USING fts5("
+                    "text, tokenize='unicode61 remove_diacritics 2')"
+                )
+            )
+            n_fts = conn.execute(text("SELECT count(*) FROM rag_chunk_fts")).scalar()
+            n_chunks = conn.execute(text("SELECT count(*) FROM rag_chunks")).scalar()
+            if n_fts != n_chunks:
+                conn.execute(text("DELETE FROM rag_chunk_fts"))
+                conn.execute(
+                    text("INSERT INTO rag_chunk_fts(rowid, text) SELECT id, text FROM rag_chunks")
+                )
+        FTS_AVAILABLE = True
+    except Exception as exc:  # noqa: BLE001 - sqlite without FTS5
+        FTS_AVAILABLE = False
+        print(f"[tarscribe] FTS5 nicht verfügbar, Stichwortsuche deaktiviert: {exc}")
 
 
 def _mark_stale_live_sessions() -> None:

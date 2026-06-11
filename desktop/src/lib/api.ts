@@ -1,5 +1,7 @@
 import type {
+  ActionItem,
   AppSettings,
+  Chapter,
   ChatMessage,
   DiarizationData,
   HardwareInfo,
@@ -13,12 +15,22 @@ import type {
   RagSource,
   RagStatus,
   Recording,
+  SpeakerStats,
   Summary,
   SummaryEvent,
   SummaryTemplate,
   TranscriptData,
   Topic,
 } from "./types";
+
+export interface SearchFilters {
+  topicId?: number | null;
+  recordingId?: number | null;
+  topK?: number;
+  speaker?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}
 
 export interface DiarizeParams {
   num_speakers?: number | null;
@@ -292,10 +304,7 @@ export const api = {
     request<{ saved: boolean; api_key_set: boolean }>("/api/rag/api-key", { method: "DELETE" }),
   getRagStatus: () => request<RagStatus>("/api/rag/status"),
   reindexRag: () => request<{ enqueued: number }>("/api/rag/reindex", { method: "POST" }),
-  ragSearch: (
-    query: string,
-    opts: { topicId?: number | null; recordingId?: number | null; topK?: number } = {},
-  ) =>
+  ragSearch: (query: string, opts: SearchFilters = {}) =>
     request<{ hits: RagHit[] }>("/api/rag/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -304,13 +313,16 @@ export const api = {
         topic_id: opts.topicId ?? null,
         recording_id: opts.recordingId ?? null,
         top_k: opts.topK ?? null,
+        speaker: opts.speaker || null,
+        date_from: opts.dateFrom || null,
+        date_to: opts.dateTo || null,
       }),
     }),
 
   /** Stream a RAG chat answer (SSE): sources first, then content deltas. */
   async ragChat(
     messages: ChatMessage[],
-    opts: { topicId?: number | null; recordingId?: number | null; topK?: number } = {},
+    opts: SearchFilters = {},
     handlers: {
       onSources?: (s: RagSource[]) => void;
       onDelta?: (text: string) => void;
@@ -330,6 +342,9 @@ export const api = {
         topic_id: opts.topicId ?? null,
         recording_id: opts.recordingId ?? null,
         top_k: opts.topK ?? null,
+        speaker: opts.speaker || null,
+        date_from: opts.dateFrom || null,
+        date_to: opts.dateTo || null,
       }),
     });
     if (!res.ok || !res.body) {
@@ -359,6 +374,60 @@ export const api = {
       }
     }
   },
+
+  // Insights: Action-Items, Kapitel, Sprecher-Statistiken
+  extractActionItems: (recordingId: number) =>
+    request<{ job_id: number; status: string }>(
+      `/api/recordings/${recordingId}/action-items/extract`,
+      { method: "POST" },
+    ),
+  listRecordingActionItems: (recordingId: number) =>
+    request<ActionItem[]>(`/api/recordings/${recordingId}/action-items`),
+  listActionItems: (opts: { topicId?: number | null; done?: boolean | null } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.topicId != null) params.set("topic_id", String(opts.topicId));
+    if (opts.done != null) params.set("done", String(opts.done));
+    const qs = params.toString();
+    return request<ActionItem[]>(`/api/action-items${qs ? `?${qs}` : ""}`);
+  },
+  updateActionItem: (id: number, patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due">>) =>
+    request<ActionItem>(`/api/action-items/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteActionItem: (id: number) =>
+    request<void>(`/api/action-items/${id}`, { method: "DELETE" }),
+
+  generateChapters: (recordingId: number) =>
+    request<{ job_id: number; status: string }>(
+      `/api/recordings/${recordingId}/chapters/generate`,
+      { method: "POST" },
+    ),
+  listChapters: (recordingId: number) =>
+    request<Chapter[]>(`/api/recordings/${recordingId}/chapters`),
+  deleteChapters: (recordingId: number) =>
+    request<void>(`/api/recordings/${recordingId}/chapters`, { method: "DELETE" }),
+  async downloadChapters(id: number, format: "youtube" | "srt", title: string): Promise<void> {
+    const cfg = await getConfig();
+    const headers = new Headers();
+    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
+    const res = await fetch(
+      `${cfg.base_url}/api/recordings/${id}/chapters/export?format=${format}`,
+      { headers },
+    );
+    if (!res.ok) throw new Error("Kapitel-Export fehlgeschlagen");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title} Kapitel.${format === "srt" ? "srt" : "txt"}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  getSpeakerStats: (recordingId: number) =>
+    request<SpeakerStats>(`/api/recordings/${recordingId}/speaker-stats`),
 
   // Summaries
   summarize: (recordingId: number, templateId: number) =>

@@ -238,7 +238,9 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
 
         rag._delete_recording_chunks(session, recording_id)
 
-    for model in (SpeakerLabel, ManualEdit, Summary):
+    from ..models import ActionItem, Chapter
+
+    for model in (SpeakerLabel, ManualEdit, Summary, ActionItem, Chapter):
         for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
             session.delete(row)
     for job in jobs:

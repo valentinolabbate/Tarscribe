@@ -45,14 +45,23 @@ def transcribe(
 
 @router.get("/{recording_id}/transcript", dependencies=[Depends(require_token)])
 def get_transcript(recording_id: int, session: Session = Depends(get_session)) -> dict:
-    transcript = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).first()
+    transcripts = session.exec(
+        select(Transcript)
+        .where(Transcript.recording_id == recording_id)
+        .order_by(Transcript.created_at.desc(), Transcript.id.desc())
+    ).all()
+    transcript: Transcript | None = None
+    words: list[Word] = []
+    for candidate in transcripts:
+        candidate_words = session.exec(
+            select(Word).where(Word.transcript_id == candidate.id).order_by(Word.idx)
+        ).all()
+        if candidate_words:
+            transcript = candidate
+            words = candidate_words
+            break
     if not transcript:
         raise HTTPException(404, "Noch kein Transkript vorhanden")
-    words = session.exec(
-        select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
-    ).all()
     return {
         "transcript_id": transcript.id,
         "asr_model": transcript.asr_model,

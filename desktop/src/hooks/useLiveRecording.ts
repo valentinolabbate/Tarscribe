@@ -13,6 +13,7 @@ import type { LiveEvent, LiveSession, LiveTranscriptSnapshot, LiveSpeakerSnapsho
 
 const MAX_BUFFER = 30; // max queued chunks before we drop new ones
 const MAX_RETRIES = 3;
+const FINISH_DRAIN_TIMEOUT_MS = 5000;
 
 interface QueueEntry {
   seq: number;
@@ -96,6 +97,22 @@ export function useLiveRecording(): {
     uploadingRef.current = false;
   }, []);
 
+  const waitForQueueIdle = useCallback(async () => {
+    const startedAt = Date.now();
+    void drainQueue();
+
+    while (sessionRef.current && (uploadingRef.current || queueRef.current.length > 0)) {
+      if (Date.now() - startedAt >= FINISH_DRAIN_TIMEOUT_MS) {
+        setHasUploadError(true);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (!uploadingRef.current && queueRef.current.length > 0) {
+        void drainQueue();
+      }
+    }
+  }, [drainQueue]);
+
   const enqueueChunk = useCallback(
     (chunk: ArrayBuffer) => {
       if (!sessionRef.current) return;
@@ -138,16 +155,20 @@ export function useLiveRecording(): {
   );
 
   const finish = useCallback(async (recordingId: number | null) => {
-    if (!sessionRef.current) return;
+    const session = sessionRef.current;
+    if (!session) return;
     try {
-      await api.finishLiveSession(sessionRef.current.id, recordingId);
+      await waitForQueueIdle();
+      await api.finishLiveSession(session.id, recordingId);
     } catch (e) {
       console.warn("[live] finish failed:", e);
     } finally {
       sessionRef.current = null;
+      queueRef.current = [];
+      setQueueLength(0);
       setSessionId(null);
     }
-  }, []);
+  }, [waitForQueueIdle]);
 
   const notifyPause = useCallback(async () => {
     if (!sessionRef.current) return;

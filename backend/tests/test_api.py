@@ -118,6 +118,27 @@ def test_topic_overview_counts_artifacts_and_exports(client):
     assert overview["exported_count"] == 1
 
 
+def test_empty_transcript_row_is_not_returned_as_transcript(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Topic, Transcript
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Leeres Transkript")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Leer", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.flush()
+        s.add(Transcript(recording_id=rec.id, asr_model="broken-live"))
+        s.commit()
+        recording_id = rec.id
+
+    r = client.get(f"/api/recordings/{recording_id}/transcript")
+    assert r.status_code == 404
+
+
 def test_builtin_templates_seeded(client):
     # Built-in summary templates should be present after init.
     from sqlmodel import Session, select

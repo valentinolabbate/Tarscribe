@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import tempfile
 
 import pytest
@@ -50,6 +51,40 @@ def _make_topic(client, name="Test") -> int:
 def _make_pcm_chunk(num_samples: int = 32000, channels: int = 1) -> bytes:
     """Return silent PCM16 data."""
     return b"\x00\x00" * num_samples * channels
+
+
+def _make_recording(topic_id: int) -> int:
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, RecordingStatus
+
+    with Session(db.get_engine()) as s:
+        rec = Recording(
+            topic_id=topic_id,
+            title="Live Ziel",
+            audio_path="/tmp/missing-live.wav",
+            status=RecordingStatus.uploaded,
+        )
+        s.add(rec)
+        s.commit()
+        return rec.id
+
+
+def _set_live_snapshot(session_id: str, words: list[dict]) -> None:
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import LiveRecordingSession
+
+    with Session(db.get_engine()) as s:
+        live = s.get(LiveRecordingSession, session_id)
+        assert live is not None
+        live.transcript_snapshot_json = json.dumps(
+            {"revision": 3, "duration_sec": 1.0, "words": words}
+        )
+        s.add(live)
+        s.commit()
 
 
 # ── Session lifecycle ────────────────────────────────────────────────────────
@@ -113,6 +148,66 @@ def test_finish_session(client):
 
     r2 = client.get(f"/api/live-recordings/{sid}")
     assert r2.json()["status"] == "completed"
+
+
+def test_finish_persists_live_transcript_snapshot(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, RecordingStatus
+
+    topic_id = _make_topic(client)
+    sid = client.post("/api/live-recordings", json={"topic_id": topic_id}).json()["id"]
+    recording_id = _make_recording(topic_id)
+    _set_live_snapshot(
+        sid,
+        [
+            {"start": 0.0, "end": 0.4, "text": "Hallo ", "confidence": 0.9},
+            {"start": 0.4, "end": 0.8, "text": "Welt", "confidence": 0.8},
+        ],
+    )
+
+    r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": recording_id})
+    assert r.status_code == 200
+
+    tr = client.get(f"/api/recordings/{recording_id}/transcript")
+    assert tr.status_code == 200
+    body = tr.json()
+    assert body["asr_model"] == "live"
+    assert body["text"] == "Hallo Welt"
+    assert [w["text"] for w in body["words"]] == ["Hallo ", "Welt"]
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Recording, recording_id).status == RecordingStatus.ready
+
+
+def test_finish_does_not_overwrite_existing_transcript_words(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Transcript, Word
+
+    topic_id = _make_topic(client)
+    sid = client.post("/api/live-recordings", json={"topic_id": topic_id}).json()["id"]
+    recording_id = _make_recording(topic_id)
+    with Session(db.get_engine()) as s:
+        transcript = Transcript(recording_id=recording_id, asr_model="final-asr")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Final"))
+        s.commit()
+    _set_live_snapshot(
+        sid,
+        [{"start": 0.0, "end": 0.4, "text": "Live", "confidence": 0.9}],
+    )
+
+    r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": recording_id})
+    assert r.status_code == 200
+
+    tr = client.get(f"/api/recordings/{recording_id}/transcript")
+    assert tr.status_code == 200
+    assert tr.json()["asr_model"] == "final-asr"
+    assert tr.json()["text"] == "Final"
 
 
 def test_cancel_session(client):

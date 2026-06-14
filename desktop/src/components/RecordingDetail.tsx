@@ -184,9 +184,13 @@ export function RecordingDetail({
   const isTranscribed = isFullyReady || recording.status === "diarizing";
   const statusRunning = recording.status === "transcribing" || recording.status === "diarizing";
 
-  const { data: transcript } = useTranscript(recording.id, isTranscribed);
+  const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, isTranscribed);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
   const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
+  // A recording can read "ready" while its transcript is missing (e.g. a finalized
+  // live session that never persisted one). Treat "no transcript" as needing
+  // transcription so the page never renders blank without a way to (re)transcribe.
+  const transcriptPending = isTranscribed && transcriptLoading;
 
   const [showTuning, setShowTuning] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("transcript");
@@ -357,7 +361,7 @@ export function RecordingDetail({
         </div>
       )}
 
-      {!isTranscribed && (
+      {!transcript && !transcriptPending && (
         <DetailEmptyState
           running={!!running}
           startingPhase={startingPhase}
@@ -367,7 +371,7 @@ export function RecordingDetail({
         />
       )}
 
-      {isTranscribed && transcript && (
+      {transcript && (
         <>
           <AudioPlayer
             ref={playerRef}

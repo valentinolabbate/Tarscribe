@@ -508,3 +508,76 @@ def test_stale_jobs_failed_on_startup(client):
         assert s.get(Job, queued_id).status == JobStatus.failed
         assert s.get(Job, done_id).status == JobStatus.done
         assert s.get(Recording, rec_id).status == RecordingStatus.failed
+
+
+def _setup_diarization_job(with_transcript: bool):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import (
+        Job,
+        JobPhase,
+        JobStatus,
+        Recording,
+        RecordingStatus,
+        Topic,
+        Transcript,
+    )
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Dia")
+        s.add(topic)
+        s.flush()
+        rec = Recording(
+            topic_id=topic.id,
+            title="X",
+            audio_path="/tmp/missing.wav",
+            status=RecordingStatus.uploaded,
+        )
+        s.add(rec)
+        s.flush()
+        if with_transcript:
+            s.add(Transcript(recording_id=rec.id, asr_model="test"))
+        job = Job(recording_id=rec.id, phase=JobPhase.diarization, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        return rec.id, job.id
+
+
+def test_diarization_failure_without_transcript_marks_failed(client, monkeypatch):
+    """A failed diarization on a transcript-less recording must not leave it 'ready'
+    (which would render a blank detail page with no way to transcribe)."""
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.settings_store as settings_store
+    from tarscribe_backend.models import Job, JobStatus, Recording, RecordingStatus
+
+    # Force the early no-token failure so the test stays hermetic (no model load).
+    monkeypatch.setattr(settings_store, "get_hf_token", lambda: None)
+    rec_id, job_id = _setup_diarization_job(with_transcript=False)
+    jobs._run_diarization(rec_id, job_id, {})  # raises -> failure path
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Job, job_id).status == JobStatus.failed
+        assert s.get(Recording, rec_id).status == RecordingStatus.failed
+
+
+def test_diarization_failure_with_transcript_stays_ready(client, monkeypatch):
+    """With a transcript present, a failed (optional) diarization still leaves the
+    recording usable as 'ready'."""
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.settings_store as settings_store
+    from tarscribe_backend.models import Job, JobStatus, Recording, RecordingStatus
+
+    monkeypatch.setattr(settings_store, "get_hf_token", lambda: None)
+    rec_id, job_id = _setup_diarization_job(with_transcript=True)
+    jobs._run_diarization(rec_id, job_id, {})
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Job, job_id).status == JobStatus.failed
+        assert s.get(Recording, rec_id).status == RecordingStatus.ready

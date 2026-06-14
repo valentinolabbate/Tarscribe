@@ -257,7 +257,20 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
-        _set_recording_status(recording_id, RecordingStatus.ready)
+        # Diarization is optional: a recording that already has a transcript stays
+        # usable ("ready"). But without a transcript, "ready" would render a blank
+        # detail page, so fall back to "failed" so the user can re-transcribe.
+        with session_scope() as s:
+            has_transcript = (
+                s.exec(
+                    select(Transcript).where(Transcript.recording_id == recording_id)
+                ).first()
+                is not None
+            )
+        _set_recording_status(
+            recording_id,
+            RecordingStatus.ready if has_transcript else RecordingStatus.failed,
+        )
     finally:
         # Free the diarization + embedding models after the pipeline run.
         from .ml.lifecycle import unload_all

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { installUpdate, type PendingUpdate } from "../lib/updater";
+import { describeError, installUpdate, openReleasesPage, type PendingUpdate } from "../lib/updater";
 import { useToast } from "./Toast";
 
 export function UpdateModal({
@@ -13,15 +13,29 @@ export function UpdateModal({
   const toast = useToast();
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   async function install() {
     setInstalling(true);
+    setError(null);
     try {
-      await installUpdate(pending, setProgress);
-      // App relaunches; this line is usually not reached.
+      const result = await installUpdate(pending, setProgress);
+      // "relaunching": the app restarts, so this line is usually not reached.
+      if (result === "needs-restart") {
+        toast("Update installiert. Bitte beende Tarscribe und öffne es neu.", "success");
+        onClose();
+      }
     } catch (e) {
-      toast(`Update fehlgeschlagen: ${(e as Error).message}`, "error");
+      setError(describeError(e));
       setInstalling(false);
+    }
+  }
+
+  async function downloadManually() {
+    try {
+      await openReleasesPage();
+    } catch (e) {
+      toast(`Konnte die Download-Seite nicht öffnen: ${describeError(e)}`, "error");
     }
   }
 
@@ -48,14 +62,28 @@ export function UpdateModal({
             </div>
           </div>
         ) : (
-          <div className="modal-actions">
-            <button className="btn ghost" onClick={onClose}>
-              Später
-            </button>
-            <button className="btn primary" onClick={install}>
-              Jetzt installieren & neu starten
-            </button>
-          </div>
+          <>
+            {error && (
+              <div className="detail-error" style={{ marginTop: 12 }}>
+                Update fehlgeschlagen: {error}
+                <br />
+                Du kannst die neue Version stattdessen manuell herunterladen.
+              </div>
+            )}
+            <div className="modal-actions">
+              <button className="btn ghost" onClick={onClose}>
+                Später
+              </button>
+              {error && (
+                <button className="btn" onClick={downloadManually}>
+                  Manuell herunterladen
+                </button>
+              )}
+              <button className="btn primary" onClick={install}>
+                {error ? "Erneut versuchen" : "Jetzt installieren & neu starten"}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

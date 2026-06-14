@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
 import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
-import { getSystemAudioCapability, type SystemAudioCapability } from "../lib/tauri";
+import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../lib/tauri";
 import { ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
 import { RagSettings } from "./RagSettings";
@@ -61,6 +61,42 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       setRecordingDevices(await listRecordingDevices(true));
     } catch (e) {
       setStatus({ ok: false, msg: `Mikrofone konnten nicht geladen werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function chooseDigestFolder() {
+    if (!settings) return;
+    const dir = await pickFolder();
+    if (!dir) return;
+    setSettings({ ...settings, digest_export_path: dir });
+    api.updateSettings({ digest_export_path: dir });
+  }
+
+  async function saveDictationShortcut(value: string) {
+    const dictation_shortcut = value.trim() || "Alt+Meta+D";
+    setSettings((s) => (s ? { ...s, dictation_shortcut } : s));
+    try {
+      await api.updateSettings({ dictation_shortcut });
+      if (isTauri()) await invoke<string>("set_dictation_shortcut", { accelerator: dictation_shortcut });
+      setStatus({ ok: true, msg: "Diktat-Hotkey gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Diktat-Hotkey ungültig: ${(e as Error).message}` });
+    }
+  }
+
+  async function saveMeetingDetection(next: Pick<AppSettings, "meeting_detection_enabled" | "meeting_detection_apps">) {
+    setSettings((s) => (s ? { ...s, ...next } : s));
+    try {
+      await api.updateSettings(next);
+      if (isTauri()) {
+        await invoke<void>("configure_meeting_detection", {
+          enabled: next.meeting_detection_enabled,
+          apps: next.meeting_detection_apps,
+        });
+      }
+      setStatus({ ok: true, msg: "Meeting-Erkennung gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Meeting-Erkennung konnte nicht gespeichert werden: ${(e as Error).message}` });
     }
   }
 
@@ -200,6 +236,66 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </select>
                 </div>
 
+                <div className="field">
+                  <label>Diktat-Hotkey</label>
+                  <input
+                    type="text"
+                    value={settings.dictation_shortcut ?? "Alt+Meta+D"}
+                    placeholder="Alt+Meta+D"
+                    onChange={(e) => setSettings({ ...settings, dictation_shortcut: e.target.value })}
+                    onBlur={(e) => saveDictationShortcut(e.target.value)}
+                    spellCheck={false}
+                  />
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    Format: <code>Alt+Meta+D</code>, <code>Shift+Meta+N</code> oder <code>Control+Alt+M</code>.
+                    Meta entspricht auf dem Mac der Command-Taste.
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Meeting-Erkennung</label>
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={settings.meeting_detection_enabled}
+                      onChange={(e) =>
+                        saveMeetingDetection({
+                          meeting_detection_enabled: e.target.checked,
+                          meeting_detection_apps: settings.meeting_detection_apps,
+                        })
+                      }
+                    />
+                    <span>Nach laufenden Meeting-Apps suchen und Aufnahme anbieten</span>
+                  </label>
+                  <textarea
+                    value={(settings.meeting_detection_apps ?? []).join("\n")}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        meeting_detection_apps: e.target.value
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    onBlur={(e) =>
+                      saveMeetingDetection({
+                        meeting_detection_enabled: settings.meeting_detection_enabled,
+                        meeting_detection_apps: e.target.value
+                          .split("\n")
+                          .map((line) => line.trim())
+                          .filter(Boolean),
+                      })
+                    }
+                    rows={4}
+                    spellCheck={false}
+                  />
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    Ein App-Name pro Zeile, z. B. <code>zoom.us</code> oder <code>Microsoft Teams</code>.
+                    Browser-Meetings lassen sich erst zuverlässig erkennen, wenn die Browser-App hier ergänzt wird.
+                  </div>
+                </div>
+
                 {statusEl}
               </>
             )}
@@ -208,6 +304,32 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === "summaries" && (
               <>
                 <LlmSettings />
+
+                {settings && (
+                  <div className="field">
+                    <label>Wochen-Digest Export-Ordner</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="text"
+                        placeholder="/Users/du/Obsidian/Wochen"
+                        value={settings.digest_export_path ?? ""}
+                        onChange={(e) => setSettings({ ...settings, digest_export_path: e.target.value })}
+                        onBlur={(e) => api.updateSettings({ digest_export_path: e.target.value.trim() })}
+                        style={{ flex: 1 }}
+                        spellCheck={false}
+                      />
+                      {isTauri() && (
+                        <button className="btn" onClick={chooseDigestFolder}>
+                          Durchsuchen…
+                        </button>
+                      )}
+                    </div>
+                    <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                      Dorthin schreibt Tarscribe den Wochen-Digest als Markdown, getrennt von den
+                      Themenbereich-Exporten.
+                    </div>
+                  </div>
+                )}
 
                 <div className="field">
                   <label>Zusammenfassungs-Vorlagen</label>

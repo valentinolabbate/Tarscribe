@@ -4,16 +4,22 @@ Festgehalten am 2026-06-11 (Stand: v0.5.0). Status-Werte: **Idee** → **Geplant
 
 | # | Feature | Status | Aufwand (grob) |
 |---|---------|--------|----------------|
-| 1 | Meeting-Erkennung mit Auto-Aufnahme-Angebot | Idee | M (2–3 Tage) |
-| 2 | Themen-Threads über Aufnahmen hinweg | Idee | L (4–6 Tage) |
-| 3 | Wochen-Digest | Idee | S–M (1–2 Tage) |
-| 4 | Diktat-Inbox mit globalem Hotkey + Direkt-Aufgabe | Idee | M (2–3 Tage) |
+| 1 | Meeting-Erkennung mit Auto-Aufnahme-Angebot | In Arbeit | M (2–3 Tage) |
+| 2 | Themen-Threads über Aufnahmen hinweg | In Arbeit | L (4–6 Tage) |
+| 3 | Wochen-Digest | In Arbeit | S–M (1–2 Tage) |
+| 4 | Diktat-Inbox mit globalem Hotkey + Direkt-Aufgabe | In Arbeit | M (2–3 Tage) |
 
 ---
 
 ## 1. Meeting-Erkennung mit Auto-Aufnahme-Angebot
 
-**Status:** Idee
+**Status:** In Arbeit
+
+**Aktueller Stand (2026-06-11):** Desktop-MVP ist implementiert: konfigurierbare
+Meeting-App-Liste in den Einstellungen, Tauri-Hintergrundprüfung laufender Prozesse,
+Frontend-Prompt und Start einer Aufnahme in einem automatisch angelegten Bereich
+„Meetings". Die Mikrofon-Aktivitätsprüfung und der Datenschutz-Hinweis beim ersten
+Aktivieren sind noch offen.
 
 Tarscribe merkt, wenn ein Zoom-/Teams-/Meet-Call startet (laufende Apps + Mikrofonnutzung
 via CoreAudio erkennbar) und fragt dezent über die Menüleiste: „Meeting läuft — aufnehmen?"
@@ -21,10 +27,10 @@ Eine Aufnahme, die man nicht starten muss, ist das nutzerfreundlichste Feature �
 der häufigste Grund für „Mist, das hätte ich aufnehmen sollen" entfällt.
 
 - **Baut auf:** vorhandene Aufnahme-Infrastruktur (Mikrofon + System-Audio, Tray-Menü).
-- **Neu zu bauen:** Erkennung (laufende Meeting-Apps + aktive Mikrofonnutzung, nativer
-  macOS-Teil im Tauri-Shell) und der Tray-Prompt.
-- **Offene Fragen:** Erkennungs-Heuristik (App-Liste konfigurierbar?), Verhalten bei
-  „Nein" (für dieses Meeting stumm bleiben), Datenschutz-Hinweis beim ersten Mal.
+- **Noch zu bauen:** Mikrofon-Aktivität als zweites Signal, Tray-/Notification-Prompt,
+  Datenschutz-Hinweis beim ersten Aktivieren.
+- **Offene Fragen:** Browser-Meetings zuverlässiger erkennen, ohne jeden Chrome-/Safari-Start
+  als Meeting zu interpretieren.
 
 **Umsetzung (Skizze):**
 
@@ -46,7 +52,13 @@ der häufigste Grund für „Mist, das hätte ich aufnehmen sollen" entfällt.
 
 ## 2. Themen-Threads: „Was wurde zu X über die Zeit besprochen?"
 
-**Status:** Idee
+**Status:** In Arbeit
+
+**Aktueller Stand (2026-06-11):** Erste Thread-Scheibe ist implementiert:
+Datenmodell (`threads`, `thread_mentions`), Rebuild-API, Aufnahme-spezifische Thread-API
+und Startseiten-Panel. Die erste Erkennung gruppiert gleiche/ähnliche Kapitelüberschriften
+über mehrere Aufnahmen. Embedding-Clustering, LLM-Titel und Detailseiten-Badges sind noch
+offen.
 
 Die Embeddings aller Aufnahmen liegen bereits in der Datenbank (sqlite-vec). Damit lässt
 sich erkennen, dass dasselbe Thema in mehreren Meetings auftaucht — als Zeitstrahl:
@@ -57,10 +69,10 @@ Konkurrenzprodukt, das lokal läuft.
 
 - **Baut auf:** RAG-Index (`rag_chunks` + `rag_chunk_vec`), Kapitel (Themen-Titel als
   Thread-Kandidaten), Action-Items (Entscheidungs-Status im Zeitstrahl).
-- **Neu zu bauen:** Cross-Recording-Clustering ähnlicher Chunks/Kapitel, Thread-Modell,
-  Thread-Ansicht (Startseite) + Hinweis auf der Detailseite.
-- **Offene Fragen:** Clustering-Schwelle; LLM-vergebene Thread-Titel; wann neu berechnen
-  (nach jedem Embedding-Job vs. periodisch).
+- **Noch zu bauen:** Embedding-Clustering ähnlicher Chunks, LLM-vergebene Thread-Titel,
+  Detailseiten-Hinweis und automatischer Rebuild nach Embedding-/Kapitel-Jobs.
+- **Offene Fragen:** Clustering-Schwelle; wie aggressiv ähnliche, aber nicht gleiche
+  Themen zusammengeführt werden sollen.
 
 **Umsetzung (Skizze):**
 
@@ -82,7 +94,13 @@ Konkurrenzprodukt, das lokal läuft.
 
 ## 3. Wochen-Digest
 
-**Status:** Idee
+**Status:** In Arbeit
+
+**Aktueller Stand (2026-06-11):** Manuelle 7-Tage-Digest-Erstellung ist implementiert:
+persistierte Digests, API (`POST/GET /api/digests`), Startseiten-Anzeige mit Markdown,
+Export in einen globalen Digest-Ordner und Hinweis, wenn der letzte Digest älter als
+sieben Tage ist. Ein stiller Auto-Job ist bewusst noch nicht aktiv; die UI fordert zur
+Erstellung auf.
 
 Einmal pro Woche oder auf Knopfdruck: „Deine Woche" — besprochene Themen, getroffene
 Entscheidungen, noch offene Aufgaben, wer viel/wenig zu Wort kam. Optional als Markdown
@@ -90,9 +108,8 @@ in den Obsidian-Export-Ordner.
 
 - **Baut auf:** Summaries, Action-Items, Sprecher-Statistiken, LLM-Job-Pipeline —
   im Kern ein einziger neuer LLM-Job plus eine Anzeige-Seite.
-- **Neu zu bauen:** Digest-Job (Zeitraum-Aggregation über Aufnahmen), Digest-Seite,
-  optionaler Zeitplan + Markdown-Export.
-- **Offene Fragen:** Auslösung (App-Start am Montag? Manuell?), Aufbewahrung alter Digests.
+- **Noch zu bauen:** optionaler stiller Zeitplan/Auto-Job.
+- **Offene Fragen:** Aufbewahrung alter Digests.
 
 **Umsetzung (Skizze):**
 
@@ -112,7 +129,14 @@ in den Obsidian-Export-Ordner.
 
 ## 4. Diktat-Inbox mit globalem Hotkey + Direkt-Aufgabe
 
-**Status:** Idee
+**Status:** In Arbeit
+
+**Aktueller Stand (2026-06-11):** Erste nutzbare Scheibe ist implementiert:
+Diktat-Aufnahme auf der Startseite, globaler Desktop-Hotkey `⌥⌘D` als Toggle,
+automatische Inbox-Anlage, direkter ASR-Start und Backend-Nachverarbeitung für Titel,
+Themenvorschlag und Aufgaben. Der Hotkey ist konfigurierbar, es gibt ein App-weites
+Diktat-Pill-Overlay und Abschlussfeedback nach der Verarbeitung. Ein separates
+Always-on-top-Zweitfenster für Aufnahme bei geschlossener Hauptansicht ist noch offen.
 
 Hotkey drücken, Gedanken einsprechen, loslassen. Die Notiz wird transkribiert und vom LLM
 automatisch betitelt und in den passenden Themenbereich einsortiert (oder in eine „Inbox").
@@ -123,17 +147,16 @@ eine Aufgabenformulierung („ich muss noch…", „erinner mich an…"), legt e
 Action-Item an (inkl. Frist, falls genannt), das in der globalen Aufgaben-Ansicht erscheint.
 
 - **Baut auf:** Aufnahme + ASR-Pipeline, Action-Items (v0.5.0), Aufgaben-Seite.
-- **Neu zu bauen:** globaler Hotkey (Tauri global-shortcut), Push-to-talk-Aufnahmefluss
-  ohne offenes Fenster, „Inbox"-Themenbereich, LLM-Schritt für Titel + Einsortierung +
-  Aufgaben-Erkennung.
-- **Offene Fragen:** Standard-Hotkey; Verhalten ohne konfiguriertes LLM (dann nur Inbox,
-  ohne Auto-Titel/Aufgabe); Diktat zusätzlich als Audio behalten oder nur Text.
+- **Noch zu bauen:** Push-to-talk-Aufnahmefluss ohne offenes Hauptfenster und optionales
+  separates Overlay-Window.
+- **Entschieden:** Diktat-Audio bleibt als normale Aufnahme erhalten; Löschen läuft über
+  die vorhandene Aufnahme-Löschung.
 
 **Umsetzung (Skizze):**
 
-1. **Hotkey:** `tauri-plugin-global-shortcut` (z. B. ⌥⌘D, in den Einstellungen änderbar).
-   Erster Druck startet, zweiter stoppt (Toggle — Key-Up ist mit globalen Shortcuts
-   nicht zuverlässig erkennbar).
+1. **Hotkey:** `tauri-plugin-global-shortcut` mit `⌥⌘D` ist als Toggle verdrahtet.
+   Erster Druck startet, zweiter stoppt und speichert (Key-Up ist mit globalen
+   Shortcuts nicht zuverlässig erkennbar). Der Shortcut ist in den Einstellungen änderbar.
 2. **Aufnahme ohne Hauptfenster:** Kleines Always-on-top-Overlay-Fenster (zweites
    Tauri-Window, „Pill" mit Pegel + Timer + Stopp), Aufnahme über den vorhandenen
    Mikrofon-Recorder (`lib/recorder.ts`); Upload über den bestehenden

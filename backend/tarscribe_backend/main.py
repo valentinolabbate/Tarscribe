@@ -12,6 +12,7 @@ from . import __version__
 from .config import get_settings
 from .db import init_db
 from .routers import (
+    dictations,
     diarization,
     editing,
     export,
@@ -51,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(system.router)
     app.include_router(topics.router)
     app.include_router(recordings.router)
+    app.include_router(dictations.router)
     app.include_router(live_recordings.router)
     app.include_router(insights.router)
     app.include_router(transcription.router)

@@ -4,6 +4,8 @@ import type {
   Chapter,
   ChatMessage,
   DiarizationData,
+  Digest,
+  DictationResult,
   HardwareInfo,
   JobEvent,
   KnownSpeaker,
@@ -21,6 +23,7 @@ import type {
   SummaryTemplate,
   TranscriptData,
   Topic,
+  TopicThread,
 } from "./types";
 
 export interface SearchFilters {
@@ -182,6 +185,11 @@ export const api = {
     request<TranscriptData>(`/api/recordings/${id}/transcript`),
   getJobs: (id: number) =>
     request<JobEvent[]>(`/api/recordings/${id}/jobs`),
+  retryJob: (recordingId: number, jobId: number) =>
+    request<{ job_id: number; phase: string; status: string }>(
+      `/api/recordings/${recordingId}/jobs/${jobId}/retry`,
+      { method: "POST" },
+    ),
   diarize: (id: number, params?: DiarizeParams) =>
     request<{ job_id: number; status: string }>(`/api/recordings/${id}/diarize`, {
       method: "POST",
@@ -390,7 +398,10 @@ export const api = {
     const qs = params.toString();
     return request<ActionItem[]>(`/api/action-items${qs ? `?${qs}` : ""}`);
   },
-  updateActionItem: (id: number, patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due">>) =>
+  updateActionItem: (
+    id: number,
+    patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date">>,
+  ) =>
     request<ActionItem>(`/api/action-items/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -398,6 +409,29 @@ export const api = {
     }),
   deleteActionItem: (id: number) =>
     request<void>(`/api/action-items/${id}`, { method: "DELETE" }),
+  async downloadActionItemsIcs(topicId?: number | null): Promise<void> {
+    const cfg = await getConfig();
+    const headers = new Headers();
+    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
+    const qs = topicId != null ? `?topic_id=${topicId}` : "";
+    const res = await fetch(`${cfg.base_url}/api/action-items/export.ics${qs}`, { headers });
+    if (!res.ok) {
+      let detail = "Kalender-Export fehlgeschlagen";
+      try {
+        detail = (await res.json()).detail ?? detail;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "Tarscribe Aufgaben.ics";
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 
   generateChapters: (recordingId: number) =>
     request<{ job_id: number; status: string }>(
@@ -428,6 +462,25 @@ export const api = {
 
   getSpeakerStats: (recordingId: number) =>
     request<SpeakerStats>(`/api/recordings/${recordingId}/speaker-stats`),
+
+  // Wochen-Digest
+  listDigests: () => request<Digest[]>("/api/digests"),
+  getDigest: (id: number) => request<Digest>(`/api/digests/${id}`),
+  createDigest: (days = 7) =>
+    request<Digest>(`/api/digests?days=${days}`, { method: "POST" }),
+  sendDigestToFolder: (id: number) =>
+    request<{ path: string }>(`/api/digests/${id}/send-to-folder`, { method: "POST" }),
+  listThreads: () => request<TopicThread[]>("/api/threads"),
+  rebuildThreads: () => request<{ threads: number; mentions: number }>("/api/threads/rebuild", { method: "POST" }),
+  listRecordingThreads: (recordingId: number) =>
+    request<TopicThread[]>(`/api/recordings/${recordingId}/threads`),
+
+  createDictation: (file: File, title?: string) => {
+    const form = new FormData();
+    if (title) form.set("title", title);
+    form.set("file", file);
+    return request<DictationResult>("/api/dictations", { method: "POST", body: form });
+  },
 
   // Summaries
   summarize: (recordingId: number, templateId: number) =>

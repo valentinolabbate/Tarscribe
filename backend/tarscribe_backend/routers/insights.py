@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
@@ -11,16 +16,45 @@ from ..db import get_session
 from ..models import (
     ActionItem,
     Chapter,
+    Digest,
     DiarizationRun,
     Recording,
+    RecordingStatus,
     Segment,
     SpeakerLabel,
+    Summary,
+    ThreadMention,
+    Transcript,
     Topic,
+    TopicThread,
+    Word,
 )
 from ..overlay import load_overlay
 from ..security import require_token
 
 router = APIRouter(prefix="/api", tags=["insights"], dependencies=[Depends(require_token)])
+
+THREAD_STOPWORDS = {
+    "der",
+    "die",
+    "das",
+    "ein",
+    "eine",
+    "und",
+    "oder",
+    "mit",
+    "zum",
+    "zur",
+    "für",
+    "von",
+    "im",
+    "im",
+    "am",
+    "the",
+    "and",
+    "for",
+    "with",
+}
 
 
 def _get_recording(session: Session, recording_id: int) -> Recording:
@@ -37,6 +71,8 @@ class ActionItemPatch(BaseModel):
     text: str | None = None
     assignee: str | None = None
     due: str | None = None
+    # ISO date (YYYY-MM-DD); empty string clears the due date.
+    due_date: str | None = None
 
 
 def _item_dict(item: ActionItem, rec: Recording | None = None, topic: Topic | None = None) -> dict:
@@ -47,6 +83,7 @@ def _item_dict(item: ActionItem, rec: Recording | None = None, topic: Topic | No
         "text": item.text,
         "assignee": item.assignee,
         "due": item.due,
+        "due_date": item.due_date,
         "done": item.done,
         "created_at": item.created_at.isoformat(),
         "recording_title": rec.title if rec else None,
@@ -107,6 +144,9 @@ def update_action_item(
     if not item:
         raise HTTPException(404, "Eintrag nicht gefunden")
     data = payload.model_dump(exclude_unset=True)
+    if "due_date" in data:
+        # Normalize: empty string clears the date.
+        data["due_date"] = (data["due_date"] or "").strip() or None
     for key, value in data.items():
         setattr(item, key, value)
     session.add(item)
@@ -122,6 +162,73 @@ def delete_action_item(item_id: int, session: Session = Depends(get_session)) ->
         raise HTTPException(404, "Eintrag nicht gefunden")
     session.delete(item)
     session.commit()
+
+
+def _ics_escape(text: str) -> str:
+    """Escape a value for an iCalendar text field (RFC 5545)."""
+    return (
+        text.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )
+
+
+@router.get("/action-items/export.ics")
+def export_action_items_ics(
+    topic_id: int | None = None, session: Session = Depends(get_session)
+):
+    """Open tasks with a due date as an iCalendar (all-day events) for any calendar app."""
+    stmt = (
+        select(ActionItem, Recording, Topic)
+        .join(Recording, ActionItem.recording_id == Recording.id)
+        .join(Topic, Recording.topic_id == Topic.id)
+        .where(ActionItem.done == False, ActionItem.due_date != None)  # noqa: E711,E712
+        .order_by(ActionItem.due_date)
+    )
+    if topic_id is not None:
+        stmt = stmt.where(Recording.topic_id == topic_id)
+    rows = session.exec(stmt).all()
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Tarscribe//Aufgaben//DE",
+        "CALSCALE:GREGORIAN",
+    ]
+    exported = 0
+    for item, rec, topic in rows:
+        try:
+            day = datetime.strptime(item.due_date, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        end = day + timedelta(days=1)
+        desc_parts = [f"Aufnahme: {rec.title}", f"Themenbereich: {topic.name}"]
+        if item.assignee:
+            desc_parts.insert(0, f"Verantwortlich: {item.assignee}")
+        if item.due:
+            desc_parts.append(f"Frist (Original): {item.due}")
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:tarscribe-task-{item.id}@tarscribe.app",
+            f"DTSTAMP:{stamp}",
+            f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}",
+            f"DTEND;VALUE=DATE:{end.strftime('%Y%m%d')}",
+            f"SUMMARY:{_ics_escape(item.text)}",
+            f"DESCRIPTION:{_ics_escape(' — '.join(desc_parts))}",
+            "END:VEVENT",
+        ]
+        exported += 1
+    lines.append("END:VCALENDAR")
+
+    if exported == 0:
+        raise HTTPException(404, "Keine offenen Aufgaben mit Fälligkeitsdatum gefunden.")
+
+    headers = {"Content-Disposition": 'attachment; filename="Tarscribe Aufgaben.ics"'}
+    return PlainTextResponse(
+        "\r\n".join(lines), media_type="text/calendar", headers=headers
+    )
 
 
 # ── Chapters ─────────────────────────────────────────────────────────────────
@@ -205,6 +312,435 @@ def export_chapters(
         headers = {"Content-Disposition": f'attachment; filename="{safe} Kapitel.srt"'}
         return PlainTextResponse("\n".join(lines), headers=headers)
     raise HTTPException(400, f"Unbekanntes Format: {format}")
+
+
+# ── Cross-recording threads ──────────────────────────────────────────────────
+
+def _thread_key(title: str) -> str:
+    words = [
+        word
+        for word in re.findall(r"[a-zA-ZäöüÄÖÜß0-9]+", title.lower())
+        if word not in THREAD_STOPWORDS and len(word) > 2
+    ]
+    return " ".join(words[:6])
+
+
+def _thread_title(titles: list[str]) -> str:
+    return max(titles, key=lambda title: (titles.count(title), len(title))).strip()
+
+
+def _mention_dict(
+    mention: ThreadMention,
+    rec: Recording | None,
+    topic: Topic | None,
+) -> dict:
+    return {
+        "id": mention.id,
+        "thread_id": mention.thread_id,
+        "recording_id": mention.recording_id,
+        "recording_title": rec.title if rec else None,
+        "topic_id": rec.topic_id if rec else None,
+        "topic_name": topic.name if topic else None,
+        "topic_color": topic.color if topic else None,
+        "start_sec": mention.start_sec,
+        "text": mention.text,
+        "created_at": _iso(mention.created_at),
+        "recording_created_at": _iso(rec.created_at) if rec else None,
+    }
+
+
+def _thread_dict(thread: TopicThread, mentions: list[dict]) -> dict:
+    return {
+        "id": thread.id,
+        "title": thread.title,
+        "updated_at": _iso(thread.updated_at),
+        "created_at": _iso(thread.created_at),
+        "mention_count": len(mentions),
+        "recording_count": len({m["recording_id"] for m in mentions}),
+        "mentions": mentions,
+    }
+
+
+@router.post("/threads/rebuild")
+def rebuild_threads(session: Session = Depends(get_session)) -> dict:
+    for mention in session.exec(select(ThreadMention)).all():
+        session.delete(mention)
+    for thread in session.exec(select(TopicThread)).all():
+        session.delete(thread)
+    session.commit()
+
+    chapters = session.exec(select(Chapter).order_by(Chapter.recording_id, Chapter.idx)).all()
+    groups: dict[str, list[Chapter]] = defaultdict(list)
+    for chapter in chapters:
+        key = _thread_key(chapter.title)
+        if key:
+            groups[key].append(chapter)
+
+    created = 0
+    mentions_created = 0
+    for grouped in groups.values():
+        recording_ids = {chapter.recording_id for chapter in grouped}
+        if len(recording_ids) < 2:
+            continue
+        recordings = {
+            rec.id: rec
+            for rec in session.exec(
+                select(Recording).where(Recording.id.in_(recording_ids))
+            ).all()
+            if rec.id is not None
+        }
+        if len(recordings) < 2:
+            continue
+        updated_at = max((recordings[ch.recording_id].created_at for ch in grouped if ch.recording_id in recordings))
+        thread = TopicThread(
+            title=_thread_title([chapter.title for chapter in grouped]),
+            updated_at=updated_at,
+        )
+        session.add(thread)
+        session.flush()
+        created += 1
+        for chapter in grouped:
+            rec = recordings.get(chapter.recording_id)
+            if not rec:
+                continue
+            session.add(
+                ThreadMention(
+                    thread_id=thread.id,
+                    recording_id=chapter.recording_id,
+                    chapter_id=chapter.id,
+                    start_sec=chapter.start,
+                    text=chapter.title,
+                    created_at=rec.created_at,
+                )
+            )
+            mentions_created += 1
+    session.commit()
+    return {"threads": created, "mentions": mentions_created}
+
+
+def _load_thread_payload(
+    session: Session, thread_filter: int | None = None, recording_filter: int | None = None
+) -> list[dict]:
+    threads = session.exec(select(TopicThread).order_by(TopicThread.updated_at.desc())).all()
+    if thread_filter is not None:
+        threads = [thread for thread in threads if thread.id == thread_filter]
+    payload = []
+    for thread in threads:
+        stmt = select(ThreadMention).where(ThreadMention.thread_id == thread.id)
+        if recording_filter is not None:
+            stmt = stmt.where(ThreadMention.recording_id == recording_filter)
+        mentions = session.exec(stmt.order_by(ThreadMention.created_at.desc())).all()
+        if not mentions:
+            continue
+        rec_ids = {m.recording_id for m in mentions}
+        recordings = {
+            rec.id: rec
+            for rec in session.exec(select(Recording).where(Recording.id.in_(rec_ids))).all()
+            if rec.id is not None
+        }
+        topic_ids = {rec.topic_id for rec in recordings.values()}
+        topics = {
+            topic.id: topic
+            for topic in session.exec(select(Topic).where(Topic.id.in_(topic_ids))).all()
+            if topic.id is not None
+        }
+        mention_payload = [
+            _mention_dict(m, recordings.get(m.recording_id), topics.get(recordings[m.recording_id].topic_id) if m.recording_id in recordings else None)
+            for m in mentions
+        ]
+        payload.append(_thread_dict(thread, mention_payload))
+    return payload
+
+
+@router.get("/threads")
+def list_threads(session: Session = Depends(get_session)) -> list[dict]:
+    return _load_thread_payload(session)
+
+
+@router.get("/recordings/{recording_id}/threads")
+def list_recording_threads(recording_id: int, session: Session = Depends(get_session)) -> list[dict]:
+    _get_recording(session, recording_id)
+    return _load_thread_payload(session, recording_filter=recording_id)
+
+
+# ── Weekly digest ────────────────────────────────────────────────────────────
+
+DIGEST_MAX_DAYS = 31
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat()
+
+
+def _digest_dict(digest: Digest) -> dict:
+    return {
+        "id": digest.id,
+        "date_from": _iso(digest.date_from),
+        "date_to": _iso(digest.date_to),
+        "content_markdown": digest.content_markdown,
+        "model": digest.model,
+        "recording_count": digest.recording_count,
+        "created_at": _iso(digest.created_at),
+    }
+
+
+def _safe_digest_filename(digest: Digest) -> str:
+    date_from = digest.date_from.strftime("%Y-%m-%d")
+    date_to = digest.date_to.strftime("%Y-%m-%d")
+    return f"Tarscribe Wochen-Digest {date_from} bis {date_to}.md"
+
+
+def _short(text: str, limit: int) -> str:
+    cleaned = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[:limit].rsplit(" ", 1)[0].rstrip() + " ..."
+
+
+def _transcript_excerpt(session: Session, recording_id: int, limit: int = 2200) -> str:
+    transcript = session.exec(
+        select(Transcript).where(Transcript.recording_id == recording_id)
+    ).first()
+    if not transcript:
+        return ""
+    words = session.exec(
+        select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
+    ).all()
+    text = "".join(w.text for w in words).strip()
+    return _short(text, limit)
+
+
+def _speaker_digest_line(session: Session, recording_id: int) -> str:
+    run = session.exec(
+        select(DiarizationRun).where(
+            DiarizationRun.recording_id == recording_id,
+            DiarizationRun.is_active == True,  # noqa: E712
+        )
+    ).first()
+    if not run:
+        return ""
+    segments = session.exec(
+        select(Segment).where(Segment.run_id == run.id).order_by(Segment.start)
+    ).all()
+    relabel, _reassigns = load_overlay(session, recording_id)
+    labels = session.exec(
+        select(SpeakerLabel).where(SpeakerLabel.recording_id == recording_id)
+    ).all()
+    name_map = {lab.original_label: lab.display_name for lab in labels if lab.display_name}
+    totals: dict[str, float] = {}
+    for seg in segments:
+        if seg.end <= seg.start:
+            continue
+        label = relabel.get(seg.speaker_label, seg.speaker_label)
+        totals[label] = totals.get(label, 0.0) + (seg.end - seg.start)
+    total = sum(totals.values())
+    if total <= 0:
+        return ""
+    parts = []
+    for label, sec in sorted(totals.items(), key=lambda item: item[1], reverse=True)[:5]:
+        name = name_map.get(label, label)
+        parts.append(f"{name} {round(sec / total * 100)}%")
+    return "Sprechanteile: " + ", ".join(parts)
+
+
+def _recording_digest_entry(session: Session, rec: Recording) -> str:
+    topic = session.get(Topic, rec.topic_id)
+    summaries = session.exec(
+        select(Summary)
+        .where(Summary.recording_id == rec.id, Summary.content != "")
+        .order_by(Summary.created_at.desc())
+    ).all()
+    source_label = "Zusammenfassung"
+    source_text = _short(summaries[0].content, 2600) if summaries else ""
+    if not source_text:
+        source_label = "Transkript-Auszug"
+        source_text = _transcript_excerpt(session, rec.id)
+    if not source_text:
+        return ""
+
+    actions = session.exec(
+        select(ActionItem).where(ActionItem.recording_id == rec.id).order_by(ActionItem.id)
+    ).all()
+    action_lines = []
+    for item in actions:
+        if item.kind == "decision":
+            action_lines.append(f"- Entscheidung: {item.text}")
+        elif not item.done:
+            suffix = ""
+            if item.assignee:
+                suffix += f" | verantwortlich: {item.assignee}"
+            if item.due:
+                suffix += f" | Frist: {item.due}"
+            action_lines.append(f"- Offen: {item.text}{suffix}")
+    speakers = _speaker_digest_line(session, rec.id)
+
+    parts = [
+        f"### {rec.created_at.strftime('%Y-%m-%d')} · {rec.title}",
+        f"Themenbereich: {topic.name if topic else 'Unbekannt'}",
+        f"{source_label}:\n{source_text}",
+    ]
+    if action_lines:
+        parts.append("Aufgaben/Entscheidungen:\n" + "\n".join(action_lines[:12]))
+    if speakers:
+        parts.append(speakers)
+    return "\n\n".join(parts)
+
+
+def _generate_digest_markdown(
+    *,
+    date_from: datetime,
+    date_to: datetime,
+    recording_count: int,
+    context: str,
+    chunk_size: int,
+) -> tuple[str, str]:
+    from .. import llm as L
+
+    cfg = L.get_llm_config()
+    if not cfg["model"]:
+        raise HTTPException(
+            400,
+            "Kein LLM-Modell gewählt. Bitte in den Einstellungen Ollama/LM Studio + Modell wählen.",
+        )
+
+    budget = max(6000, chunk_size - 5000)
+    if len(context) > budget:
+        context = context[:budget].rsplit("\n", 1)[0].rstrip() + "\n\n[Quellen gekürzt]"
+
+    user = f"""Erstelle einen Wochen-Digest als Markdown.
+
+Zeitraum: {date_from.strftime('%d.%m.%Y')} bis {date_to.strftime('%d.%m.%Y')}
+Anzahl berücksichtigter Aufnahmen: {recording_count}
+
+Gewünschte Struktur:
+# Deine Woche
+## Kurzüberblick
+## Besprochene Themen
+## Entscheidungen
+## Offene Aufgaben
+## Sprecher & Dynamik
+## Nächste Schritte
+
+Regeln:
+- Schreibe präzise, knapp und ohne erfundene Inhalte.
+- Entscheidungen und Aufgaben nur übernehmen, wenn sie in den Quellen stehen.
+- Aufgaben als Markdown-Checkliste ausgeben.
+- Wenn ein Abschnitt keine belastbaren Daten hat, schreibe einen kurzen Satz dazu.
+
+Quellen:
+{context}"""
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Du schreibst deutschsprachige Wochen-Digests aus Meeting- und Notizdaten. "
+                "Du bist nüchtern, konkret und zitierst keine erfundenen Fakten."
+            ),
+        },
+        {"role": "user", "content": user},
+    ]
+    try:
+        content = "".join(
+            L.stream_chat(
+                messages,
+                cfg["model"],
+                cfg["base_url"],
+                temperature=cfg.get("temperature", 0.25),
+                top_p=cfg.get("top_p"),
+                top_k=cfg.get("top_k"),
+                max_tokens=cfg.get("max_tokens"),
+                api_key=cfg.get("api_key"),
+            )
+        ).strip()
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Digest konnte nicht erstellt werden: {exc}") from exc
+    if not content:
+        raise HTTPException(502, "Das LLM hat keinen Digest zurückgegeben.")
+    return content, cfg["model"]
+
+
+@router.post("/digests")
+def create_digest(days: int = 7, session: Session = Depends(get_session)) -> dict:
+    if days < 1 or days > DIGEST_MAX_DAYS:
+        raise HTTPException(400, f"days muss zwischen 1 und {DIGEST_MAX_DAYS} liegen")
+
+    date_to = datetime.now(timezone.utc)
+    date_from = date_to - timedelta(days=days)
+    recordings = session.exec(
+        select(Recording)
+        .where(
+            Recording.created_at >= date_from,
+            Recording.created_at <= date_to,
+            Recording.status == RecordingStatus.ready,
+        )
+        .order_by(Recording.created_at)
+    ).all()
+    entries = [entry for rec in recordings if (entry := _recording_digest_entry(session, rec))]
+    if not entries:
+        raise HTTPException(400, "Keine transkribierten Aufnahmen im gewählten Zeitraum gefunden.")
+
+    from .. import llm as L
+    from ..settings_store import load_prefs
+
+    chunk_size = int(load_prefs().get("llm_chunk_size") or L.CHAR_BUDGET)
+    content, model = _generate_digest_markdown(
+        date_from=date_from,
+        date_to=date_to,
+        recording_count=len(entries),
+        context="\n\n---\n\n".join(entries),
+        chunk_size=chunk_size,
+    )
+    digest = Digest(
+        date_from=date_from,
+        date_to=date_to,
+        content_markdown=content,
+        model=model,
+        recording_count=len(entries),
+    )
+    session.add(digest)
+    session.commit()
+    session.refresh(digest)
+    return _digest_dict(digest)
+
+
+@router.get("/digests")
+def list_digests(session: Session = Depends(get_session)) -> list[dict]:
+    digests = session.exec(select(Digest).order_by(Digest.created_at.desc())).all()
+    return [_digest_dict(d) for d in digests]
+
+
+@router.get("/digests/{digest_id}")
+def get_digest(digest_id: int, session: Session = Depends(get_session)) -> dict:
+    digest = session.get(Digest, digest_id)
+    if not digest:
+        raise HTTPException(404, "Digest nicht gefunden")
+    return _digest_dict(digest)
+
+
+@router.post("/digests/{digest_id}/send-to-folder")
+def send_digest_to_folder(digest_id: int, session: Session = Depends(get_session)) -> dict:
+    digest = session.get(Digest, digest_id)
+    if not digest:
+        raise HTTPException(404, "Digest nicht gefunden")
+
+    from ..settings_store import load_prefs
+
+    export_path = str(load_prefs().get("digest_export_path") or "").strip()
+    if not export_path:
+        raise HTTPException(400, "Für Wochen-Digests ist kein Export-Ordner gesetzt.")
+    folder = Path(export_path).expanduser()
+    if not folder.is_dir():
+        raise HTTPException(400, f"Ordner existiert nicht: {folder}")
+
+    target = folder / _safe_digest_filename(digest)
+    try:
+        target.write_text(digest.content_markdown, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(500, f"Schreiben fehlgeschlagen: {exc}") from exc
+    return {"path": str(target)}
 
 
 # ── Speaker statistics ───────────────────────────────────────────────────────

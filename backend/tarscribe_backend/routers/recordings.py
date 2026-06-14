@@ -51,6 +51,7 @@ def _persist_recording(
     original_filename: str,
     session: Session,
     microphone_source: Path | None = None,
+    kind: str = "recording",
 ) -> Recording:
     settings = get_settings()
     rec_id = uuid.uuid4().hex
@@ -75,6 +76,7 @@ def _persist_recording(
         audio_path=str(dst),
         original_filename=original_filename,
         duration_sec=duration,
+        kind=kind,
         status=RecordingStatus.uploaded,
     )
     session.add(rec)

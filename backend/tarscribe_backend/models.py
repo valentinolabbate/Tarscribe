@@ -50,6 +50,8 @@ class JobPhase(str, Enum):
     embedding = "embedding"
     action_items = "action_items"
     chapters = "chapters"
+    digest = "digest"
+    threads = "threads"
 
 
 class JobStatus(str, Enum):
@@ -84,6 +86,7 @@ class Recording(SQLModel, table=True):
     duration_sec: float = 0.0
     sample_rate: int = 16000
     language: Optional[str] = None
+    kind: str = "recording"  # recording | dictation
     status: RecordingStatus = RecordingStatus.uploaded
     exported_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
@@ -237,6 +240,7 @@ class ActionItem(SQLModel, table=True):
     text: str
     assignee: Optional[str] = None
     due: Optional[str] = None  # free-text deadline as spoken ("bis Freitag")
+    due_date: Optional[str] = None  # user-set ISO date (YYYY-MM-DD) for filtering/calendar export
     done: bool = False
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -252,6 +256,46 @@ class Chapter(SQLModel, table=True):
     start: float = 0.0
     end: Optional[float] = None
     title: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class TopicThread(SQLModel, table=True):
+    """A recurring discussion thread detected across recordings."""
+
+    __tablename__ = "threads"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    updated_at: datetime = Field(default_factory=_utcnow, index=True)
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class ThreadMention(SQLModel, table=True):
+    """One recording/chapter/chunk occurrence belonging to a recurring thread."""
+
+    __tablename__ = "thread_mentions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    thread_id: int = Field(foreign_key="threads.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    chapter_id: Optional[int] = Field(default=None, foreign_key="chapters.id")
+    chunk_id: Optional[int] = Field(default=None, foreign_key="rag_chunks.id")
+    start_sec: Optional[float] = None
+    text: str = ""
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class Digest(SQLModel, table=True):
+    """A cross-recording weekly digest generated from existing insights."""
+
+    __tablename__ = "digests"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    date_from: datetime = Field(index=True)
+    date_to: datetime = Field(index=True)
+    content_markdown: str = ""
+    model: str = ""
+    recording_count: int = 0
     created_at: datetime = Field(default_factory=_utcnow)
 
 

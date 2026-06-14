@@ -16,6 +16,7 @@ Chat = Callable[[list[dict]], str]
 ACTION_ITEM_KINDS = ("task", "decision")
 MAX_CHAPTERS = 12
 MIN_CHAPTER_GAP_SEC = 15.0
+MAX_DICTATION_TITLE_LEN = 80
 
 
 def _extract_json_array(raw: str) -> list:
@@ -34,6 +35,23 @@ def _extract_json_array(raw: str) -> list:
     except json.JSONDecodeError:
         return []
     return data if isinstance(data, list) else []
+
+
+def _extract_json_object(raw: str) -> dict:
+    """Pull the first JSON object out of an LLM response (tolerates code fences)."""
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    try:
+        data = json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 # ── Action items ─────────────────────────────────────────────────────────────
@@ -101,6 +119,106 @@ def extract_action_items(chat: Chat, text: str, speakers: list[str], chunk_size:
                 }
             )
     return items
+
+
+# ── Dictation inbox ──────────────────────────────────────────────────────────
+
+_DICTATION_SYSTEM = (
+    "Du verarbeitest kurze Diktat-Notizen. Antworte ausschließlich mit einem JSON-Objekt, "
+    "ohne Markdown und ohne zusätzlichen Text. Keine Erfindungen."
+)
+
+_DICTATION_USER = """Analysiere dieses Diktat.
+
+Verfügbare Themenbereiche: {topics}
+
+Format: JSON-Objekt mit genau diesen Feldern:
+- "title": kurzer deutscher Titel, höchstens 8 Wörter
+- "topic_name": passender Themenbereich aus der Liste oder null
+- "topic_confidence": Zahl zwischen 0 und 1
+- "action_items": Array von Objekten wie {{"kind":"task","text":"...","assignee":null,"due":null}}
+
+Regeln:
+- Wähle nur einen vorhandenen Themenbereich aus der Liste.
+- Wenn du unsicher bist, setze topic_name auf null und topic_confidence auf 0.
+- action_items nur für konkrete Aufgaben oder Entscheidungen, sonst [].
+
+Diktat:
+{text}"""
+
+
+def _clean_title(raw: object) -> str | None:
+    title = re.sub(r"\s+", " ", str(raw or "")).strip(" \t\n\r\"'`")
+    if not title:
+        return None
+    if len(title) > MAX_DICTATION_TITLE_LEN:
+        title = title[:MAX_DICTATION_TITLE_LEN].rsplit(" ", 1)[0].rstrip()
+    return title or None
+
+
+def _coerce_action_item(entry: object) -> dict | None:
+    if not isinstance(entry, dict):
+        return None
+    item_text = str(entry.get("text") or "").strip()
+    if not item_text:
+        return None
+    kind = str(entry.get("kind") or "task").strip().lower()
+    assignee = entry.get("assignee")
+    due = entry.get("due")
+    return {
+        "kind": kind if kind in ACTION_ITEM_KINDS else "task",
+        "text": item_text,
+        "assignee": str(assignee).strip() if assignee else None,
+        "due": str(due).strip() if due else None,
+    }
+
+
+def analyze_dictation(
+    chat: Chat, text: str, topic_names: list[str], chunk_size: int = 48000
+) -> dict:
+    """Return title/topic suggestion/action items for a short dictation."""
+    from .llm import chunk_text
+
+    source = chunk_text(text, size=chunk_size)[0]
+    raw = chat(
+        [
+            {"role": "system", "content": _DICTATION_SYSTEM},
+            {
+                "role": "user",
+                "content": _DICTATION_USER.format(
+                    topics=", ".join(topic_names) if topic_names else "keine",
+                    text=source,
+                ),
+            },
+        ]
+    )
+    data = _extract_json_object(raw)
+    title = _clean_title(data.get("title"))
+    topic_name = str(data.get("topic_name") or "").strip() or None
+    try:
+        confidence = float(data.get("topic_confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(confidence, 1.0))
+
+    items: list[dict] = []
+    seen: set[str] = set()
+    for entry in data.get("action_items") or []:
+        item = _coerce_action_item(entry)
+        if not item:
+            continue
+        key = _norm_text(item["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+
+    return {
+        "title": title,
+        "topic_name": topic_name,
+        "topic_confidence": confidence,
+        "action_items": items,
+    }
 
 
 # ── Chapters ─────────────────────────────────────────────────────────────────

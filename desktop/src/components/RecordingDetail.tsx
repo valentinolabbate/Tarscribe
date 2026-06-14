@@ -7,6 +7,7 @@ import {
   useEnrollSpeaker,
   useSpeakerEdits,
   useLatestJob,
+  useRetryJob,
   useSummaries,
   useTranscribe,
   useTranscript,
@@ -151,21 +152,30 @@ function DetailEmptyState({
     <div className="detail-empty-state">
       <div className="rec-icon"><WaveIcon /></div>
       <div>
-        <h2>Bereit zum Transkribieren</h2>
+        <h2>{error ? "Transkription fehlgeschlagen" : "Bereit zum Transkribieren"}</h2>
         <p>Erstelle zuerst ein Transkript. Danach erscheinen Zusammenfassung, Fragen und Sprecherbereiche als eigene Tabs.</p>
       </div>
       <button className="btn primary" disabled={transcribePending} onClick={onTranscribe}>
-        Jetzt transkribieren
+        {error ? "Erneut transkribieren" : "Jetzt transkribieren"}
       </button>
       {error && <div className="detail-error">{error}</div>}
     </div>
   );
 }
 
-export function RecordingDetail({ recording, onBack }: { recording: Recording; onBack: () => void }) {
+export function RecordingDetail({
+  recording,
+  onBack,
+  onOpenSettings,
+}: {
+  recording: Recording;
+  onBack: () => void;
+  onOpenSettings?: () => void;
+}) {
   const job = useJobFor(recording.id);
   const transcribe = useTranscribe();
   const diarizeFirst = useDiarize();
+  const retry = useRetryJob(recording.id);
   const { reassign } = useSpeakerEdits(recording.id);
   const updateRec = useUpdateRecording();
   const toast = useToast();
@@ -334,9 +344,16 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
         </div>
       )}
 
-      {job?.status === "failed" && job.phase === "diarization" && (
-        <div className="detail-error detail-error-box">
-          Diarisierung fehlgeschlagen: {job.error}
+      {activeJob?.status === "failed" && activeJob.phase === "diarization" && (
+        <div className="detail-error detail-error-box detail-error-row">
+          <span>Diarisierung fehlgeschlagen: {activeJob.error}</span>
+          <button
+            className="btn"
+            disabled={retry.isPending || running}
+            onClick={() => retry.mutate(activeJob.job_id)}
+          >
+            {retry.isPending ? "Starte…" : "Erneut versuchen"}
+          </button>
         </div>
       )}
 
@@ -448,7 +465,7 @@ export function RecordingDetail({ recording, onBack }: { recording: Recording; o
                   </div>
                   <SummaryIcon width={20} height={20} />
                 </div>
-                <SummaryPanel recordingId={recording.id} />
+                <SummaryPanel recordingId={recording.id} onOpenSettings={onOpenSettings} />
                 <ActionItemsPanel recordingId={recording.id} />
               </section>
             )}

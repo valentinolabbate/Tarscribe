@@ -4,16 +4,19 @@ Tarscribe ist eine lokale macOS-App für Aufnahmen, Transkription, Sprechererken
 Zusammenfassungen und Wissenssuche über Audioinhalte. Die App läuft auf Apple Silicon
 und verarbeitet deine Daten lokal auf dem Mac.
 
-**Aktueller Stand:** v0.4.3 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.5.0 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 
 - Audio oder Video importieren und direkt im Themenbereich organisieren
 - Mikrofon, System-Audio oder beides aufnehmen
-- Aufnahmen lokal transkribieren
+- Aufnahmen lokal transkribieren – wahlweise live mit, während du sprichst
 - Sprecher erkennen, benennen, zusammenführen und als bekannte Stimmen speichern
-- KI-Zusammenfassungen mit lokalen LLM-Servern wie Ollama oder LM Studio erstellen
-- Transkripte und Zusammenfassungen semantisch durchsuchen
+- KI-Zusammenfassungen über frei wählbare Vorlagen mit lokalen LLM-Servern wie Ollama oder LM Studio erstellen
+- Aufgaben und Entscheidungen automatisch aus Gesprächen extrahieren und gebündelt im Aufgaben-Bereich verwalten
+- Aufnahmen automatisch in Kapitel gliedern und Sprecheranteile auswerten
+- Per Diktat-Inbox einen Gedanken einsprechen – über einen globalen Hotkey, auch wenn die App im Hintergrund läuft
+- Transkripte und Zusammenfassungen hybrid durchsuchen (Volltext + semantisch)
 - Einzelne Aufnahmen oder die gesamte Bibliothek per Wissens-Chat befragen
 - TXT, SRT, VTT, JSON und WAV exportieren
 
@@ -47,11 +50,13 @@ fragt diesen bei Bedarf im Einrichtungsassistenten ab.
 2. Nimm Audio auf oder importiere eine vorhandene Datei.
 3. Öffne die Aufnahme und transkribiere sie.
 4. Nutze die Detailseite in getrennten Bereichen:
-   - **Transkript** für Text, Zeitmarken und Wiedergabe
-   - **Zusammenfassung** für KI-Auswertungen
+   - **Transkript** für Text, Zeitmarken, Kapitel und Wiedergabe
+   - **Zusammenfassung** für KI-Auswertungen über frei wählbare Vorlagen
    - **Fragen** für Suche und Chat innerhalb der Aufnahme
-   - **Sprecher** für Namen, Stimmprofile und Diarisierungs-Tuning
-5. Exportiere Text, Untertitel, JSON oder Audio bei Bedarf in deinen Zielordner.
+   - **Sprecher** für Namen, Stimmprofile, Sprecherstatistik und Diarisierungs-Tuning
+5. Behalte Aufgaben und Entscheidungen aus allen Aufnahmen im globalen **Aufgaben**-Bereich im Blick.
+6. Sprich spontane Gedanken über die **Diktat-Inbox** ein – per globalem Hotkey landen sie in der Inbox, werden transkribiert und auf Aufgaben geprüft.
+7. Exportiere Text, Untertitel, JSON oder Audio bei Bedarf in deinen Zielordner.
 
 ## Entwicklung
 

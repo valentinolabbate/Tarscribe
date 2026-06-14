@@ -86,7 +86,9 @@ def _run_lightweight_migrations() -> None:
 
     additive = [
         ("topics", "export_path", "TEXT"),
+        ("recordings", "kind", "TEXT DEFAULT 'recording'"),
         ("recordings", "exported_at", "DATETIME"),
+        ("action_items", "due_date", "TEXT"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:
@@ -269,8 +271,10 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
+# Plain specs (not ORM instances): fresh SummaryTemplate rows are built from these
+# on each seed, so seeding stays idempotent and never reuses detached instances.
 BUILTIN_TEMPLATES = [
-    SummaryTemplate(
+    dict(
         name="Meeting-Protokoll",
         system_prompt=(
             "Du bist ein präziser Protokollant. Erstelle Meeting-Protokolle als vollständige "
@@ -304,30 +308,8 @@ BUILTIN_TEMPLATES = [
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",
-        is_builtin=True,
     ),
-    SummaryTemplate(
-        name="Action Items / To-dos",
-        system_prompt=(
-            "Du extrahierst konkrete, umsetzbare Aufgaben aus Gesprächen und gibst sie als "
-            "Obsidian-Checkliste aus. Jeder Punkt beginnt mit - [ ]. Nenne verantwortliche Person "
-            "und Frist wenn erkennbar. Keine Erfindungen."
-        ),
-        user_prompt_template=(
-            "Extrahiere alle Action Items aus dem Transkript als Obsidian-Checkliste.\n\n"
-            "Format pro Eintrag:\n"
-            "- [ ] **Aufgabe** — *Verantwortliche Person* (Frist falls genannt)\n\n"
-            "Regeln:\n"
-            "- Nur konkrete, zuordenbare Aufgaben aus dem Transkript\n"
-            "- Gruppiere nach Verantwortlichen (## Name als Überschrift), bekannte Namen: {{speakers}}\n"
-            "- Nicht zuordenbare Aufgaben unter ## Offen\n"
-            "- Kein einleitender Text, beginne direkt mit der Liste\n\n"
-            "Transkript:\n{{transcript}}"
-        ),
-        output_format="markdown",
-        is_builtin=True,
-    ),
-    SummaryTemplate(
+    dict(
         name="Vorlesungs-Zusammenfassung",
         system_prompt=(
             "Du bist ein Lernassistent, der Vorlesungen als strukturierte Obsidian-Lernnotizen "
@@ -359,9 +341,8 @@ BUILTIN_TEMPLATES = [
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",
-        is_builtin=True,
     ),
-    SummaryTemplate(
+    dict(
         name="Kurz-Abstract",
         system_prompt=(
             "Du schreibst knappe, präzise Zusammenfassungen in maximal 5 Sätzen. "
@@ -376,9 +357,8 @@ BUILTIN_TEMPLATES = [
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",
-        is_builtin=True,
     ),
-    SummaryTemplate(
+    dict(
         name="Q&A-Extraktion",
         system_prompt=(
             "Du extrahierst Frage-Antwort-Paare aus Gesprächen und formatierst jedes Paar als "
@@ -396,25 +376,48 @@ BUILTIN_TEMPLATES = [
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",
-        is_builtin=True,
     ),
 ]
 
 
 def _seed_builtin_templates() -> None:
-    """Upsert built-in templates by name so updates reach existing installations."""
+    """Upsert built-in templates by name and prune obsolete ones.
+
+    Upserting by name lets template updates reach existing installations.
+    Built-in templates that are no longer shipped (e.g. the old
+    "Action Items / To-dos" template, now superseded by the dedicated
+    action-items feature) are removed; summaries that referenced them keep
+    their content but have their template link cleared.
+    """
+    from .models import Summary
+
     with session_scope() as session:
-        for tpl in BUILTIN_TEMPLATES:
+        for spec in BUILTIN_TEMPLATES:
             existing = session.exec(
                 select(SummaryTemplate).where(
-                    SummaryTemplate.name == tpl.name,
+                    SummaryTemplate.name == spec["name"],
                     SummaryTemplate.is_builtin == True,  # noqa: E712
                 )
             ).first()
             if existing is None:
-                session.add(tpl)
+                session.add(SummaryTemplate(is_builtin=True, **spec))
             else:
-                existing.system_prompt = tpl.system_prompt
-                existing.user_prompt_template = tpl.user_prompt_template
-                existing.output_format = tpl.output_format
+                existing.system_prompt = spec["system_prompt"]
+                existing.user_prompt_template = spec["user_prompt_template"]
+                existing.output_format = spec["output_format"]
                 session.add(existing)
+
+        keep = {spec["name"] for spec in BUILTIN_TEMPLATES}
+        obsolete = session.exec(
+            select(SummaryTemplate).where(
+                SummaryTemplate.is_builtin == True,  # noqa: E712
+                SummaryTemplate.name.not_in(keep),  # type: ignore[attr-defined]
+            )
+        ).all()
+        for tpl in obsolete:
+            for summary in session.exec(
+                select(Summary).where(Summary.template_id == tpl.id)
+            ).all():
+                summary.template_id = None
+                session.add(summary)
+            session.delete(tpl)

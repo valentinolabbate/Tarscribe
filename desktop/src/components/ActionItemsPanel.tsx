@@ -5,8 +5,26 @@ import {
   useUpdateActionItem,
 } from "../hooks/queries";
 import { useJobFor } from "../hooks/useJobs";
+import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem } from "../lib/types";
 import { TasksIcon, TrashIcon } from "./icons";
+
+/** Today as a local ISO date (YYYY-MM-DD), matching the <input type="date"> format. */
+function todayIso(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+export function isOverdue(item: ActionItem): boolean {
+  return !item.done && !!item.due_date && item.due_date < todayIso();
+}
+
+function fmtDueDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 export function ActionItemRow({
   item,
@@ -19,8 +37,13 @@ export function ActionItemRow({
 }) {
   const update = useUpdateActionItem();
   const del = useDeleteActionItem();
+  const undoDelete = useUndoableDelete();
+
+  if (undoDelete.isPending(item.id)) return null;
+
+  const overdue = isOverdue(item);
   return (
-    <div className={`action-item ${item.done ? "done" : ""}`}>
+    <div className={`action-item ${item.done ? "done" : ""} ${overdue ? "overdue" : ""}`}>
       <input
         type="checkbox"
         checked={item.done}
@@ -34,7 +57,17 @@ export function ActionItemRow({
             {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
           </span>
           {item.assignee && <span>{item.assignee}</span>}
-          {item.due && <span>bis {item.due}</span>}
+          {!item.due_date && item.due && <span>bis {item.due}</span>}
+          <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
+            {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}
+            <input
+              type="date"
+              value={item.due_date ?? ""}
+              onChange={(e) =>
+                update.mutate({ id: item.id, patch: { due_date: e.target.value } })
+              }
+            />
+          </label>
           {showRecording && item.recording_title && (
             <button
               className="action-item-rec"
@@ -49,7 +82,13 @@ export function ActionItemRow({
       <button
         className="topic-del"
         title="Eintrag löschen"
-        onClick={() => del.mutate(item.id)}
+        onClick={() =>
+          undoDelete.schedule(
+            item.id,
+            () => del.mutate(item.id),
+            item.kind === "decision" ? "Entscheidung gelöscht" : "Aufgabe gelöscht",
+          )
+        }
       >
         <TrashIcon width={13} height={13} />
       </button>

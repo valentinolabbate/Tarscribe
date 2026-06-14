@@ -73,6 +73,9 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         .id("new-topic")
         .accelerator("CmdOrCtrl+N")
         .build(app)?;
+    let dictation_toggle = MenuItemBuilder::new("Diktat starten/stoppen")
+        .id("dictation-toggle")
+        .build(app)?;
     let check_update = MenuItemBuilder::new("Nach Updates suchen…")
         .id("check-update")
         .build(app)?;
@@ -95,7 +98,10 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         .quit()
         .build()?;
 
-    let file_menu = SubmenuBuilder::new(app, "Datei").item(&new_topic).build()?;
+    let file_menu = SubmenuBuilder::new(app, "Datei")
+        .item(&new_topic)
+        .item(&dictation_toggle)
+        .build()?;
 
     let edit_menu = SubmenuBuilder::new(app, "Bearbeiten")
         .undo()
@@ -123,6 +129,9 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         }
         "new-topic" => {
             let _ = app.emit("menu", "new-topic");
+        }
+        "dictation-toggle" => {
+            let _ = app.emit("menu", "dictation-toggle");
         }
         "check-update" => {
             let _ = app.emit("menu", "check-update");
@@ -162,6 +171,10 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             }
             "record-stop" => {
                 let _ = app.emit("menu", "record-stop");
+            }
+            "dictation-toggle" => {
+                show_main_window(app);
+                let _ = app.emit("menu", "dictation-toggle");
             }
             "quit" => app.exit(0),
             _ => {}
@@ -239,6 +252,9 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
         _ => "Nach Updates suchen…".to_string(),
     };
     let check = MenuItemBuilder::new(check_label).id("check-update").build(app)?;
+    let dictation = MenuItemBuilder::new("Diktat starten/stoppen (⌥⌘D)")
+        .id("dictation-toggle")
+        .build(app)?;
     let quit = MenuItemBuilder::new("Beenden").id("quit").build(app)?;
 
     let recording = &meta.recording;
@@ -328,6 +344,7 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
                 .item(&show)
                 .separator()
                 .item(&start)
+                .item(&dictation)
                 .separator()
                 .item(&check)
                 .item(&quit)

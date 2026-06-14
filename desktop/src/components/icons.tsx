@@ -134,3 +134,10 @@ export const ChaptersIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M16.5 5H21v14l-2.25-2-2.25 2z" />
   </svg>
 );
+
+/** Right-pointing chevron; rotate 90° via CSS for expanded state. */
+export const ChevronIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M9 6l6 6-6 6" />
+  </svg>
+);

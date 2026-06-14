@@ -1,11 +1,21 @@
 import { useMemo, useState } from "react";
 import { useActionItems } from "../hooks/queries";
+import { api } from "../lib/api";
 import { fmtDate } from "../lib/format";
 import type { ActionItem, Topic } from "../lib/types";
-import { ActionItemRow } from "./ActionItemsPanel";
+import { ActionItemRow, isOverdue } from "./ActionItemsPanel";
 import { TasksIcon } from "./icons";
+import { useToast } from "./Toast";
 
 type DoneFilter = "open" | "all" | "done";
+type DueFilter = "any" | "overdue" | "week";
+
+/** Local ISO date (YYYY-MM-DD) `days` from today. */
+function isoInDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
 
 /** Global, checkable view of all extracted action items across recordings. */
 export function TasksPage({
@@ -17,16 +27,36 @@ export function TasksPage({
 }) {
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [doneFilter, setDoneFilter] = useState<DoneFilter>("open");
+  const [dueFilter, setDueFilter] = useState<DueFilter>("any");
+  const toast = useToast();
 
   const { data: items, isLoading } = useActionItems({
     topicId: topicFilter,
     done: doneFilter === "all" ? null : doneFilter === "done",
   });
 
+  const visibleItems = useMemo(() => {
+    if (dueFilter === "any") return items ?? [];
+    const weekLimit = isoInDays(7);
+    return (items ?? []).filter((item) => {
+      if (dueFilter === "overdue") return isOverdue(item);
+      // "week": open items due within the next 7 days (incl. overdue).
+      return !item.done && !!item.due_date && item.due_date <= weekLimit;
+    });
+  }, [items, dueFilter]);
+
+  async function exportIcs() {
+    try {
+      await api.downloadActionItemsIcs(topicFilter);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   // Group by recording, keeping the backend order (newest recording first).
   const groups = useMemo(() => {
     const map = new Map<number, { title: string; created: string; items: ActionItem[] }>();
-    for (const item of items ?? []) {
+    for (const item of visibleItems) {
       const group = map.get(item.recording_id) ?? {
         title: item.recording_title ?? "Aufnahme",
         created: item.created_at,
@@ -36,9 +66,10 @@ export function TasksPage({
       map.set(item.recording_id, group);
     }
     return [...map.entries()];
-  }, [items]);
+  }, [visibleItems]);
 
   const openCount = items?.filter((i) => !i.done).length ?? 0;
+  const hasDatedOpen = (items ?? []).some((i) => !i.done && !!i.due_date);
 
   return (
     <div className="tasks-page">
@@ -58,7 +89,7 @@ export function TasksPage({
             <span>Offen</span>
           </div>
           <div>
-            <strong>{items?.length ?? 0}</strong>
+            <strong>{visibleItems.length}</strong>
             <span>Angezeigt</span>
           </div>
         </div>
@@ -76,6 +107,37 @@ export function TasksPage({
             </button>
           ))}
         </div>
+        <div className="seg">
+          {(["any", "overdue", "week"] as const).map((f) => (
+            <button
+              key={f}
+              className={dueFilter === f ? "seg-btn active" : "seg-btn"}
+              onClick={() => setDueFilter(f)}
+              title={
+                f === "any"
+                  ? "Alle Fristen"
+                  : f === "overdue"
+                    ? "Überfällige Aufgaben"
+                    : "Fällig in den nächsten 7 Tagen"
+              }
+            >
+              {f === "any" ? "Alle Fristen" : f === "overdue" ? "Überfällig" : "Diese Woche"}
+            </button>
+          ))}
+        </div>
+        <div className="spacer" style={{ flex: 1 }} />
+        <button
+          className="btn ghost"
+          onClick={exportIcs}
+          disabled={!hasDatedOpen}
+          title={
+            hasDatedOpen
+              ? "Offene Aufgaben mit Frist als Kalender (.ics) exportieren"
+              : "Keine offenen Aufgaben mit Fälligkeitsdatum"
+          }
+        >
+          In Kalender (.ics)
+        </button>
         <select
           value={topicFilter ?? ""}
           onChange={(e) => setTopicFilter(e.target.value ? Number(e.target.value) : null)}

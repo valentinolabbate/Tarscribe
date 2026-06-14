@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useDeleteRecording, useLatestJob, useRecordings, useUploadRecording } from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
+import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
 import { RecordControl } from "./RecordControl";
@@ -70,6 +71,7 @@ export function RecordingList({
   const { data: recordings, isLoading } = useRecordings(topic.id);
   const upload = useUploadRecording();
   const del = useDeleteRecording(topic.id);
+  const undoDelete = useUndoableDelete();
   const fileInput = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
@@ -83,8 +85,10 @@ export function RecordingList({
   }
 
   const hasRecordings = recordings && recordings.length > 0;
-  const visibleRecordings = recordings?.filter((recording) =>
-    recording.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  const visibleRecordings = recordings?.filter(
+    (recording) =>
+      !undoDelete.isPending(recording.id) &&
+      recording.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
   );
   const totalDuration = recordings?.reduce((sum, recording) => sum + recording.duration_sec, 0) ?? 0;
 
@@ -167,7 +171,9 @@ export function RecordingList({
                 key={r.id}
                 r={r}
                 onOpen={() => onOpen(r)}
-                onDelete={() => del.mutate(r.id)}
+                onDelete={() =>
+                  undoDelete.schedule(r.id, () => del.mutate(r.id), `„${r.title}" gelöscht`)
+                }
               />
             ))}
             {visibleRecordings!.length === 0 && (

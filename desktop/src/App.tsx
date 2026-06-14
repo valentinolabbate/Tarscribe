@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { StartPage } from "./components/StartPage";
 import { FirstRunWizard } from "./components/FirstRunWizard";
+import { DictationOverlay } from "./components/DictationOverlay";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
 import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
 import { SetupScreen } from "./components/SetupScreen";
@@ -22,6 +24,7 @@ import {
   useUpdateTopic,
 } from "./hooks/queries";
 import { useJobSocket } from "./hooks/useJobs";
+import { useDictation } from "./hooks/useDictation";
 import { useRecording } from "./hooks/useRecording";
 import { api, waitForBackend } from "./lib/api";
 import { invoke, isTauri, setTrayRecordingState } from "./lib/tauri";
@@ -29,6 +32,27 @@ import type { Recording, Topic } from "./lib/types";
 
 const clampSidebarWidth = (width: number) =>
   Math.max(224, Math.min(320, window.innerWidth - 720, Number.isFinite(width) ? width : 264));
+
+function shortcutLabel(accelerator: string): string {
+  const symbols: Record<string, string> = {
+    alt: "⌥",
+    option: "⌥",
+    opt: "⌥",
+    meta: "⌘",
+    cmd: "⌘",
+    command: "⌘",
+    super: "⌘",
+    ctrl: "⌃",
+    control: "⌃",
+    shift: "⇧",
+  };
+  return accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => symbols[part.toLowerCase()] ?? part.toUpperCase())
+    .join("");
+}
 
 function Splash({ error }: { error?: string }) {
   return (
@@ -170,6 +194,9 @@ export default function App() {
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
+  const [dictationShortcutLabel, setDictationShortcutLabel] = useState("⌥⌘D");
+  const [detectedMeeting, setDetectedMeeting] = useState<{ appName: string } | null>(null);
+  const queryClient = useQueryClient();
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
@@ -288,6 +315,12 @@ export default function App() {
       toast("Aufnahme konnte nicht geöffnet werden.", "error");
     }
   }, [toast]);
+  const dictation = useDictation(openRecordingById);
+  const dictationRef = useRef(dictation);
+
+  useEffect(() => {
+    dictationRef.current = dictation;
+  }, [dictation]);
 
   const proceed = useCallback(() => {
     waitForBackend()
@@ -320,10 +353,53 @@ export default function App() {
     })();
   }, [proceed]);
 
+  useEffect(() => {
+    if (!ready || needsSetup || needsEnv) return;
+    api.getSettings()
+      .then((settings) => {
+        const accelerator = settings.dictation_shortcut || "Alt+Meta+D";
+        setDictationShortcutLabel(shortcutLabel(accelerator));
+        if (isTauri()) {
+          return Promise.all([
+            invoke<string>("set_dictation_shortcut", { accelerator }).catch((e) => {
+              toast(`Diktat-Hotkey konnte nicht gesetzt werden: ${String(e)}`, "error");
+            }),
+            invoke<void>("configure_meeting_detection", {
+              enabled: settings.meeting_detection_enabled,
+              apps: settings.meeting_detection_apps,
+            }).catch(() => {}),
+          ]);
+        }
+      })
+      .catch(() => {});
+  }, [needsEnv, needsSetup, ready, toast]);
+
+  const startDetectedMeeting = useCallback(async () => {
+    if (recordingRef.current.state !== "idle") {
+      setDetectedMeeting(null);
+      return;
+    }
+    try {
+      let topic = topics?.find((t) => t.name.toLowerCase() === "meetings");
+      if (!topic) {
+        topic = await api.createTopic("Meetings", "#0f766e");
+        await queryClient.invalidateQueries({ queryKey: ["topics"] });
+      }
+      setActiveTopic(topic.id);
+      setShowHome(false);
+      setShowTasks(false);
+      setOpenRecording(null);
+      await recordingRef.current.start(topic.id, topic.name);
+      setDetectedMeeting(null);
+    } catch (e) {
+      toast(`Meeting-Aufnahme konnte nicht gestartet werden: ${(e as Error).message}`, "error");
+    }
+  }, [queryClient, toast, topics]);
+
   // React to native menu items (Tauri only).
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
-    let unlisten: (() => void) | undefined;
+    const unlisteners: (() => void)[] = [];
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen<string>("menu", (e) => {
         if (e.payload === "settings") setShowSettings(true);
@@ -354,6 +430,14 @@ export default function App() {
             void activeRecording.stop();
           }
         }
+        if (e.payload === "dictation-toggle") {
+          const activeRecording = recordingRef.current;
+          if (activeRecording.state !== "idle") {
+            toast("Diktat kann während einer laufenden Aufnahme nicht gestartet werden.", "info");
+            return;
+          }
+          void dictationRef.current.toggle();
+        }
         if (e.payload === "check-update") {
           checkForUpdate().then((u) => {
             if (u) {
@@ -364,9 +448,13 @@ export default function App() {
             }
           });
         }
-      }).then((u) => (unlisten = u));
+      }).then((u) => unlisteners.push(u));
+      listen<{ app_name: string }>("meeting-detected", (e) => {
+        if (recordingRef.current.state !== "idle") return;
+        setDetectedMeeting({ appName: e.payload.app_name });
+      }).then((u) => unlisteners.push(u));
     });
-    return () => unlisten?.();
+    return () => unlisteners.forEach((unlisten) => unlisten());
   }, [toast]);
 
   // Keep the selection valid when the active topic is deleted.
@@ -517,20 +605,46 @@ export default function App() {
           ) : showTasks ? (
             <TasksPage topics={topics ?? []} onOpenRecording={openRecordingById} />
           ) : showHome ? (
-            <StartPage topics={topics ?? []} onOpenSource={openRecordingById} />
+            <StartPage
+              topics={topics ?? []}
+              onOpenSource={openRecordingById}
+              dictation={dictation}
+              dictationShortcutLabel={dictationShortcutLabel}
+            />
           ) : openRecording ? (
             <RecordingDetail
               recording={openRecording}
               onBack={() => setOpenRecording(null)}
+              onOpenSettings={() => setShowSettings(true)}
             />
           ) : current ? (
             <RecordingList topic={current} onOpen={setOpenRecording} />
           ) : (
-            <StartPage topics={topics ?? []} onOpenSource={openRecordingById} />
+            <StartPage
+              topics={topics ?? []}
+              onOpenSource={openRecordingById}
+              dictation={dictation}
+              dictationShortcutLabel={dictationShortcutLabel}
+            />
           )}
         </div>
       </main>
 
+      <DictationOverlay dictation={dictation} />
+      {detectedMeeting && (
+        <div className="meeting-prompt" role="dialog" aria-label="Meeting erkannt">
+          <div>
+            <strong>Meeting erkannt</strong>
+            <span>{detectedMeeting.appName} läuft. Aufnahme starten?</span>
+          </div>
+          <button className="btn ghost" onClick={() => setDetectedMeeting(null)}>
+            Ignorieren
+          </button>
+          <button className="btn primary" onClick={startDetectedMeeting}>
+            Aufnehmen
+          </button>
+        </div>
+      )}
       {showTopicModal && <TopicModal onClose={() => setShowTopicModal(false)} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {showTopicExport && current && (

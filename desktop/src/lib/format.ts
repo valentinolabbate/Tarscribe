@@ -38,5 +38,6 @@ const JOB_PHASE_LABEL: Record<string, string> = {
   embedding: "Indexiere für Suche",
   action_items: "Extrahiere Aufgaben",
   chapters: "Erkenne Kapitel",
+  digest: "Erstelle Wochen-Digest",
 };
 export const jobPhaseLabel = (phase?: string) => JOB_PHASE_LABEL[phase ?? ""] ?? "Verarbeite";

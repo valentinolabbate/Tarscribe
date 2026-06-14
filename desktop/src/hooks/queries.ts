@@ -94,6 +94,19 @@ export function useTranscribe() {
   });
 }
 
+/** Re-enqueue a failed job (any phase) for the same recording. */
+export function useRetryJob(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: number) => api.retryJob(recordingId, jobId),
+    onSuccess: (data) => {
+      trackPendingJob(recordingId, data.job_id, data.phase);
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
+    },
+  });
+}
+
 export function useTranscript(recordingId: number, enabled: boolean) {
   return useQuery({
     queryKey: ["transcript", recordingId],
@@ -225,7 +238,7 @@ export function useExtractActionItems(recordingId: number) {
 export function useUpdateActionItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due">> }) =>
+    mutationFn: ({ id, patch }: { id: number; patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date">> }) =>
       api.updateActionItem(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
   });
@@ -264,6 +277,36 @@ export function useSpeakerStats(recordingId: number, enabled = true) {
     queryFn: () => api.getSpeakerStats(recordingId),
     enabled,
     retry: false,
+  });
+}
+
+export function useDigests() {
+  return useQuery({ queryKey: ["digests"], queryFn: api.listDigests });
+}
+
+export function useCreateDigest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number = 7) => api.createDigest(days),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["digests"] }),
+  });
+}
+
+export function useSendDigestToFolder() {
+  return useMutation({
+    mutationFn: (id: number) => api.sendDigestToFolder(id),
+  });
+}
+
+export function useThreads() {
+  return useQuery({ queryKey: ["threads"], queryFn: api.listThreads });
+}
+
+export function useRebuildThreads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.rebuildThreads,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["threads"] }),
   });
 }
 

@@ -43,6 +43,11 @@ DEFAULT_PREFS: dict[str, Any] = {
     "live_speaker_detection_enabled": True,
     # Maximum transcript characters per LLM call before map-reduce chunking kicks in.
     "llm_chunk_size": 48000,
+    # Global Markdown destination for cross-topic digests, e.g. an Obsidian vault folder.
+    "digest_export_path": "",
+    "dictation_shortcut": "Alt+Meta+D",
+    "meeting_detection_enabled": False,
+    "meeting_detection_apps": ["zoom.us", "Microsoft Teams", "Webex", "Cisco Webex Meetings"],
 }
 
 

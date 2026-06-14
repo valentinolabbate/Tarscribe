@@ -116,7 +116,43 @@ def test_builtin_templates_seeded(client):
 
     with Session(db.get_engine()) as s:
         rows = s.exec(select(SummaryTemplate)).all()
-    assert len(rows) >= 5
+    names = {t.name for t in rows}
+    assert len(rows) >= 4
+    # The standalone tasks template was retired in favour of the action-items feature.
+    assert "Action Items / To-dos" not in names
+
+
+def test_seed_prunes_obsolete_builtin_template(client):
+    # An obsolete built-in template is removed on re-seed; summaries that
+    # referenced it keep their content but lose the dangling template link.
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Summary, SummaryTemplate, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Alt")
+        s.add(topic)
+        s.flush()
+        rec = Recording(topic_id=topic.id, title="Alt", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.flush()
+        stale = SummaryTemplate(name="Action Items / To-dos", is_builtin=True)
+        s.add(stale)
+        s.flush()
+        summary = Summary(recording_id=rec.id, template_id=stale.id, model="", content="x")
+        s.add(summary)
+        s.commit()
+        summary_id = summary.id
+
+    db._seed_builtin_templates()
+
+    with Session(db.get_engine()) as s:
+        names = {t.name for t in s.exec(select(SummaryTemplate)).all()}
+        assert "Action Items / To-dos" not in names
+        kept = s.get(Summary, summary_id)
+        assert kept is not None
+        assert kept.template_id is None
 
 
 def test_known_speaker_list_merges_duplicate_names(client):

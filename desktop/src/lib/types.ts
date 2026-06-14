@@ -27,6 +27,7 @@ export interface Recording {
   duration_sec: number;
   sample_rate: number;
   language: string | null;
+  kind: "recording" | "dictation" | string;
   status: RecordingStatus;
   exported_at: string | null;
   created_at: string;
@@ -44,6 +45,10 @@ export interface AppSettings {
   llm: { provider: string; base_url: string; model: string | null };
   hf_token_set: boolean;
   llm_chunk_size: number;
+  digest_export_path: string;
+  dictation_shortcut: string;
+  meeting_detection_enabled: boolean;
+  meeting_detection_apps: string[];
 }
 
 export interface WordSeg {
@@ -78,6 +83,47 @@ export interface Summary {
   model: string;
   content: string;
   created_at: string;
+}
+
+export interface Digest {
+  id: number;
+  date_from: string;
+  date_to: string;
+  content_markdown: string;
+  model: string;
+  recording_count: number;
+  created_at: string;
+}
+
+export interface ThreadMention {
+  id: number;
+  thread_id: number;
+  recording_id: number;
+  recording_title: string | null;
+  topic_id: number | null;
+  topic_name: string | null;
+  topic_color: string | null;
+  start_sec: number | null;
+  text: string;
+  created_at: string;
+  recording_created_at: string | null;
+}
+
+export interface TopicThread {
+  id: number;
+  title: string;
+  updated_at: string;
+  created_at: string;
+  mention_count: number;
+  recording_count: number;
+  mentions: ThreadMention[];
+}
+
+export interface DictationResult {
+  recording: Recording;
+  job_id: number;
+  topic_id: number;
+  topic_name: string;
 }
 
 export interface LlmConfig {
@@ -307,6 +353,7 @@ export interface ActionItem {
   text: string;
   assignee: string | null;
   due: string | null;
+  due_date: string | null;
   done: boolean;
   created_at: string;
   recording_title: string | null;

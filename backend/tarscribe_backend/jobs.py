@@ -16,6 +16,7 @@ from sqlmodel import select
 
 from .db import session_scope
 from .models import (
+    ActionItem,
     DiarizationRun,
     Job,
     JobPhase,
@@ -24,6 +25,7 @@ from .models import (
     RecordingStatus,
     Segment,
     Summary,
+    Topic,
     Transcript,
     Word,
 )
@@ -154,6 +156,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 rec.status = RecordingStatus.ready
                 s.add(rec)
 
+        _maybe_postprocess_dictation(recording_id)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
     except Exception as exc:  # noqa: BLE001
@@ -466,6 +469,69 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         _update_job(job_id, status=JobStatus.failed, error=str(exc))
+
+
+def _maybe_postprocess_dictation(recording_id: int) -> None:
+    from . import analysis
+    from .settings_store import load_prefs
+
+    with session_scope() as s:
+        rec = s.get(Recording, recording_id)
+        if not rec or rec.kind != "dictation":
+            return
+        text, _speakers = _assemble_transcript(s, recording_id)
+        topics = [
+            (topic.id, topic.name)
+            for topic in s.exec(select(Topic).order_by(Topic.created_at)).all()
+            if topic.id is not None
+        ]
+    if not text:
+        return
+
+    try:
+        chat = _llm_chat_fn()
+    except Exception:
+        return
+
+    topic_names = [name for _topic_id, name in topics]
+    topic_by_name = {name.casefold(): topic_id for topic_id, name in topics}
+    inbox = topic_by_name.get("inbox")
+    chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
+
+    try:
+        result = analysis.analyze_dictation(chat, text, topic_names, chunk_size=chunk_size)
+    except Exception:  # noqa: BLE001
+        traceback.print_exc()
+        return
+
+    with session_scope() as s:
+        rec = s.get(Recording, recording_id)
+        if not rec or rec.kind != "dictation":
+            return
+        if result.get("title"):
+            rec.title = result["title"]
+
+        target_name = str(result.get("topic_name") or "").casefold()
+        target_topic_id = topic_by_name.get(target_name)
+        confidence = float(result.get("topic_confidence") or 0)
+        if target_topic_id and target_topic_id != inbox and confidence >= 0.75:
+            rec.topic_id = target_topic_id
+        s.add(rec)
+
+        old = s.exec(select(ActionItem).where(ActionItem.recording_id == recording_id)).all()
+        for item in old:
+            s.delete(item)
+        s.flush()
+        for item in result.get("action_items") or []:
+            s.add(
+                ActionItem(
+                    recording_id=recording_id,
+                    kind=item["kind"],
+                    text=item["text"],
+                    assignee=item.get("assignee"),
+                    due=item.get("due"),
+                )
+            )
 
 
 def _run_chapters(recording_id: int, job_id: int) -> None:

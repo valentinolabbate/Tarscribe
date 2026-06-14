@@ -11,7 +11,7 @@ use std::{
 
 use menu::TrayState;
 use sidecar::BackendState;
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 const DEFAULT_DICTATION_SHORTCUT: &str = "Alt+Meta+D";
 
@@ -304,14 +304,27 @@ pub fn run() {
             if let Err(e) = menu::build_tray(&handle) {
                 eprintln!("Tray-Aufbau fehlgeschlagen: {e}");
             }
+            if let Some(window) = app.get_webview_window("main") {
+                let close_window = window.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = close_window.hide();
+                    }
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app_handle, event| {
-            if let RunEvent::Exit = event {
-                system_audio::stop_if_recording();
-                sidecar::stop(app_handle);
+            match event {
+                RunEvent::Reopen { .. } => menu::show_main_window(app_handle),
+                RunEvent::Exit => {
+                    system_audio::stop_if_recording();
+                    sidecar::stop(app_handle);
+                }
+                _ => {}
             }
         });
 }

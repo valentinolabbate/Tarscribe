@@ -125,15 +125,19 @@ pub fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 
     app.on_menu_event(move |app, event| match event.id().as_ref() {
         "settings" => {
+            show_main_window(app);
             let _ = app.emit("menu", "settings");
         }
         "new-topic" => {
+            show_main_window(app);
             let _ = app.emit("menu", "new-topic");
         }
         "dictation-toggle" => {
+            show_main_window(app);
             let _ = app.emit("menu", "dictation-toggle");
         }
         "check-update" => {
+            show_main_window(app);
             let _ = app.emit("menu", "check-update");
         }
         _ => {}
@@ -158,9 +162,11 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 show_main_window(app);
             }
             "check-update" => {
+                show_main_window(app);
                 let _ = app.emit("menu", "check-update");
             }
             "record-start" => {
+                show_main_window(app);
                 let _ = app.emit("menu", "record-start");
             }
             "record-pause" => {
@@ -389,8 +395,9 @@ fn tray_tooltip(meta: &TrayMeta) -> String {
     }
 }
 
-fn show_main_window(app: &AppHandle) {
+pub(crate) fn show_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }

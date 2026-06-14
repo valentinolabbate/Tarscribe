@@ -17,8 +17,15 @@ OVERLAP_SECONDS = 15.0
 class ParakeetMlxBackend:
     name = "parakeet-mlx"
 
-    def __init__(self, model_id: str = DEFAULT_MODEL) -> None:
+    def __init__(
+        self,
+        model_id: str = DEFAULT_MODEL,
+        chunk_seconds: float = CHUNK_SECONDS,
+        overlap_seconds: float = OVERLAP_SECONDS,
+    ) -> None:
         self.model_id = model_id
+        self.chunk_seconds = chunk_seconds
+        self.overlap_seconds = overlap_seconds
         self._model = None
 
     def _ensure_model(self):
@@ -46,8 +53,11 @@ class ParakeetMlxBackend:
                 progress(min(0.98, 0.05 + 0.93 * (done / total)), "Transkribiere…")
 
         kwargs: dict = {}
-        if duration > CHUNK_SECONDS:
-            kwargs = {"chunk_duration": CHUNK_SECONDS, "overlap_duration": OVERLAP_SECONDS}
+        if duration > self.chunk_seconds:
+            kwargs = {
+                "chunk_duration": self.chunk_seconds,
+                "overlap_duration": self.overlap_seconds,
+            }
         try:
             result = model.transcribe(str(audio_path), chunk_callback=_cb, **kwargs)
         except TypeError:

@@ -6,8 +6,9 @@ light. ML libraries are probed lazily and failures degrade to CPU.
 
 from __future__ import annotations
 
+import os
 import platform
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from functools import lru_cache
 
 
@@ -20,9 +21,11 @@ class HardwareInfo:
     has_cuda: bool
     cuda_device: str | None
     vram_gb: float | None
+    memory_gb: float | None
     recommended_asr: str  # "parakeet-mlx" | "faster-whisper"
     recommended_device: str  # "mps" | "cuda" | "cpu"
     recommended_precision: str  # "float16" | "int8" | "float32"
+    recommended_profile: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -44,6 +47,15 @@ def _detect_torch_devices() -> tuple[bool, bool, str | None, float | None]:
     return False, False, None, None
 
 
+def _detect_memory_gb() -> float | None:
+    try:
+        pages = os.sysconf("SC_PHYS_PAGES")
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        return round((pages * page_size) / (1024**3), 1)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 @lru_cache
 def detect_hardware() -> HardwareInfo:
     os_name = platform.system().lower()  # darwin / windows / linux
@@ -51,6 +63,7 @@ def detect_hardware() -> HardwareInfo:
     is_apple_silicon = os_name == "darwin" and arch in ("arm64", "aarch64")
 
     has_mps, has_cuda, cuda_device, vram = _detect_torch_devices()
+    memory_gb = _detect_memory_gb()
 
     if is_apple_silicon:
         asr = "parakeet-mlx"
@@ -65,7 +78,7 @@ def detect_hardware() -> HardwareInfo:
         device = "cpu"
         precision = "int8"
 
-    return HardwareInfo(
+    info = HardwareInfo(
         os=os_name,
         arch=arch,
         is_apple_silicon=is_apple_silicon,
@@ -73,7 +86,13 @@ def detect_hardware() -> HardwareInfo:
         has_cuda=has_cuda,
         cuda_device=cuda_device,
         vram_gb=vram,
+        memory_gb=memory_gb,
         recommended_asr=asr,
         recommended_device=device,
         recommended_precision=precision,
+        recommended_profile="balanced",
     )
+    from .performance_profiles import recommended_profile_for_hardware
+
+    info.recommended_profile = recommended_profile_for_hardware(info)
+    return info

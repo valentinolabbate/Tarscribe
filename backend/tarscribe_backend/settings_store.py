@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import get_settings
+from .performance_profiles import DEFAULT_DIARIZATION_MODEL, DEFAULT_PROFILE
 
 SERVICE = "Tarscribe"
 HF_TOKEN_KEY = "hf_token"
@@ -23,10 +24,11 @@ RAG_API_KEY_KEY = "rag_api_key"
 
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
+    "performance_profile": DEFAULT_PROFILE,
     "asr_override": None,  # force an ASR engine, else auto by hardware
     "recording_source": "microphone",  # future: system audio, optionally mixed with microphone
     "recording_device_id": "",  # empty => browser/system default microphone
-    "diarization_model": "pyannote/speaker-diarization-community-1",
+    "diarization_model": DEFAULT_DIARIZATION_MODEL,
     "speaker_match_threshold": 0.5,
     "llm": {"provider": "ollama", "base_url": "http://localhost:11434/v1", "model": None},
     # RAG embedding endpoint — configured independently from the chat `llm` block.

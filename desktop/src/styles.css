@@ -1095,6 +1095,62 @@ select:focus {
 .settings-content .field:last-child {
   margin-bottom: 0;
 }
+.performance-options {
+  display: grid;
+  gap: 8px;
+}
+.performance-option {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  text-align: left;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 11px;
+  cursor: pointer;
+}
+.performance-option:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.performance-option.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-input));
+  color: var(--text);
+}
+.performance-option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.performance-option-head strong {
+  font-size: 13px;
+  color: var(--text);
+}
+.performance-option-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.performance-option-meta span,
+.mini-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+.mini-badge {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  font-size: 10.5px;
+  font-weight: 650;
+}
 @media (max-width: 560px) {
   .settings-layout {
     flex-direction: column;

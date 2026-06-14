@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
+import { PERFORMANCE_PROFILES } from "../lib/performanceProfiles";
 import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
 import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../lib/tauri";
 import { ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
 import { RagSettings } from "./RagSettings";
 import { TemplatesModal } from "./TemplatesModal";
-import type { AppSettings } from "../lib/types";
+import type { AppSettings, HardwareInfo, PerformanceProfile } from "../lib/types";
 
 function KnownSpeakers() {
   const { data: speakers } = useKnownSpeakers();
@@ -48,10 +49,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
+  const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [tab, setTab] = useState<"general" | "summaries" | "rag" | "speakers">("general");
 
   useEffect(() => {
     api.getSettings().then(setSettings);
+    api.hardware().then(setHardware).catch(() => {});
     listRecordingDevices().then(setRecordingDevices).catch(() => {});
     getSystemAudioCapability().then(setSystemAudioCapability).catch(() => {});
   }, []);
@@ -97,6 +100,19 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
       setStatus({ ok: true, msg: "Meeting-Erkennung gespeichert." });
     } catch (e) {
       setStatus({ ok: false, msg: `Meeting-Erkennung konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function savePerformanceProfile(performance_profile: PerformanceProfile) {
+    if (!settings || settings.performance_profile === performance_profile) return;
+    const previous = settings;
+    setSettings({ ...settings, performance_profile });
+    try {
+      await api.updateSettings({ performance_profile });
+      setStatus({ ok: true, msg: "Leistungsstufe gespeichert." });
+    } catch (e) {
+      setSettings(previous);
+      setStatus({ ok: false, msg: `Leistungsstufe konnte nicht gespeichert werden: ${(e as Error).message}` });
     }
   }
 
@@ -234,6 +250,39 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     <option value="es">Spanisch</option>
                     <option value="it">Italienisch</option>
                   </select>
+                </div>
+
+                <div className="field">
+                  <label>Leistungsstufe</label>
+                  <div className="performance-options">
+                    {PERFORMANCE_PROFILES.map((profile) => {
+                      const active = settings.performance_profile === profile.id;
+                      const recommended = hardware?.recommended_profile === profile.id;
+                      return (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          className={active ? "performance-option active" : "performance-option"}
+                          onClick={() => savePerformanceProfile(profile.id)}
+                        >
+                          <span className="performance-option-head">
+                            <strong>{profile.label}</strong>
+                            {recommended && <span className="mini-badge">Empfohlen</span>}
+                          </span>
+                          <span>{profile.detail}</span>
+                          <span className="performance-option-meta">
+                            <span>{profile.asr}</span>
+                            <span>{profile.diarization}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    {hardware
+                      ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Niedrigste Stufe nutzt auf M-Macs weiterhin die GPU.`
+                      : "Prüfe RAM und GPU für die empfohlene Stufe…"}
+                  </div>
                 </div>
 
                 <div className="field">

@@ -236,10 +236,12 @@ class LiveAnalysisService:
         """Run one diarization analysis. Returns updated DiarizationState or None on failure."""
         from .ml.lifecycle import diar_lock
         from .ml.live_diarization import DiarizationState, match_known_speakers, run_window
-        from .ml.diarization import DEFAULT_MODEL, DiarizationBackend
+        from .ml.diarization import DiarizationBackend
         from .settings_store import get_hf_token, load_prefs
+        from .performance_profiles import resolve_diarization_selection
 
-        if not load_prefs().get("live_speaker_detection_enabled", True):
+        prefs = load_prefs()
+        if not prefs.get("live_speaker_detection_enabled", True):
             return None
 
         if self._diar_backend is None:
@@ -252,12 +254,16 @@ class LiveAnalysisService:
                     "reason": "no_hf_token",
                 })
                 return None
-            model_id = load_prefs().get("diarization_model") or DEFAULT_MODEL
             from .hardware import detect_hardware
-            device = detect_hardware().recommended_device
+            diarization_selection = resolve_diarization_selection(prefs, detect_hardware())
             self._diar_backend = DiarizationBackend(
-                hf_token=token, model_id=model_id, device=device
+                hf_token=token,
+                model_id=diarization_selection["model_id"],
+                device=diarization_selection["device"],
             )
+        else:
+            from .hardware import detect_hardware
+            diarization_selection = resolve_diarization_selection(prefs, detect_hardware())
 
         state: DiarizationState = self._diar_state or DiarizationState()
 
@@ -287,7 +293,9 @@ class LiveAnalysisService:
 
         # Known-speaker matching (best-effort, same diar_lock is released above).
         try:
-            threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
+            if not diarization_selection.get("speaker_matching_enabled", True):
+                return state
+            threshold = float(prefs.get("speaker_match_threshold", 0.5))
             with session_scope() as s:
                 from sqlmodel import select
                 from .models import KnownSpeaker

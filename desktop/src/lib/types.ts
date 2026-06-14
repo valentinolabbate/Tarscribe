@@ -34,9 +34,11 @@ export interface Recording {
 }
 
 export type RecordingSource = "microphone" | "system_audio" | "system_audio_and_microphone";
+export type PerformanceProfile = "m1_8gb" | "balanced" | "quality";
 
 export interface AppSettings {
   language: string | null;
+  performance_profile: PerformanceProfile;
   asr_override: string | null;
   recording_source: RecordingSource;
   recording_device_id: string;
@@ -190,9 +192,11 @@ export interface HardwareInfo {
   has_cuda: boolean;
   cuda_device: string | null;
   vram_gb: number | null;
+  memory_gb: number | null;
   recommended_asr: string;
   recommended_device: string;
   recommended_precision: string;
+  recommended_profile: PerformanceProfile;
   ffmpeg_available: boolean;
   ffprobe_available: boolean;
 }

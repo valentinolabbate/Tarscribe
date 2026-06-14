@@ -210,7 +210,7 @@ def test_action_item_due_date_patch_clear_and_ics_export(client):
 
 
 def test_retry_job_reenqueues_failed_job(client, monkeypatch):
-    from sqlmodel import Session, select
+    from sqlmodel import Session
 
     import tarscribe_backend.db as db
     import tarscribe_backend.jobs as jobs

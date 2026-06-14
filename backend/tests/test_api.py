@@ -46,6 +46,17 @@ def test_hardware(client):
     body = r.json()
     assert "recommended_asr" in body
     assert "is_apple_silicon" in body
+    assert "recommended_profile" in body
+
+
+def test_settings_performance_profile(client):
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    assert r.json()["performance_profile"] == "balanced"
+
+    r = client.put("/api/settings", json={"performance_profile": "m1_8gb"})
+    assert r.status_code == 200
+    assert r.json()["performance_profile"] == "m1_8gb"
 
 
 def test_topic_crud(client):

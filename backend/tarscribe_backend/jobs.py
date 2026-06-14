@@ -175,6 +175,7 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
 
     from .hardware import detect_hardware
     from .ml.diarization import DiarizationBackend, DiarizationParams
+    from .performance_profiles import resolve_diarization_selection
     from .settings_store import get_hf_token, load_prefs
 
     try:
@@ -193,8 +194,10 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
                 raise RuntimeError("Aufnahme nicht gefunden")
             audio_path = Path(rec.audio_path)
 
-        model_id = load_prefs().get("diarization_model") or "pyannote/speaker-diarization-community-1"
-        device = detect_hardware().recommended_device
+        prefs = load_prefs()
+        diarization_selection = resolve_diarization_selection(prefs, detect_hardware())
+        model_id = diarization_selection["model_id"]
+        device = diarization_selection["device"]
 
         last = {"t": 0.0}
 
@@ -244,10 +247,11 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         try:
             from .ml.speaker_matching import apply_matches, match_recording
 
-            threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
-            with session_scope() as s:
-                matches = match_recording(s, recording_id, threshold)
-                apply_matches(s, recording_id, matches)
+            if diarization_selection.get("speaker_matching_enabled", True):
+                threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
+                with session_scope() as s:
+                    matches = match_recording(s, recording_id, threshold)
+                    apply_matches(s, recording_id, matches)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
 

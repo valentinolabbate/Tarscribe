@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { HardwareInfo } from "../lib/types";
+import { PERFORMANCE_PROFILES, performanceProfileLabel } from "../lib/performanceProfiles";
+import type { HardwareInfo, PerformanceProfile } from "../lib/types";
 import { LlmSettings } from "./LlmSettings";
 import { LogoIcon, SpeakerIdIcon } from "./icons";
 
@@ -11,6 +12,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   const [token, setToken] = useState("");
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState(false);
+  const [profile, setProfile] = useState<PerformanceProfile>("balanced");
   const [warming, setWarming] = useState(false);
   const [warmDone, setWarmDone] = useState(false);
   const [warmError, setWarmError] = useState<string | null>(null);
@@ -21,6 +23,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
       setFfmpeg(s.ffmpeg_available);
       setHasToken(s.hf_token_set);
     });
+    api.getSettings().then((s) => setProfile(s.performance_profile)).catch(() => {});
   }, []);
 
   async function saveToken() {
@@ -42,6 +45,11 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
     } finally {
       setWarming(false);
     }
+  }
+
+  async function chooseProfile(next: PerformanceProfile) {
+    setProfile(next);
+    await api.updateSettings({ performance_profile: next });
   }
 
   async function finish() {
@@ -85,6 +93,25 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
               <div className="check-row">
                 <span className="ok">●</span>
                 Bestes Modell: <strong>{hw?.recommended_asr ?? "…"}</strong>
+              </div>
+              <div className="field" style={{ marginTop: 14 }}>
+                <label>Leistungsstufe</label>
+                <div className="performance-options">
+                  {PERFORMANCE_PROFILES.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      className={profile === option.id ? "performance-option active" : "performance-option"}
+                      onClick={() => chooseProfile(option.id)}
+                    >
+                      <span className="performance-option-head">
+                        <strong>{option.label}</strong>
+                        {hw?.recommended_profile === option.id && <span className="mini-badge">Empfohlen</span>}
+                      </span>
+                      <span>{option.detail}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="check-row">
                 <span className={ffmpeg ? "ok" : "warn"}>●</span>
@@ -139,7 +166,7 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
             <div>
               <h2>Modell vorbereiten</h2>
               <p className="muted">
-                Lade das Transkriptions-Modell ({hw?.recommended_asr}) jetzt herunter, damit die
+                Lade das Transkriptions-Modell ({performanceProfileLabel(profile)}) jetzt herunter, damit die
                 erste Aufnahme sofort startet. Das kann beim ersten Mal ein paar Minuten dauern.
               </p>
               {warmDone ? (

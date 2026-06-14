@@ -25,6 +25,7 @@ class HfTokenIn(BaseModel):
 
 class PrefsIn(BaseModel):
     language: str | None = None
+    performance_profile: Literal["m1_8gb", "balanced", "quality"] | None = None
     asr_override: str | None = None
     recording_source: Literal["microphone", "system_audio", "system_audio_and_microphone"] | None = None
     recording_device_id: str | None = None

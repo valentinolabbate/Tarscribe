@@ -79,17 +79,21 @@ function TopicRow({
   topic,
   active,
   dragging,
+  dragOver,
   onSelect,
   onDragStart,
-  onDragEnter,
+  onDragOver,
+  onDrop,
   onDragEnd,
 }: {
   topic: Topic;
   active: boolean;
   dragging: boolean;
+  dragOver: boolean;
   onSelect: () => void;
   onDragStart: () => void;
-  onDragEnter: () => void;
+  onDragOver: () => void;
+  onDrop: () => void;
   onDragEnd: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -138,7 +142,7 @@ function TopicRow({
 
   return (
     <div
-      className={`topic-item topic-row ${active ? "active" : ""} ${dragging ? "dragging" : ""}`}
+      className={`topic-item topic-row ${active ? "active" : ""} ${dragging ? "dragging" : ""} ${dragOver ? "drag-over" : ""}`}
       draggable
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
@@ -148,11 +152,14 @@ function TopicRow({
         e.dataTransfer.setData("text/plain", String(topic.id));
         onDragStart();
       }}
-      onDragEnter={onDragEnter}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => {
+        e.preventDefault(); // required so a drop is allowed on this row
+        e.dataTransfer.dropEffect = "move";
+        onDragOver();
+      }}
       onDrop={(e) => {
         e.preventDefault();
-        onDragEnd();
+        onDrop();
       }}
       onDragEnd={onDragEnd}
       title="Doppelklick zum Umbenennen · Ziehen zum Sortieren"
@@ -256,10 +263,12 @@ export default function App() {
   const { data: topics } = useTopics();
   const reorderTopics = useReorderTopics();
   // Local copy of the topic list that drives the sidebar order. It preserves the
-  // user-defined arrangement during a drag and reconciles additions/removals and
-  // field updates from the query, so live reordering never flickers.
+  // user-defined arrangement and reconciles additions/removals and field updates
+  // from the query, so the list never flickers after a reorder.
   const [orderedTopics, setOrderedTopics] = useState<Topic[]>([]);
+  // The id being dragged and the row we'd drop *before* — both for styling only.
   const [dragTopicId, setDragTopicId] = useState<number | null>(null);
+  const [dragOverTopicId, setDragOverTopicId] = useState<number | null>(null);
   const dragTopicIdRef = useRef<number | null>(null);
   const orderRef = useRef<Topic[]>([]);
 
@@ -288,31 +297,45 @@ export default function App() {
     setDragTopicId(id);
   }, []);
 
-  const handleTopicDragEnter = useCallback((targetId: number) => {
-    const fromId = dragTopicIdRef.current;
-    if (fromId == null || fromId === targetId) return;
-    setOrderedTopics((prev) => {
-      const from = prev.findIndex((t) => t.id === fromId);
-      const to = prev.findIndex((t) => t.id === targetId);
-      if (from === -1 || to === -1 || from === to) return prev;
-      const next = prev.slice();
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
+  // We deliberately do NOT reorder the list during the drag: moving the dragged
+  // DOM node mid-drag aborts the native drag session in WebKit (Tauri's webview),
+  // which made dropped topics snap back. Instead we just track the hovered row
+  // for an insertion indicator and commit the new order on drop.
+  const handleTopicDragOver = useCallback((targetId: number) => {
+    if (dragTopicIdRef.current == null || dragTopicIdRef.current === targetId) {
+      setDragOverTopicId(null);
+      return;
+    }
+    setDragOverTopicId(targetId);
   }, []);
 
-  const handleTopicDragEnd = useCallback(() => {
-    const fromId = dragTopicIdRef.current;
+  const clearTopicDrag = useCallback(() => {
     dragTopicIdRef.current = null;
     setDragTopicId(null);
-    if (fromId == null) return;
-    const newOrder = orderRef.current.map((t) => t.id);
-    const oldOrder = (topics ?? []).map((t) => t.id);
-    if (newOrder.length === oldOrder.length && newOrder.join(",") !== oldOrder.join(",")) {
+    setDragOverTopicId(null);
+  }, []);
+
+  const handleTopicDrop = useCallback(
+    (targetId: number) => {
+      const fromId = dragTopicIdRef.current;
+      clearTopicDrag();
+      if (fromId == null || fromId === targetId) return;
+      const prev = orderRef.current;
+      const from = prev.findIndex((t) => t.id === fromId);
+      if (from === -1) return;
+      const next = prev.slice();
+      const [moved] = next.splice(from, 1);
+      const insertAt = next.findIndex((t) => t.id === targetId); // insert before target
+      if (insertAt === -1) return;
+      next.splice(insertAt, 0, moved);
+      const newOrder = next.map((t) => t.id);
+      const oldOrder = prev.map((t) => t.id);
+      if (newOrder.join(",") === oldOrder.join(",")) return;
+      setOrderedTopics(next);
       reorderTopics.mutate(newOrder);
-    }
-  }, [reorderTopics, topics]);
+    },
+    [clearTopicDrag, reorderTopics],
+  );
 
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
   const toast = useToast();
@@ -616,6 +639,7 @@ export default function App() {
             topic={t}
             active={t.id === activeTopic && !showHome}
             dragging={dragTopicId === t.id}
+            dragOver={dragOverTopicId === t.id && dragTopicId !== t.id}
             onSelect={() => {
               setActiveTopic(t.id);
               setOpenRecording(null);
@@ -623,8 +647,9 @@ export default function App() {
               setShowTasks(false);
             }}
             onDragStart={() => handleTopicDragStart(t.id)}
-            onDragEnter={() => handleTopicDragEnter(t.id)}
-            onDragEnd={handleTopicDragEnd}
+            onDragOver={() => handleTopicDragOver(t.id)}
+            onDrop={() => handleTopicDrop(t.id)}
+            onDragEnd={clearTopicDrag}
           />
         ))}
 

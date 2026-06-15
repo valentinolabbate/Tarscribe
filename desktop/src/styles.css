@@ -238,12 +238,26 @@ button {
 .topic-row:hover .topic-grip {
   opacity: 0.65;
 }
+.topic-row {
+  position: relative;
+}
 .topic-row.dragging {
   opacity: 0.4;
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
 }
 .topic-row.dragging .topic-grip {
   cursor: grabbing;
+}
+/* Insertion line shown above the row a dropped topic would land before. */
+.topic-row.drag-over::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: -3px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
 }
 .topic-edit {
   width: 100%;

@@ -275,11 +275,11 @@ export function ChatPanel({
         </button>
         {!scoped && (
           <>
-            <label style={{ fontSize: 12, color: "var(--text-faint)" }}>Bereich:</label>
             <select
+              aria-label="Themenbereich"
               value={topicFilter ?? ""}
               onChange={(e) => setTopicFilter(e.target.value ? Number(e.target.value) : null)}
-              style={{ maxWidth: 180 }}
+              style={{ maxWidth: 172 }}
             >
               <option value="">Alle Themenbereiche</option>
               {topics.map((t) => (

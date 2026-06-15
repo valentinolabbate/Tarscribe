@@ -227,7 +227,7 @@ button {
   color: var(--danger);
 }
 .topic-grip {
-  opacity: 0;
+  opacity: 0.28;
   flex: none;
   display: grid;
   place-items: center;
@@ -236,7 +236,17 @@ button {
   transition: opacity 0.12s;
 }
 .topic-row:hover .topic-grip {
-  opacity: 0.65;
+  opacity: 0.75;
+}
+.topic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 12px;
+  padding-bottom: 8px;
+}
+.topic-list.drag-active {
+  padding-bottom: 18px;
 }
 .topic-row {
   position: relative;
@@ -246,18 +256,26 @@ button {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
 }
 .topic-row.dragging .topic-grip {
+  opacity: 1;
   cursor: grabbing;
 }
-/* Insertion line shown above the row a dropped topic would land before. */
-.topic-row.drag-over::before {
+/* Insertion line shown around the row a dropped topic would land next to. */
+.topic-row.drag-over-before::before,
+.topic-row.drag-over-after::after {
   content: "";
   position: absolute;
   left: 6px;
   right: 6px;
-  top: -3px;
   height: 2px;
   border-radius: 2px;
   background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.topic-row.drag-over-before::before {
+  top: -3px;
+}
+.topic-row.drag-over-after::after {
+  bottom: -3px;
 }
 .topic-edit {
   width: 100%;
@@ -342,6 +360,7 @@ button {
 
 /* ---- Start page ---- */
 .start-page {
+  --start-workspace-height: min(640px, calc(100vh - 232px));
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -351,14 +370,12 @@ button {
   margin: 0 auto;
 }
 
-/* Compact header */
 .start-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px 28px;
-  flex-wrap: wrap;
-  padding: 2px 2px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(312px, 1fr);
+  align-items: end;
+  gap: 20px 16px;
+  padding: 0;
 }
 .start-header-text {
   min-width: 0;
@@ -377,13 +394,13 @@ button {
   line-height: 1.5;
 }
 .start-stats {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  flex: none;
-  flex-wrap: wrap;
+  width: 100%;
 }
 .start-stats .stat {
-  min-width: 86px;
+  min-width: 0;
   padding: 9px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -408,10 +425,10 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(312px, 1fr);
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 .start-primary {
-  height: min(640px, calc(100vh - 232px));
+  height: var(--start-workspace-height);
   min-height: 460px;
   padding: 16px 18px;
   border: 1px solid var(--border);
@@ -423,7 +440,23 @@ button {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: var(--start-workspace-height);
+  min-height: 460px;
   min-width: 0;
+  overflow: hidden;
+}
+.start-aside .digest-panel {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.start-aside .threads-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.threads-panel .thread-list {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 /* Unified secondary card */
@@ -506,7 +539,7 @@ button {
   background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
 }
 .digest-markdown {
-  max-height: 300px;
+  max-height: clamp(140px, 22vh, 260px);
   overflow: auto;
   padding-right: 4px;
   font-size: 13px;
@@ -2326,17 +2359,21 @@ button.utt-time:hover {
     grid-template-columns: 1fr;
     align-items: start;
   }
+  .start-header {
+    grid-template-columns: 1fr;
+  }
   .start-body {
     grid-template-columns: 1fr;
   }
   .start-primary {
     height: min(560px, calc(100vh - 260px));
   }
-  .start-stats {
-    width: 100%;
+  .start-aside {
+    height: auto;
+    min-height: 0;
   }
   .start-stats .stat {
-    flex: 1;
+    min-width: 0;
   }
   .detail-hero {
     align-items: flex-start;

@@ -4,7 +4,7 @@ Tarscribe ist eine lokale macOS-App für Aufnahmen, Transkription, Sprechererken
 Zusammenfassungen und Wissenssuche über Audioinhalte. Die App läuft auf Apple Silicon
 und verarbeitet deine Daten lokal auf dem Mac.
 
-**Aktueller Stand:** v0.6.8 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.6.9 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 

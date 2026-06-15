@@ -103,7 +103,23 @@ export function useDeleteRecording(topicId?: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.deleteRecording(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings", topicId] }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["recordings", topicId] });
+      // SQLite reuses a deleted row's id, so the next recording can inherit this
+      // one's id. Drop every per-recording cache now, otherwise the new recording
+      // would show the deleted one's transcript/diarization/summaries/etc.
+      for (const key of [
+        ["transcript", id],
+        ["diarization", id],
+        ["summaries", id],
+        ["chapters", id],
+        ["speaker-stats", id],
+        ["latest-job", id],
+        ["action-items", "recording", id],
+      ]) {
+        qc.removeQueries({ queryKey: key });
+      }
+    },
   });
 }
 

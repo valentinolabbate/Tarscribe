@@ -70,6 +70,8 @@ class Topic(SQLModel, table=True):
     color: str = "#6366f1"
     # Default folder to send Markdown exports to (e.g. an Obsidian vault folder).
     export_path: Optional[str] = None
+    # User-defined sort order in the sidebar (ascending). Ties fall back to created_at.
+    position: int = Field(default=0, index=True)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

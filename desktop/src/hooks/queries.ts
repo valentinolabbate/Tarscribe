@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
-import type { ActionItem } from "../lib/types";
+import type { ActionItem, Topic } from "../lib/types";
 import { trackPendingJob } from "./useJobs";
 
 export function useHardware() {
@@ -40,6 +40,31 @@ export function useDeleteTopic() {
   return useMutation({
     mutationFn: (id: number) => api.deleteTopic(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["topics"] }),
+  });
+}
+
+export function useReorderTopics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (order: number[]) => api.reorderTopics(order),
+    // Optimistically reorder the cached list so the sidebar stays put even if
+    // a background refetch lands before the request resolves.
+    onMutate: async (order: number[]) => {
+      await qc.cancelQueries({ queryKey: ["topics"] });
+      const previous = qc.getQueryData<Topic[]>(["topics"]);
+      if (previous) {
+        const rank = new Map(order.map((id, idx) => [id, idx]));
+        const next = [...previous].sort(
+          (a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity),
+        );
+        qc.setQueryData<Topic[]>(["topics"], next);
+      }
+      return { previous };
+    },
+    onError: (_err, _order, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["topics"], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["topics"] }),
   });
 }
 

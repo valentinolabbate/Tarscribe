@@ -86,6 +86,7 @@ def _run_lightweight_migrations() -> None:
 
     additive = [
         ("topics", "export_path", "TEXT"),
+        ("topics", "position", "INTEGER DEFAULT 0"),
         ("recordings", "kind", "TEXT DEFAULT 'recording'"),
         ("recordings", "exported_at", "DATETIME"),
         ("action_items", "due_date", "TEXT"),
@@ -95,6 +96,18 @@ def _run_lightweight_migrations() -> None:
             cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info({table})"))}
             if column not in cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}"))
+                if (table, column) == ("topics", "position"):
+                    # Seed existing rows with their creation order so the sidebar
+                    # keeps a stable arrangement until the user reorders manually.
+                    conn.execute(
+                        text(
+                            "UPDATE topics SET position = ("
+                            "  SELECT COUNT(*) FROM topics AS t2"
+                            "  WHERE t2.created_at < topics.created_at"
+                            "     OR (t2.created_at = topics.created_at AND t2.id < topics.id)"
+                            ")"
+                        )
+                    )
 
     _ensure_vec_table()
     _ensure_fts_table()

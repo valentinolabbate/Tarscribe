@@ -142,6 +142,12 @@ export const api = {
   sendToFolder: (id: number) =>
     request<{ path: string }>(`/api/recordings/${id}/send-to-folder`, { method: "POST" }),
   deleteTopic: (id: number) => request<void>(`/api/topics/${id}`, { method: "DELETE" }),
+  reorderTopics: (order: number[]) =>
+    request<void>("/api/topics/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order }),
+    }),
 
   listRecordings: (topicId?: number) =>
     request<Recording[]>(`/api/recordings${topicId != null ? `?topic_id=${topicId}` : ""}`),

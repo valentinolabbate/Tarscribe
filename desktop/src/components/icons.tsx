@@ -26,6 +26,17 @@ export const PlusIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const GripIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p} fill="currentColor" stroke="none">
+    <circle cx="9" cy="6" r="1.4" />
+    <circle cx="15" cy="6" r="1.4" />
+    <circle cx="9" cy="12" r="1.4" />
+    <circle cx="15" cy="12" r="1.4" />
+    <circle cx="9" cy="18" r="1.4" />
+    <circle cx="15" cy="18" r="1.4" />
+  </svg>
+);
+
 export const UploadIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>
     <path d="M12 15V3m0 0l-4 4m4-4l4 4" />

@@ -18,11 +18,17 @@ class TopicUpdate(BaseModel):
     export_path: str | None = None
 
 
+class TopicReorder(BaseModel):
+    # Topic ids in the desired display order (first = top of the sidebar).
+    order: list[int]
+
+
 class TopicOverview(BaseModel):
     id: int
     name: str
     color: str
     export_path: str | None = None
+    position: int = 0
     created_at: datetime
     recording_count: int = 0
     transcribed_count: int = 0

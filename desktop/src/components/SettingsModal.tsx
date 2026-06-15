@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
 import { api } from "../lib/api";
 import { PERFORMANCE_PROFILES } from "../lib/performanceProfiles";
-import { listRecordingDevices, type RecordingDevice } from "../lib/recorder";
+import { errorMessage, listRecordingDevices, type RecordingDevice } from "../lib/recorder";
 import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../lib/tauri";
 import { ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
@@ -63,7 +63,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     try {
       setRecordingDevices(await listRecordingDevices(true));
     } catch (e) {
-      setStatus({ ok: false, msg: `Mikrofone konnten nicht geladen werden: ${(e as Error).message}` });
+      setStatus({ ok: false, msg: `Mikrofone konnten nicht geladen werden: ${errorMessage(e)}` });
     }
   }
 

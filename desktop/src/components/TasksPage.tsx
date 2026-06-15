@@ -73,8 +73,8 @@ export function TasksPage({
 
   return (
     <div className="tasks-page">
-      <header className="start-hero">
-        <div>
+      <header className="start-header">
+        <div className="start-header-text">
           <span className="page-kicker">Aufgaben</span>
           <h2>Action-Items & Entscheidungen</h2>
           <p>
@@ -84,11 +84,11 @@ export function TasksPage({
           </p>
         </div>
         <div className="start-stats">
-          <div>
+          <div className="stat">
             <strong>{openCount}</strong>
             <span>Offen</span>
           </div>
-          <div>
+          <div className="stat">
             <strong>{visibleItems.length}</strong>
             <span>Angezeigt</span>
           </div>

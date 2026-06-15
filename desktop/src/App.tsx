@@ -13,13 +13,14 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
+import { FolderIcon, GripIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
 import { TasksPage } from "./components/TasksPage";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
   useDeleteTopic,
   useHardware,
   useRecordings,
+  useReorderTopics,
   useTopics,
   useUpdateTopic,
 } from "./hooks/queries";
@@ -77,11 +78,19 @@ function Splash({ error }: { error?: string }) {
 function TopicRow({
   topic,
   active,
+  dragging,
   onSelect,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
 }: {
   topic: Topic;
   active: boolean;
+  dragging: boolean;
   onSelect: () => void;
+  onDragStart: () => void;
+  onDragEnter: () => void;
+  onDragEnd: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const update = useUpdateTopic();
@@ -129,10 +138,24 @@ function TopicRow({
 
   return (
     <div
-      className={`topic-item ${active ? "active" : ""}`}
+      className={`topic-item topic-row ${active ? "active" : ""} ${dragging ? "dragging" : ""}`}
+      draggable
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
-      title="Doppelklick zum Umbenennen"
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        // Firefox requires data to be set for a drag to start.
+        e.dataTransfer.setData("text/plain", String(topic.id));
+        onDragStart();
+      }}
+      onDragEnter={onDragEnter}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDragEnd();
+      }}
+      onDragEnd={onDragEnd}
+      title="Doppelklick zum Umbenennen · Ziehen zum Sortieren"
     >
       <span className="topic-dot" style={{ background: topic.color }} />
       <span className="topic-name">{topic.name}</span>
@@ -145,6 +168,9 @@ function TopicRow({
           ))}
         </span>
       )}
+      <span className="topic-grip" aria-hidden="true" title="Ziehen zum Sortieren">
+        <GripIcon width={14} height={14} />
+      </span>
       <button
         className="topic-del"
         title={
@@ -228,6 +254,66 @@ export default function App() {
   }, []);
 
   const { data: topics } = useTopics();
+  const reorderTopics = useReorderTopics();
+  // Local copy of the topic list that drives the sidebar order. It preserves the
+  // user-defined arrangement during a drag and reconciles additions/removals and
+  // field updates from the query, so live reordering never flickers.
+  const [orderedTopics, setOrderedTopics] = useState<Topic[]>([]);
+  const [dragTopicId, setDragTopicId] = useState<number | null>(null);
+  const dragTopicIdRef = useRef<number | null>(null);
+  const orderRef = useRef<Topic[]>([]);
+
+  useEffect(() => {
+    orderRef.current = orderedTopics;
+  }, [orderedTopics]);
+
+  useEffect(() => {
+    if (dragTopicId != null) return; // don't disturb an in-progress drag
+    setOrderedTopics((prev) => {
+      const list = topics ?? [];
+      const byId = new Map(list.map((t) => [t.id, t]));
+      const kept = prev
+        .map((t) => byId.get(t.id))
+        .filter((t): t is Topic => t != null);
+      const keptIds = new Set(kept.map((t) => t.id));
+      const merged = [...kept, ...list.filter((t) => !keptIds.has(t.id))];
+      const unchanged =
+        merged.length === prev.length && merged.every((t, i) => t === prev[i]);
+      return unchanged ? prev : merged;
+    });
+  }, [topics, dragTopicId]);
+
+  const handleTopicDragStart = useCallback((id: number) => {
+    dragTopicIdRef.current = id;
+    setDragTopicId(id);
+  }, []);
+
+  const handleTopicDragEnter = useCallback((targetId: number) => {
+    const fromId = dragTopicIdRef.current;
+    if (fromId == null || fromId === targetId) return;
+    setOrderedTopics((prev) => {
+      const from = prev.findIndex((t) => t.id === fromId);
+      const to = prev.findIndex((t) => t.id === targetId);
+      if (from === -1 || to === -1 || from === to) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const handleTopicDragEnd = useCallback(() => {
+    const fromId = dragTopicIdRef.current;
+    dragTopicIdRef.current = null;
+    setDragTopicId(null);
+    if (fromId == null) return;
+    const newOrder = orderRef.current.map((t) => t.id);
+    const oldOrder = (topics ?? []).map((t) => t.id);
+    if (newOrder.length === oldOrder.length && newOrder.join(",") !== oldOrder.join(",")) {
+      reorderTopics.mutate(newOrder);
+    }
+  }, [reorderTopics, topics]);
+
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
   const toast = useToast();
   const recording = useRecording();
@@ -524,17 +610,21 @@ export default function App() {
           </button>
         </div>
 
-        {topics?.map((t) => (
+        {orderedTopics.map((t) => (
           <TopicRow
             key={t.id}
             topic={t}
             active={t.id === activeTopic && !showHome}
+            dragging={dragTopicId === t.id}
             onSelect={() => {
               setActiveTopic(t.id);
               setOpenRecording(null);
               setShowHome(false);
               setShowTasks(false);
             }}
+            onDragStart={() => handleTopicDragStart(t.id)}
+            onDragEnter={() => handleTopicDragEnter(t.id)}
+            onDragEnd={handleTopicDragEnd}
           />
         ))}
 

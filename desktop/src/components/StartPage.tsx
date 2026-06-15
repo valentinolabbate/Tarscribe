@@ -36,38 +36,35 @@ function DigestPanel() {
   }
 
   return (
-    <section className="digest-panel" aria-label="Wochen-Digest">
-      <div className="digest-head">
+    <section className="start-card digest-panel" aria-label="Wochen-Digest">
+      <div className="start-card-head">
         <div>
           <span className="page-kicker">Deine Woche</span>
           <h3>Wochen-Digest</h3>
-          <p>
-            Fasst Themen, Entscheidungen, offene Aufgaben und Sprechanteile aus fertigen
-            Aufnahmen zusammen.
-          </p>
+          <p>Themen, Entscheidungen und offene Aufgaben deiner Woche.</p>
         </div>
-        <div className="digest-actions">
-          {latest && (
-            <button
-              className="btn ghost"
-              onClick={() => navigator.clipboard.writeText(latest.content_markdown)}
-            >
-              Kopieren
-            </button>
-          )}
-          {latest && (
-            <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
-              {sendDigest.isPending ? "Exportiere..." : "Exportieren"}
-            </button>
-          )}
+      </div>
+      <div className="start-card-actions">
+        {latest && (
           <button
-            className="btn primary"
-            disabled={createDigest.isPending}
-            onClick={() => createDigest.mutate(7)}
+            className="btn ghost"
+            onClick={() => navigator.clipboard.writeText(latest.content_markdown)}
           >
-            {createDigest.isPending ? "Erstelle..." : latest ? "Neu erstellen" : "Digest erstellen"}
+            Kopieren
           </button>
-        </div>
+        )}
+        {latest && (
+          <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
+            {sendDigest.isPending ? "Exportiere..." : "Exportieren"}
+          </button>
+        )}
+        <button
+          className="btn primary"
+          disabled={createDigest.isPending}
+          onClick={() => createDigest.mutate(7)}
+        >
+          {createDigest.isPending ? "Erstelle..." : latest ? "Neu erstellen" : "Digest erstellen"}
+        </button>
       </div>
 
       {isLoading && <div className="digest-empty">Digests werden geladen...</div>}
@@ -124,21 +121,21 @@ function ThreadsPanel({
   }
 
   return (
-    <section className="threads-panel" aria-label="Themen-Threads">
-      <div className="threads-head">
+    <section className="start-card threads-panel" aria-label="Themen-Threads">
+      <div className="start-card-head">
         <div>
           <span className="page-kicker">Projektgedächtnis</span>
           <h3>Themen-Threads</h3>
-          <p>Verbindet ähnliche Kapitel über mehrere Aufnahmen hinweg als Zeitstrahl.</p>
+          <p>Verbundene Kapitel über mehrere Aufnahmen hinweg.</p>
         </div>
         <button className="btn ghost" onClick={rebuildThreads} disabled={rebuild.isPending}>
-          {rebuild.isPending ? "Aktualisiere..." : "Threads aktualisieren"}
+          {rebuild.isPending ? "Aktualisiere..." : "Aktualisieren"}
         </button>
       </div>
       {isLoading && <div className="digest-empty">Threads werden geladen...</div>}
       {!isLoading && visible.length === 0 && (
         <div className="digest-empty">
-          Noch keine Threads erkannt. Erzeuge zuerst Kapitel in mehreren Aufnahmen und aktualisiere dann die Threads.
+          Noch keine Threads erkannt. Erzeuge Kapitel in mehreren Aufnahmen und aktualisiere dann.
         </div>
       )}
       {visible.length > 0 && (
@@ -195,33 +192,38 @@ export function StartPage({
 
   return (
     <div className="start-page">
-      <header className="start-hero">
-        <div>
+      <header className="start-header">
+        <div className="start-header-text">
           <span className="page-kicker">Start</span>
-          <h2>Finde jede Stelle in deinen Aufnahmen</h2>
-          <p>Semantische Suche funktioniert lokal über Transkripte und Zusammenfassungen. Wenn ein Chat-Modell konfiguriert ist, kannst du direkt Fragen stellen.</p>
+          <h2>Willkommen zurück</h2>
+          <p>Durchsuche deine Aufnahmen, stelle Fragen oder halte einen Gedanken fest — alles bleibt lokal.</p>
         </div>
         <div className="start-stats">
-          <div>
+          <div className="stat">
             <strong>{recordingCount}</strong>
             <span>Aufnahmen</span>
           </div>
-          <div>
+          <div className="stat">
             <strong>{transcribedCount}</strong>
             <span>Transkribiert</span>
           </div>
-          <div>
+          <div className="stat">
             <strong>{diarizedCount}</strong>
             <span>Sprecher</span>
           </div>
         </div>
       </header>
-      <DigestPanel />
-      <ThreadsPanel onOpenSource={onOpenSource} />
-      <DictationPanel dictation={dictation} shortcutLabel={dictationShortcutLabel} />
-      <section className="start-search">
-        <ChatPanel topics={topics} onOpenSource={onOpenSource} />
-      </section>
+
+      <div className="start-body">
+        <section className="start-primary" aria-label="Suche und Wissens-Chat">
+          <ChatPanel topics={topics} onOpenSource={onOpenSource} />
+        </section>
+        <aside className="start-aside">
+          <DictationPanel dictation={dictation} shortcutLabel={dictationShortcutLabel} />
+          <DigestPanel />
+          <ThreadsPanel onOpenSource={onOpenSource} />
+        </aside>
+      </div>
     </div>
   );
 }

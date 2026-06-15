@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import DiarizationRun, Recording, Topic, Transcript
-from ..schemas import TopicCreate, TopicOverview, TopicUpdate
+from ..schemas import TopicCreate, TopicOverview, TopicReorder, TopicUpdate
 from ..security import require_token
 
 router = APIRouter(prefix="/api/topics", tags=["topics"], dependencies=[Depends(require_token)])
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/api/topics", tags=["topics"], dependencies=[Depends(
 
 @router.get("")
 def list_topics(session: Session = Depends(get_session)) -> list[TopicOverview]:
-    topics = list(session.exec(select(Topic).order_by(Topic.created_at)).all())
+    topics = list(session.exec(select(Topic).order_by(Topic.position, Topic.created_at)).all())
     recordings = list(session.exec(select(Recording)).all())
     transcript_ids = set(session.exec(select(Transcript.recording_id).distinct()).all())
     diarized_ids = set(
@@ -39,6 +40,7 @@ def list_topics(session: Session = Depends(get_session)) -> list[TopicOverview]:
                 name=topic.name,
                 color=topic.color,
                 export_path=topic.export_path,
+                position=topic.position,
                 created_at=topic.created_at,
                 recording_count=len(rows),
                 transcribed_count=sum(1 for rec in rows if rec.id in transcript_ids),
@@ -51,11 +53,37 @@ def list_topics(session: Session = Depends(get_session)) -> list[TopicOverview]:
 
 @router.post("", status_code=201)
 def create_topic(payload: TopicCreate, session: Session = Depends(get_session)) -> Topic:
-    topic = Topic(name=payload.name.strip() or "Unbenannt", color=payload.color)
+    max_position = session.exec(select(func.max(Topic.position))).one()
+    topic = Topic(
+        name=payload.name.strip() or "Unbenannt",
+        color=payload.color,
+        position=0 if max_position is None else max_position + 1,
+    )
     session.add(topic)
     session.commit()
     session.refresh(topic)
     return topic
+
+
+@router.post("/reorder", status_code=204)
+def reorder_topics(payload: TopicReorder, session: Session = Depends(get_session)) -> None:
+    """Persist the sidebar arrangement. `order` lists topic ids top-to-bottom.
+
+    Ids missing from the payload keep their relative order after the listed ones,
+    so a partial list still produces a deterministic result.
+    """
+    topics = list(session.exec(select(Topic).order_by(Topic.position, Topic.created_at)).all())
+    rank = {topic_id: idx for idx, topic_id in enumerate(payload.order)}
+    fallback = len(payload.order)
+    ordered = sorted(
+        topics,
+        key=lambda topic: (rank.get(topic.id or 0, fallback), topic.position, topic.id or 0),
+    )
+    for position, topic in enumerate(ordered):
+        if topic.position != position:
+            topic.position = position
+            session.add(topic)
+    session.commit()
 
 
 @router.patch("/{topic_id}")

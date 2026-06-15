@@ -17,7 +17,7 @@ import {
   pollSystemAudioPcm,
   systemAudioSampleRate,
 } from "../lib/nativeSystemAudioRecorder";
-import { Recorder, recordingExtension } from "../lib/recorder";
+import { Recorder, errorMessage, recordingExtension } from "../lib/recorder";
 import { useLiveRecording, type LiveRecordingHandle } from "./useLiveRecording";
 import type { LiveEvent, Recording } from "../lib/types";
 
@@ -158,7 +158,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       } catch (e) {
         next?.dispose();
         reset();
-        toast(`Aufnahme nicht verfügbar: ${(e as Error).message}`, "error");
+        toast(`Aufnahme nicht verfügbar: ${errorMessage(e)}`, "error");
       }
     },
     [reset, state, toast, startSession, enqueueChunk],
@@ -218,7 +218,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       setLastFinishedRecording(recording);
       toast("Aufnahme gespeichert", "success");
     } catch (e) {
-      toast(`Aufnahme fehlgeschlagen: ${(e as Error).message}`, "error");
+      toast(`Aufnahme fehlgeschlagen: ${errorMessage(e)}`, "error");
       await liveHandle?.cancel();
     } finally {
       current.dispose();

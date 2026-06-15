@@ -80,6 +80,32 @@ def test_topic_crud(client):
     assert r.status_code == 204
 
 
+def test_topic_reorder_persists_arrangement(client):
+    ids = [
+        client.post("/api/topics", json={"name": name}).json()["id"]
+        for name in ("Alpha", "Beta", "Gamma")
+    ]
+    # New topics keep creation order in the sidebar.
+    listed = [t["id"] for t in client.get("/api/topics").json()]
+    assert listed == ids
+
+    # Move the last topic to the front.
+    new_order = [ids[2], ids[0], ids[1]]
+    r = client.post("/api/topics/reorder", json={"order": new_order})
+    assert r.status_code == 204
+
+    listed = client.get("/api/topics").json()
+    assert [t["id"] for t in listed] == new_order
+    assert [t["position"] for t in listed] == [0, 1, 2]
+
+    # A partial order lists named ids first; the rest keep their relative order.
+    r = client.post("/api/topics/reorder", json={"order": [ids[1]]})
+    assert r.status_code == 204
+    listed = [t["id"] for t in client.get("/api/topics").json()]
+    assert listed[0] == ids[1]
+    assert listed[1:] == [ids[2], ids[0]]
+
+
 def test_topic_overview_counts_artifacts_and_exports(client):
     from sqlmodel import Session
 

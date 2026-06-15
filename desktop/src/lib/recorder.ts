@@ -1,6 +1,39 @@
 // Microphone recording via the MediaRecorder API. The resulting blob is uploaded
 // to the backend, which normalizes any container/codec to 16 kHz mono wav.
 
+let micPermissionPrimed = false;
+
+/**
+ * Make sure the microphone permission is *granted* before we open the real
+ * capture stream.
+ *
+ * macOS quirk: when the system mic permission is still "not determined", the
+ * first `getUserMedia` call returns a stream whose audio track only goes live
+ * after the user answers the TCC prompt. Feeding that not-yet-live track into a
+ * MediaRecorder right away yields an empty recording that then fails on stop —
+ * which is exactly why a recording started before "Geräte aktualisieren"
+ * (which makes that first throwaway call) used to break. Priming the permission
+ * with a throwaway open/close moves it to a determined state, so the capture
+ * stream we use for the actual recording is live from the first sample.
+ */
+export async function ensureMicrophonePermission(): Promise<void> {
+  if (micPermissionPrimed) return;
+  try {
+    const status = await navigator.permissions
+      ?.query({ name: "microphone" as PermissionName })
+      .catch(() => null);
+    if (status?.state === "granted") {
+      micPermissionPrimed = true;
+      return;
+    }
+  } catch {
+    // Permissions API unavailable (older WebKit) — fall through to priming.
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  stream.getTracks().forEach((track) => track.stop());
+  micPermissionPrimed = true;
+}
+
 export class Recorder {
   readonly kind = "browser";
   private mr: MediaRecorder | null = null;
@@ -23,6 +56,8 @@ export class Recorder {
   }
 
   async start(deviceId?: string): Promise<boolean> {
+    // Grant the OS mic permission first so the capture stream is live (see above).
+    await ensureMicrophonePermission();
     let usedFallback = false;
     try {
       try {
@@ -65,7 +100,7 @@ export class Recorder {
       };
       mr.onerror = (e) => {
         this.cleanup();
-        reject(e.error);
+        reject(e.error ?? new Error("Die Aufnahme wurde unerwartet beendet."));
       };
       try {
         mr.stop();
@@ -85,6 +120,33 @@ function isMissingDeviceError(e: unknown): boolean {
   return e instanceof DOMException && (e.name === "NotFoundError" || e.name === "OverconstrainedError");
 }
 
+/**
+ * Turn anything that gets thrown — Error, DOMException, string, plain object —
+ * into a human-readable message. Never returns "undefined": `getUserMedia` and
+ * MediaRecorder often reject with values whose `.message` is empty, which used
+ * to surface to the user as literally "undefined".
+ */
+export function errorMessage(e: unknown): string {
+  if (e instanceof DOMException || e instanceof Error) {
+    const friendly: Record<string, string> = {
+      NotAllowedError:
+        "Kein Zugriff auf das Mikrofon. Bitte erlaube Tarscribe in den Systemeinstellungen den Mikrofonzugriff.",
+      SecurityError:
+        "Kein Zugriff auf das Mikrofon. Bitte erlaube Tarscribe in den Systemeinstellungen den Mikrofonzugriff.",
+      NotFoundError: "Kein Mikrofon gefunden.",
+      OverconstrainedError: "Das gewählte Mikrofon ist nicht verfügbar.",
+      NotReadableError: "Das Mikrofon wird bereits von einer anderen App verwendet.",
+    };
+    return friendly[e.name] ?? e.message ?? e.name ?? "Unbekannter Fehler";
+  }
+  if (typeof e === "string" && e) return e;
+  if (e && typeof e === "object" && "message" in e) {
+    const msg = (e as { message?: unknown }).message;
+    if (typeof msg === "string" && msg) return msg;
+  }
+  return "Unbekannter Fehler";
+}
+
 export interface RecordingDevice {
   deviceId: string;
   label: string;
@@ -93,7 +155,10 @@ export interface RecordingDevice {
 export async function listRecordingDevices(requestPermission = false): Promise<RecordingDevice[]> {
   let stream: MediaStream | null = null;
   try {
-    if (requestPermission) stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (requestPermission) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micPermissionPrimed = true; // refreshing already obtained the OS permission
+    }
     const devices = await navigator.mediaDevices.enumerateDevices();
     return devices
       .filter((device) => device.kind === "audioinput")

@@ -3,6 +3,7 @@ export interface Topic {
   name: string;
   color: string;
   export_path: string | null;
+  position: number;
   created_at: string;
   recording_count: number;
   transcribed_count: number;

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toast";
 import { api } from "../lib/api";
 import { fmtDuration } from "../lib/format";
-import { Recorder, recordingExtension } from "../lib/recorder";
+import { Recorder, errorMessage, recordingExtension } from "../lib/recorder";
 import { trackPendingJob } from "./useJobs";
 
 export type DictationState = "idle" | "starting" | "recording" | "saving";
@@ -105,7 +105,7 @@ export function useDictation(onOpenRecording: (recordingId: number) => void): Di
     } catch (e) {
       next.dispose();
       reset();
-      toast(`Diktat nicht verfügbar: ${(e as Error).message}`, "error");
+      toast(`Diktat nicht verfügbar: ${errorMessage(e)}`, "error");
     }
   }, [reset, state, toast]);
 
@@ -135,7 +135,7 @@ export function useDictation(onOpenRecording: (recordingId: number) => void): Di
       onOpenRecording(res.recording.id);
       void watchResult(res.recording.id, res.job_id);
     } catch (e) {
-      toast(`Diktat konnte nicht gespeichert werden: ${(e as Error).message}`, "error");
+      toast(`Diktat konnte nicht gespeichert werden: ${errorMessage(e)}`, "error");
     } finally {
       current.dispose();
       reset();

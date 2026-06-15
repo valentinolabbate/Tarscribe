@@ -16,7 +16,7 @@ import {
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
 import { fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
-import type { DiarizationData, Recording } from "../lib/types";
+import type { DiarizationData, Recording, WordSeg } from "../lib/types";
 import { useToast } from "./Toast";
 import { ChatIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
 import { ActionItemsPanel } from "./ActionItemsPanel";
@@ -34,6 +34,55 @@ const colorFor = (label: string, all: string[]) =>
   SPEAKER_COLORS[Math.max(0, all.indexOf(label)) % SPEAKER_COLORS.length];
 
 const ts = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+
+interface Sentence {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/**
+ * Group word-level timestamps into sentence-sized, seekable segments. Used for
+ * the transcript view when there is no diarization (e.g. a single speaker),
+ * where the backend would otherwise be shown as one giant text block.
+ *
+ * A segment ends at sentence-final punctuation; as fallbacks for ASR output
+ * without punctuation it also breaks on a noticeable pause and at a hard word
+ * cap, so the result is always readable and navigable.
+ */
+function groupWordsIntoSentences(words: WordSeg[]): Sentence[] {
+  const sentences: Sentence[] = [];
+  let current: WordSeg[] = [];
+  const flush = () => {
+    if (!current.length) return;
+    // Word texts carry their own leading spaces (backend joins them with ""),
+    // so concatenating reproduces the original spacing exactly.
+    const text = current.map((w) => w.text).join("").trim();
+    if (text) {
+      sentences.push({ start: current[0].start, end: current[current.length - 1].end, text });
+    }
+    current = [];
+  };
+  const ENDS_SENTENCE = /[.!?…]["'”’)\]]*$/;
+  const PAUSE_SEC = 0.8; // silence that likely marks a sentence boundary
+  const MAX_WORDS = 45; // hard cap so unpunctuated speech still breaks up
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    current.push(word);
+    const trimmed = word.text.trim();
+    const next = words[i + 1];
+    const gap = next ? next.start - word.end : Infinity;
+    if (
+      (trimmed && ENDS_SENTENCE.test(trimmed)) ||
+      (current.length >= 4 && gap >= PAUSE_SEC) ||
+      current.length >= MAX_WORDS
+    ) {
+      flush();
+    }
+  }
+  flush();
+  return sentences;
+}
 
 type DetailTab = "transcript" | "summary" | "ask" | "speakers";
 
@@ -200,8 +249,17 @@ export function RecordingDetail({
   const [playing, setPlaying] = useState(false);
   const activeRef = useRef<HTMLDivElement>(null);
 
+  // Without diarization, split the single-block transcript into seekable sentences.
+  const sentences = useMemo(
+    () => (transcript && !diar ? groupWordsIntoSentences(transcript.words) : []),
+    [transcript, diar],
+  );
+
   const activeStart =
-    diar?.utterances.find((u) => currentTime >= u.start && currentTime < u.end)?.start ?? -1;
+    (diar
+      ? diar.utterances.find((u) => currentTime >= u.start && currentTime < u.end)
+      : sentences.find((s) => currentTime >= s.start && currentTime < s.end)
+    )?.start ?? -1;
   useEffect(() => {
     if (activeTab === "transcript" && playing && activeRef.current) {
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -230,7 +288,7 @@ export function RecordingDetail({
   const transcriptMeta = diar
     ? `${diar.utterances.length} Abschnitte`
     : transcript
-      ? `${transcript.words.length} Wörter`
+      ? `${sentences.length} Abschnitte · ${transcript.words.length} Wörter`
       : "Noch nicht erstellt";
 
   const tabs = useMemo(
@@ -447,6 +505,32 @@ export function RecordingDetail({
                           </div>
                           <p className="utt-text" onClick={() => playerRef.current?.seek(u.start)}>
                             {u.text}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : sentences.length > 0 ? (
+                  <div className="transcript transcript-focused">
+                    {sentences.map((s, i) => {
+                      const active = currentTime >= s.start && currentTime < s.end;
+                      return (
+                        <div
+                          className={`utterance plain ${active ? "active" : ""}`}
+                          key={i}
+                          ref={active ? activeRef : undefined}
+                        >
+                          <div className="utt-head">
+                            <button
+                              className="utt-time"
+                              onClick={() => playerRef.current?.seek(s.start)}
+                              title="Abspielen ab hier"
+                            >
+                              ▶ {ts(s.start)}
+                            </button>
+                          </div>
+                          <p className="utt-text" onClick={() => playerRef.current?.seek(s.start)}>
+                            {s.text}
                           </p>
                         </div>
                       );

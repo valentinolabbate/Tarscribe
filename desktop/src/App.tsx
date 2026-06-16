@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { StartPage } from "./components/StartPage";
 import { FirstRunWizard } from "./components/FirstRunWizard";
@@ -13,7 +13,7 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { FolderIcon, GripIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
+import { ChevronDownIcon, ChevronUpIcon, FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
 import { TasksPage } from "./components/TasksPage";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
@@ -33,8 +33,6 @@ import type { Recording, Topic } from "./lib/types";
 
 const clampSidebarWidth = (width: number) =>
   Math.max(224, Math.min(320, window.innerWidth - 720, Number.isFinite(width) ? width : 264));
-
-type TopicDropPosition = "before" | "after";
 
 function shortcutLabel(accelerator: string): string {
   const symbols: Record<string, string> = {
@@ -80,23 +78,19 @@ function Splash({ error }: { error?: string }) {
 function TopicRow({
   topic,
   active,
-  dragging,
-  dropPosition,
+  canMoveUp,
+  canMoveDown,
   onSelect,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onMoveUp,
+  onMoveDown,
 }: {
   topic: Topic;
   active: boolean;
-  dragging: boolean;
-  dropPosition: TopicDropPosition | null;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   onSelect: () => void;
-  onDragStart: () => void;
-  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
-  onDragEnd: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const update = useUpdateTopic();
@@ -144,29 +138,10 @@ function TopicRow({
 
   return (
     <div
-      className={`topic-item topic-row ${active ? "active" : ""} ${dragging ? "dragging" : ""} ${dropPosition ? `drag-over-${dropPosition}` : ""}`}
-      draggable
-      aria-grabbed={dragging}
+      className={`topic-item topic-row ${active ? "active" : ""}`}
       onClick={onSelect}
       onDoubleClick={() => setEditing(true)}
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = "move";
-        // Firefox requires data to be set for a drag to start.
-        e.dataTransfer.setData("text/plain", String(topic.id));
-        onDragStart();
-      }}
-      onDragOver={(e) => {
-        e.preventDefault(); // required so a drop is allowed on this row
-        e.dataTransfer.dropEffect = "move";
-        onDragOver(e);
-      }}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        onDrop(e);
-      }}
-      onDragEnd={onDragEnd}
-      title="Doppelklick zum Umbenennen · Ziehen zum Sortieren"
+      title="Doppelklick zum Umbenennen"
     >
       <span className="topic-dot" style={{ background: topic.color }} />
       <span className="topic-name">{topic.name}</span>
@@ -179,8 +154,31 @@ function TopicRow({
           ))}
         </span>
       )}
-      <span className="topic-grip" aria-hidden="true" title="Ziehen zum Sortieren">
-        <GripIcon width={14} height={14} />
+      <span className="topic-reorder" aria-label="Sortieren">
+        <button
+          className="topic-move"
+          title="Nach oben"
+          aria-label="Nach oben verschieben"
+          disabled={!canMoveUp}
+          onClick={(e) => {
+            e.stopPropagation();
+            onMoveUp();
+          }}
+        >
+          <ChevronUpIcon width={13} height={13} />
+        </button>
+        <button
+          className="topic-move"
+          title="Nach unten"
+          aria-label="Nach unten verschieben"
+          disabled={!canMoveDown}
+          onClick={(e) => {
+            e.stopPropagation();
+            onMoveDown();
+          }}
+        >
+          <ChevronDownIcon width={13} height={13} />
+        </button>
       </span>
       <button
         className="topic-del"
@@ -266,121 +264,22 @@ export default function App() {
 
   const { data: topics } = useTopics();
   const reorderTopics = useReorderTopics();
-  // Local copy of the topic list that drives the sidebar order. It preserves the
-  // user-defined arrangement and reconciles additions/removals and field updates
-  // from the query, so the list never flickers after a reorder.
-  const [orderedTopics, setOrderedTopics] = useState<Topic[]>([]);
-  // The id being dragged and the row/edge we'd drop around — both for styling only.
-  const [dragTopicId, setDragTopicId] = useState<number | null>(null);
-  const [topicDropTarget, setTopicDropTarget] = useState<{
-    id: number;
-    position: TopicDropPosition;
-  } | null>(null);
-  const dragTopicIdRef = useRef<number | null>(null);
-  const orderRef = useRef<Topic[]>([]);
 
-  useEffect(() => {
-    orderRef.current = orderedTopics;
-  }, [orderedTopics]);
-
-  useEffect(() => {
-    if (dragTopicId != null) return; // don't disturb an in-progress drag
-    setOrderedTopics((prev) => {
+  // Reorder via per-row up/down buttons. We swap the topic with its neighbour and
+  // commit the new id order; useReorderTopics optimistically reorders the cached
+  // list, so the sidebar updates instantly without local copy bookkeeping.
+  const moveTopic = useCallback(
+    (id: number, direction: -1 | 1) => {
       const list = topics ?? [];
-      const byId = new Map(list.map((t) => [t.id, t]));
-      const kept = prev
-        .map((t) => byId.get(t.id))
-        .filter((t): t is Topic => t != null);
-      const keptIds = new Set(kept.map((t) => t.id));
-      const merged = [...kept, ...list.filter((t) => !keptIds.has(t.id))];
-      const unchanged =
-        merged.length === prev.length && merged.every((t, i) => t === prev[i]);
-      return unchanged ? prev : merged;
-    });
-  }, [topics, dragTopicId]);
-
-  const handleTopicDragStart = useCallback((id: number) => {
-    dragTopicIdRef.current = id;
-    setDragTopicId(id);
-  }, []);
-
-  // We deliberately do NOT reorder the list during the drag: moving the dragged
-  // DOM node mid-drag aborts the native drag session in WebKit (Tauri's webview),
-  // which made dropped topics snap back. Instead we track the hovered row edge
-  // for an insertion indicator and commit the new order on drop.
-  const handleTopicDragOver = useCallback((targetId: number, event: DragEvent<HTMLDivElement>) => {
-    if (dragTopicIdRef.current == null || dragTopicIdRef.current === targetId) {
-      setTopicDropTarget(null);
-      return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-    setTopicDropTarget((current) =>
-      current?.id === targetId && current.position === position ? current : { id: targetId, position },
-    );
-  }, []);
-
-  const clearTopicDrag = useCallback(() => {
-    dragTopicIdRef.current = null;
-    setDragTopicId(null);
-    setTopicDropTarget(null);
-  }, []);
-
-  const handleTopicDrop = useCallback(
-    (targetId: number, position: TopicDropPosition) => {
-      const fromId = dragTopicIdRef.current;
-      clearTopicDrag();
-      if (fromId == null || fromId === targetId) return;
-      const prev = orderRef.current;
-      const from = prev.findIndex((t) => t.id === fromId);
+      const from = list.findIndex((t) => t.id === id);
       if (from === -1) return;
-      const next = prev.slice();
-      const [moved] = next.splice(from, 1);
-      let insertAt = next.findIndex((t) => t.id === targetId);
-      if (insertAt === -1) return;
-      if (position === "after") insertAt += 1;
-      next.splice(insertAt, 0, moved);
-      const newOrder = next.map((t) => t.id);
-      const oldOrder = prev.map((t) => t.id);
-      if (newOrder.join(",") === oldOrder.join(",")) return;
-      setOrderedTopics(next);
-      reorderTopics.mutate(newOrder);
+      const to = from + direction;
+      if (to < 0 || to >= list.length) return;
+      const next = list.slice();
+      [next[from], next[to]] = [next[to], next[from]];
+      reorderTopics.mutate(next.map((t) => t.id));
     },
-    [clearTopicDrag, reorderTopics],
-  );
-
-  const handleTopicListDragOver = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      if (dragTopicIdRef.current == null || orderedTopics.length === 0) return;
-      if ((event.target as HTMLElement).closest(".topic-row")) return;
-      const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(".topic-row"));
-      const lastRow = rows[rows.length - 1];
-      if (!lastRow || event.clientY < lastRow.getBoundingClientRect().bottom) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "move";
-      const last = orderedTopics[orderedTopics.length - 1];
-      if (last.id !== dragTopicIdRef.current) {
-        setTopicDropTarget((current) =>
-          current?.id === last.id && current.position === "after"
-            ? current
-            : { id: last.id, position: "after" },
-        );
-      }
-    },
-    [orderedTopics],
-  );
-
-  const handleTopicListDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      if ((event.target as HTMLElement).closest(".topic-row")) return;
-      const rows = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(".topic-row"));
-      const lastRow = rows[rows.length - 1];
-      if (!lastRow || event.clientY < lastRow.getBoundingClientRect().bottom) return;
-      event.preventDefault();
-      const last = orderedTopics[orderedTopics.length - 1];
-      if (last) handleTopicDrop(last.id, "after");
-    },
-    [handleTopicDrop, orderedTopics],
+    [topics, reorderTopics],
   );
 
   const { data: liveRecordings } = useRecordings(activeTopic ?? undefined);
@@ -679,34 +578,22 @@ export default function App() {
           </button>
         </div>
 
-        <div
-          className={`topic-list ${dragTopicId != null ? "drag-active" : ""}`}
-          onDragOver={handleTopicListDragOver}
-          onDrop={handleTopicListDrop}
-        >
-          {orderedTopics.map((t) => (
+        <div className="topic-list">
+          {(topics ?? []).map((t, i) => (
             <TopicRow
               key={t.id}
               topic={t}
               active={t.id === activeTopic && !showHome}
-              dragging={dragTopicId === t.id}
-              dropPosition={
-                topicDropTarget?.id === t.id && dragTopicId !== t.id ? topicDropTarget.position : null
-              }
+              canMoveUp={i > 0}
+              canMoveDown={i < (topics?.length ?? 0) - 1}
               onSelect={() => {
                 setActiveTopic(t.id);
                 setOpenRecording(null);
                 setShowHome(false);
                 setShowTasks(false);
               }}
-              onDragStart={() => handleTopicDragStart(t.id)}
-              onDragOver={(event) => handleTopicDragOver(t.id, event)}
-              onDrop={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                handleTopicDrop(t.id, position);
-              }}
-              onDragEnd={clearTopicDrag}
+              onMoveUp={() => moveTopic(t.id, -1)}
+              onMoveDown={() => moveTopic(t.id, 1)}
             />
           ))}
         </div>

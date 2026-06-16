@@ -226,17 +226,35 @@ button {
 .topic-del:hover {
   color: var(--danger);
 }
-.topic-grip {
-  opacity: 0.28;
+.topic-reorder {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
   flex: none;
-  display: grid;
-  place-items: center;
-  color: var(--text-faint);
-  cursor: grab;
+  opacity: 0;
   transition: opacity 0.12s;
 }
-.topic-row:hover .topic-grip {
-  opacity: 0.75;
+.topic-row:hover .topic-reorder {
+  opacity: 1;
+}
+.topic-move {
+  background: transparent;
+  border: none;
+  color: var(--text-faint);
+  padding: 2px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, opacity 0.12s;
+}
+.topic-move:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+}
+.topic-move:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 .topic-list {
   display: flex;
@@ -244,38 +262,6 @@ button {
   gap: 2px;
   min-height: 12px;
   padding-bottom: 8px;
-}
-.topic-list.drag-active {
-  padding-bottom: 18px;
-}
-.topic-row {
-  position: relative;
-}
-.topic-row.dragging {
-  opacity: 0.4;
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated));
-}
-.topic-row.dragging .topic-grip {
-  opacity: 1;
-  cursor: grabbing;
-}
-/* Insertion line shown around the row a dropped topic would land next to. */
-.topic-row.drag-over-before::before,
-.topic-row.drag-over-after::after {
-  content: "";
-  position: absolute;
-  left: 6px;
-  right: 6px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
-}
-.topic-row.drag-over-before::before {
-  top: -3px;
-}
-.topic-row.drag-over-after::after {
-  bottom: -3px;
 }
 .topic-edit {
   width: 100%;

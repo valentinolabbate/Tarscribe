@@ -48,24 +48,37 @@ class DiarizationBackend:
         self.device = device
         self._pipeline = None
 
+    def _load_pipeline(self, cache_dir):
+        """Construct the pyannote pipeline (handles the token kwarg rename)."""
+        from pyannote.audio import Pipeline
+
+        try:
+            return Pipeline.from_pretrained(
+                self.model_id, token=self.hf_token, cache_dir=cache_dir
+            )
+        except TypeError:
+            # Older pyannote.audio used use_auth_token.
+            return Pipeline.from_pretrained(
+                self.model_id, use_auth_token=self.hf_token, cache_dir=cache_dir
+            )
+
     def _ensure_pipeline(self):
         if self._pipeline is None:
             import torch
-            from pyannote.audio import Pipeline
+
+            from .lifecycle import hf_offline
 
             # Without an explicit cache_dir, pyannote's speechbrain wrapper
             # builds savedir as f"{None}/speechbrain" and litters a "None"
             # directory into the current working directory.
             cache_dir = get_settings().models_dir / "pyannote"
             try:
-                pipeline = Pipeline.from_pretrained(
-                    self.model_id, token=self.hf_token, cache_dir=cache_dir
-                )
-            except TypeError:
-                # Older pyannote.audio used use_auth_token.
-                pipeline = Pipeline.from_pretrained(
-                    self.model_id, use_auth_token=self.hf_token, cache_dir=cache_dir
-                )
+                # Offline first: skip HF's per-file update check (can hang for
+                # over a minute when HF is slow) for the already-downloaded model.
+                with hf_offline():
+                    pipeline = self._load_pipeline(cache_dir)
+            except Exception:  # noqa: BLE001 - not cached yet (first run) → download
+                pipeline = self._load_pipeline(cache_dir)
             if pipeline is None:
                 raise RuntimeError(
                     "pyannote-Pipeline konnte nicht geladen werden — Token ungültig oder "

@@ -159,6 +159,41 @@ def test_faster_whisper_retries_without_vad_when_first_pass_empty():
     assert stub.calls == [True, False]  # retried once without the VAD filter
 
 
+# ── hf_offline context manager (forces cache-only model loads) ───────────────
+
+def _install_fake_hf(monkeypatch, initial=False):
+    import sys
+
+    constants = types.ModuleType("huggingface_hub.constants")
+    constants.HF_HUB_OFFLINE = initial
+    parent = types.ModuleType("huggingface_hub")
+    parent.constants = constants
+    monkeypatch.setitem(sys.modules, "huggingface_hub", parent)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+    return constants
+
+
+def test_hf_offline_flips_and_restores_constant(monkeypatch):
+    constants = _install_fake_hf(monkeypatch, initial=False)
+    from tarscribe_backend.ml.lifecycle import hf_offline
+
+    assert constants.HF_HUB_OFFLINE is False
+    with hf_offline():
+        assert constants.HF_HUB_OFFLINE is True
+    assert constants.HF_HUB_OFFLINE is False
+
+
+def test_hf_offline_restores_on_exception(monkeypatch):
+    constants = _install_fake_hf(monkeypatch, initial=False)
+    from tarscribe_backend.ml.lifecycle import hf_offline
+
+    with pytest.raises(RuntimeError):
+        with hf_offline():
+            assert constants.HF_HUB_OFFLINE is True
+            raise RuntimeError("load failed")
+    assert constants.HF_HUB_OFFLINE is False  # restored despite the error
+
+
 # ── duration probing falls back to soundfile ─────────────────────────────────
 
 def test_probe_duration_reads_wav_header_via_soundfile(tmp_path):

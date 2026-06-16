@@ -26,8 +26,6 @@ def _get_model():
     """
     global _model
     if _model is None:
-        from speechbrain.inference.speaker import EncoderClassifier
-
         from ..config import get_settings
         from ..hardware import detect_hardware
 
@@ -35,13 +33,29 @@ def _get_model():
         device = detect_hardware().recommended_device
         for dev in (device, "cpu"):
             try:
-                _model = EncoderClassifier.from_hparams(
-                    source=EMBEDDING_MODEL, savedir=savedir, run_opts={"device": dev}
-                )
+                _model = _load_encoder(savedir, dev)
                 break
             except Exception:
                 continue
     return _model
+
+
+def _load_encoder(savedir: str, device: str):
+    """Load the ECAPA encoder, offline-first (skips HF's slow per-file etag check
+    for the already-downloaded model), falling back to an online download."""
+    from speechbrain.inference.speaker import EncoderClassifier
+
+    from .lifecycle import hf_offline
+
+    try:
+        with hf_offline():
+            return EncoderClassifier.from_hparams(
+                source=EMBEDDING_MODEL, savedir=savedir, run_opts={"device": device}
+            )
+    except Exception:  # noqa: BLE001 - not cached yet (first run) → download online
+        return EncoderClassifier.from_hparams(
+            source=EMBEDDING_MODEL, savedir=savedir, run_opts={"device": device}
+        )
 
 
 def unload_model() -> None:

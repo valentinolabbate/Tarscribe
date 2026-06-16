@@ -56,6 +56,11 @@ class Settings(BaseSettings):
         return self.data_dir / "voice_samples"
 
     @property
+    def documents_dir(self) -> Path:
+        """Where uploaded reference documents (PDF/DOCX/TXT/MD) are stored."""
+        return self.data_dir / "documents"
+
+    @property
     def logs_dir(self) -> Path:
         return self.data_dir / "logs"
 
@@ -75,6 +80,7 @@ class Settings(BaseSettings):
             self.audio_dir,
             self.models_dir,
             self.samples_dir,
+            self.documents_dir,
             self.logs_dir,
             self.live_pcm_dir,
             self.native_recordings_dir,

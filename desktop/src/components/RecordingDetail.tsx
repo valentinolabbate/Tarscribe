@@ -22,6 +22,7 @@ import { ChatIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
 import { ActionItemsPanel } from "./ActionItemsPanel";
 import { ChaptersBar } from "./ChaptersBar";
 import { ChatPanel } from "./ChatPanel";
+import { DocumentsPanel } from "./DocumentsPanel";
 import { SpeakerStatsPanel } from "./SpeakerStatsPanel";
 import { SummaryPanel } from "./SummaryPanel";
 import { TuningPanel } from "./TuningPanel";
@@ -567,10 +568,13 @@ export function RecordingDetail({
                   </div>
                   <ChatIcon width={20} height={20} />
                 </div>
+                <DocumentsPanel topicId={recording.topic_id} recordingId={recording.id} />
                 <ChatPanel
                   embedded
                   scopeRecording={{ id: recording.id, title: recording.title }}
-                  onOpenSource={(_rec, start) => playerRef.current?.seek(start ?? 0)}
+                  onOpenSource={(rec, start) => {
+                    if (rec === recording.id) playerRef.current?.seek(start ?? 0);
+                  }}
                 />
               </section>
             )}

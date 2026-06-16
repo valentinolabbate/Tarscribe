@@ -77,10 +77,16 @@ function ChatMarkdown({ text, onCite }: { text: string; onCite: (n: number) => v
   );
 }
 
+function sourceTypeLabel(t: RagSource["source_type"]): string {
+  if (t === "summary") return "Zusammenfassung";
+  if (t === "document") return "Dokument";
+  return "Transkript";
+}
+
 function sourceMeta(s: RagSource | RagHit, withTitle: boolean): string {
   const parts: string[] = [];
   if (withTitle) parts.push(s.recording_title);
-  parts.push(s.source_type === "summary" ? "Zusammenfassung" : "Transkript");
+  parts.push(sourceTypeLabel(s.source_type));
   if (s.speaker) parts.push(s.speaker);
   if (s.start_sec != null)
     parts.push(`${fmtDuration(s.start_sec)}${s.end_sec != null ? `–${fmtDuration(s.end_sec)}` : ""}`);
@@ -216,14 +222,29 @@ export function ChatPanel({
 
   const ragOff = status && !status.vec_available;
 
-  function SourceAction({ rec, start }: { rec: number; start?: number | null }) {
+  function SourceAction({ s }: { s: RagSource | RagHit }) {
+    if (s.source_type === "document" && s.document_id != null) {
+      const docId = s.document_id;
+      return (
+        <button
+          className="btn ghost"
+          style={{ padding: "2px 8px", fontSize: 11.5 }}
+          onClick={() => void api.openDocument(docId).catch(() => {})}
+        >
+          Dokument öffnen
+        </button>
+      );
+    }
+    if (s.recording_id == null) return null;
+    const rec = s.recording_id;
+    const start = s.start_sec;
     return (
       <button
         className="btn ghost"
         style={{ padding: "2px 8px", fontSize: 11.5 }}
         onClick={() => onOpenSource(rec, start)}
       >
-        {scoped ? (start != null ? `▶ ${fmtDuration(start)}` : "▶ Abspielen") : "Im Dokument öffnen"}
+        {scoped ? (start != null ? `▶ ${fmtDuration(start)}` : "▶ Abspielen") : "Aufnahme öffnen"}
       </button>
     );
   }
@@ -399,7 +420,7 @@ export function ChatPanel({
                   </span>
                   <span>{sourceMeta(h, !scoped)}</span>
                   <div style={{ flex: 1 }} />
-                  <SourceAction rec={h.recording_id} start={h.start_sec} />
+                  <SourceAction s={h} />
                 </div>
                 <div style={{ whiteSpace: "pre-wrap", color: "var(--text)", lineHeight: 1.5, fontSize: 13 }}>
                   {h.text}
@@ -509,7 +530,7 @@ export function ChatPanel({
                           [{s.index}] {sourceMeta(s, !scoped)}
                         </span>
                         <div style={{ flex: 1 }} />
-                        <SourceAction rec={s.recording_id} start={s.start_sec} />
+                        <SourceAction s={s} />
                       </div>
                       <div style={{ whiteSpace: "pre-wrap", color: "var(--text)", lineHeight: 1.5 }}>
                         {s.text}

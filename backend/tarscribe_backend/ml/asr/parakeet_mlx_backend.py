@@ -53,15 +53,21 @@ class ParakeetMlxBackend:
                 progress(min(0.98, 0.05 + 0.93 * (done / total)), "Transkribiere…")
 
         kwargs: dict = {}
-        if duration > self.chunk_seconds:
+        # Chunk long files to bound memory. When the duration is unknown (probe
+        # failed), chunk anyway — better a little overlap work than risk loading
+        # an arbitrarily long file whole.
+        if duration <= 0 or duration > self.chunk_seconds:
             kwargs = {
                 "chunk_duration": self.chunk_seconds,
                 "overlap_duration": self.overlap_seconds,
             }
         try:
             result = model.transcribe(str(audio_path), chunk_callback=_cb, **kwargs)
-        except TypeError:
-            # Older/newer signature without chunk_callback.
+        except TypeError as exc:
+            # Only fall back for the optional-callback signature mismatch; a real
+            # TypeError from inside transcribe must not be silently retried.
+            if "chunk_callback" not in str(exc):
+                raise
             result = model.transcribe(str(audio_path), **kwargs)
 
         words = _extract_words(result)
@@ -69,26 +75,26 @@ class ParakeetMlxBackend:
 
 
 def _extract_words(result) -> list[WordSeg]:
-    """Flatten parakeet-mlx AlignedResult sentences/tokens into word segments."""
+    """Flatten parakeet-mlx AlignedResult sentences/tokens into word segments.
+
+    Timestamps are coerced to monotonic floats (tokens occasionally carry
+    ``None``) so the downstream NOT NULL Word rows always insert, and empty
+    tokens are dropped.
+    """
     words: list[WordSeg] = []
+    last_end = 0.0
     sentences = getattr(result, "sentences", None) or []
     for sentence in sentences:
         tokens = getattr(sentence, "tokens", None)
-        if tokens:
-            for tok in tokens:
-                words.append(
-                    WordSeg(
-                        start=float(getattr(tok, "start", 0.0)),
-                        end=float(getattr(tok, "end", 0.0)),
-                        text=getattr(tok, "text", ""),
-                    )
-                )
-        else:
-            words.append(
-                WordSeg(
-                    start=float(getattr(sentence, "start", 0.0)),
-                    end=float(getattr(sentence, "end", 0.0)),
-                    text=getattr(sentence, "text", ""),
-                )
-            )
+        items = tokens if tokens else [sentence]
+        for item in items:
+            text = getattr(item, "text", "") or ""
+            if text == "":
+                continue  # keep whitespace tokens (they carry spacing)
+            raw_start = getattr(item, "start", None)
+            raw_end = getattr(item, "end", None)
+            start = float(raw_start) if raw_start is not None else last_end
+            end = float(raw_end) if raw_end is not None else start
+            words.append(WordSeg(start=start, end=end, text=text))
+            last_end = end
     return words

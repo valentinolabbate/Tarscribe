@@ -4,6 +4,7 @@ import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
+import { DocumentsPanel } from "./DocumentsPanel";
 import { RecordControl } from "./RecordControl";
 import { SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
 
@@ -206,6 +207,8 @@ export function RecordingList({
           <div className="drop-footnote">Du kannst Dateien auch einfach hierher ziehen.</div>
         </div>
       )}
+
+      <DocumentsPanel topicId={topic.id} />
     </div>
   );
 }

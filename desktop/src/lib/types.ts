@@ -11,6 +11,22 @@ export interface Topic {
   exported_count: number;
 }
 
+export type DocumentStatus = "uploaded" | "indexing" | "ready" | "failed";
+
+export interface TopicDocument {
+  id: number;
+  topic_id: number;
+  /** Null for topic-level documents; set when attached to one recording. */
+  recording_id: number | null;
+  title: string;
+  original_filename: string | null;
+  content_type: string | null;
+  text_chars: number;
+  status: DocumentStatus;
+  error: string | null;
+  created_at: string;
+}
+
 export type RecordingStatus =
   | "uploaded"
   | "queued"
@@ -317,11 +333,16 @@ export interface RagStatus {
   dimension?: number;
 }
 
+export type RagSourceType = "transcript" | "summary" | "document";
+
 export interface RagSource {
   index: number;
-  recording_id: number;
+  /** Null for topic-level document sources (no parent recording). */
+  recording_id: number | null;
   recording_title: string;
-  source_type: "transcript" | "summary";
+  /** Set when the source is an uploaded document. */
+  document_id?: number | null;
+  source_type: RagSourceType;
   start_sec?: number | null;
   end_sec?: number | null;
   speaker?: string | null;
@@ -336,10 +357,11 @@ export interface ChatMessage {
 
 export interface RagHit {
   chunk_id: number;
-  recording_id: number;
+  recording_id: number | null;
   recording_title: string;
   topic_id: number;
-  source_type: "transcript" | "summary";
+  document_id?: number | null;
+  source_type: RagSourceType;
   text: string;
   start_sec?: number | null;
   end_sec?: number | null;

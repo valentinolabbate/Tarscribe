@@ -96,6 +96,15 @@ export const SearchIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+/** Document / file icon with a folded corner. */
+export const DocIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M6 2h7l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
+    <path d="M13 2v5h5" />
+    <path d="M8 13h8M8 17h6" />
+  </svg>
+);
+
 /** Speaker identification / voiceprint icon (profile silhouette + voiceprint bars). */
 export const SpeakerIdIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>

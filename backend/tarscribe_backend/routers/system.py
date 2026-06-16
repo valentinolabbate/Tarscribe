@@ -48,9 +48,13 @@ def complete_setup() -> dict:
 def warmup() -> dict:
     """Load the ASR backend so its model downloads now (first-run prep)."""
     from ..ml.asr.factory import get_backend
+    from ..ml.lifecycle import asr_lock
 
-    backend = get_backend()
-    # Touch the model loader (downloads on first call) without transcribing.
-    if hasattr(backend, "_ensure_model"):
-        backend._ensure_model()
+    # Serialize with real transcription jobs so first-run warmup can't load the
+    # model a second time while a job is loading/using it.
+    with asr_lock:
+        backend = get_backend()
+        # Touch the model loader (downloads on first call) without transcribing.
+        if hasattr(backend, "_ensure_model"):
+            backend._ensure_model()
     return {"ok": True, "engine": getattr(backend, "name", "unknown")}

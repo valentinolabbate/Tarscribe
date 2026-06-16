@@ -23,6 +23,7 @@ import type {
   SummaryTemplate,
   TranscriptData,
   Topic,
+  TopicDocument,
   TopicThread,
 } from "./types";
 
@@ -181,6 +182,45 @@ export const api = {
     }),
   deleteRecording: (id: number) =>
     request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
+
+  // ── Reference documents (RAG-indexed) ──────────────────────────────────
+  listDocuments: (params: { topicId?: number; recordingId?: number }) => {
+    const qs = new URLSearchParams();
+    if (params.recordingId != null) qs.set("recording_id", String(params.recordingId));
+    else if (params.topicId != null) qs.set("topic_id", String(params.topicId));
+    return request<TopicDocument[]>(`/api/documents?${qs.toString()}`);
+  },
+  uploadDocument: (params: { topicId: number; recordingId?: number; file: File; title?: string }) => {
+    const form = new FormData();
+    form.set("topic_id", String(params.topicId));
+    if (params.recordingId != null) form.set("recording_id", String(params.recordingId));
+    if (params.title) form.set("title", params.title);
+    form.set("file", params.file);
+    return request<TopicDocument>("/api/documents", { method: "POST", body: form });
+  },
+  reindexDocument: (id: number) =>
+    request<{ enqueued: boolean }>(`/api/documents/${id}/reindex`, { method: "POST" }),
+  deleteDocument: (id: number) =>
+    request<void>(`/api/documents/${id}`, { method: "DELETE" }),
+  async openDocument(id: number): Promise<void> {
+    // Fetch with the auth header, then trigger a download (works in Tauri and
+    // the browser dev shell where opening a remote URL directly would 401).
+    const cfg = await getConfig();
+    const headers = new Headers();
+    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
+    const res = await fetch(`${cfg.base_url}/api/documents/${id}/file`, { headers });
+    if (!res.ok) throw new Error("Dokument konnte nicht geladen werden");
+    const cd = res.headers.get("Content-Disposition");
+    const match = cd ? /filename="?([^"]+)"?/.exec(cd) : null;
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = match ? match[1] : "dokument";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  },
 
   transcribe: (id: number, asr?: string) =>
     request<{ job_id: number; status: string }>(

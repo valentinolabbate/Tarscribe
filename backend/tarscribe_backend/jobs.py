@@ -97,7 +97,10 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 raise RuntimeError("Aufnahme nicht gefunden")
             audio_path = Path(rec.audio_path)
 
-        backend = get_backend(override)
+        if not audio_path.exists():
+            raise RuntimeError(
+                "Audiodatei nicht gefunden. Bitte importiere die Aufnahme erneut."
+            )
 
         from .ml.lifecycle import asr_lock
         from .settings_store import load_prefs
@@ -113,10 +116,18 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 last["t"] = now
                 _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
 
-        # Acquire the ASR lock so that live-analysis ticks cannot run concurrently.
+        # Hold the ASR lock across *both* model retrieval and transcription so
+        # live-analysis ticks (which share the cached model) cannot run — or
+        # swap the model — concurrently.
         with asr_lock:
+            backend = get_backend(override)
             result = backend.transcribe(audio_path, language=language, progress=progress)
         backend = None  # drop strong ref so the model can be unloaded below
+
+        if not result.words:
+            raise RuntimeError(
+                "Keine Sprache erkannt. Bitte prüfe, ob die Aufnahme hörbaren Ton enthält."
+            )
 
         # Persist transcript (replace any previous one — Stage A cache).
         with session_scope() as s:
@@ -653,6 +664,46 @@ def enqueue_embedding(recording_id: int) -> int | None:
         job_id = job.id
     _embed_executor.submit(_run_embedding, recording_id, job_id)
     return job_id
+
+
+def _set_document_status(document_id: int, status: str, error: str | None = None) -> None:
+    from .models import Document
+
+    with session_scope() as s:
+        doc = s.get(Document, document_id)
+        if doc:
+            doc.status = status
+            doc.error = error
+            s.add(doc)
+    hub.broadcast(
+        {"type": "document", "document_id": document_id, "status": status, "error": error}
+    )
+
+
+def _run_document_embedding(document_id: int) -> None:
+    from . import rag
+
+    try:
+        _set_document_status(document_id, "indexing")
+        with session_scope() as s:
+            rag.index_document(s, document_id)
+        _set_document_status(document_id, "ready")
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _set_document_status(document_id, "failed", str(exc))
+
+
+def enqueue_document_embedding(document_id: int) -> int | None:
+    """Schedule indexing of an uploaded document. No-op when RAG is disabled.
+
+    Runs on the dedicated embedding worker so it never blocks ASR/diarization.
+    """
+    from . import rag
+
+    if not rag.rag_enabled():
+        return None
+    _embed_executor.submit(_run_document_embedding, document_id)
+    return document_id
 
 
 def schedule_reindex(recording_id: int) -> None:

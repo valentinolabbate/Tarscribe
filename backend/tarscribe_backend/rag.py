@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from .llm import _auth_headers
 from .models import (
     DiarizationRun,
+    Document,
     RagChunk,
     Recording,
     Segment,
@@ -195,6 +196,15 @@ def chunk_summary(content: str) -> list[dict]:
     return chunks
 
 
+def chunk_document(content: str) -> list[dict]:
+    """Split an uploaded document's extracted text into retrieval passages.
+
+    Same paragraph-boundary strategy as summaries; long paragraphs (common in
+    PDF extractions) are hard-split with overlap.
+    """
+    return chunk_summary(content)
+
+
 # --- transcript assembly (utterances with timing) -------------------------
 def load_utterances(session: Session, recording_id: int):
     """Speaker-annotated utterances for a recording (overlay applied)."""
@@ -320,6 +330,80 @@ def index_recording(session: Session, recording_id: int, progress=None) -> int:
     return len(pending)
 
 
+def index_document(session: Session, document_id: int, progress=None) -> int:
+    """(Re)build the RAG index for one uploaded document. Returns chunk count.
+
+    Mirrors :func:`index_recording`: extract + chunk + embed *before* opening a
+    write transaction (the embed call is a slow network round-trip), then a
+    short write burst. Topic-level documents have no ``recording_id``; the vec0
+    metadata column stores ``0`` for them so recording-filtered KNN (which
+    matches a real id ≥ 1) never returns them.
+    """
+    import sqlite_vec
+
+    from .documents import extract_text
+
+    cfg = get_rag_config()
+    dim = cfg["dimension"]
+    doc = session.get(Document, document_id)
+    if not doc:
+        return 0
+
+    from pathlib import Path
+
+    text = extract_text(Path(doc.file_path), doc.content_type)
+    pending = chunk_document(text)
+    if not pending:
+        _delete_document_chunks(session, document_id)
+        doc.text_chars = len(text)
+        session.add(doc)
+        session.commit()
+        if progress:
+            progress(1.0)
+        return 0
+
+    if progress:
+        progress(0.1)
+    embeddings = embed_texts([c["text"] for c in pending])
+    if embeddings and len(embeddings[0]) != dim:
+        raise RuntimeError(
+            f"Embedding-Dimension {len(embeddings[0])} passt nicht zur Konfiguration "
+            f"({dim}). Bitte Dimension in den RAG-Einstellungen anpassen."
+        )
+    if progress:
+        progress(0.6)
+
+    _delete_document_chunks(session, document_id)
+    topic_id = doc.topic_id
+    recording_id = doc.recording_id
+    vec_recording_id = recording_id if recording_id is not None else 0
+    conn = session.connection()
+    for i, (ch, vec) in enumerate(zip(pending, embeddings)):
+        row = RagChunk(
+            recording_id=recording_id,
+            topic_id=topic_id,
+            summary_id=None,
+            document_id=document_id,
+            source_type="document",
+            chunk_index=i,
+            text=ch["text"],
+            content_hash=_hash(ch["text"]),
+            embed_model=cfg["model"],
+        )
+        session.add(row)
+        session.flush()  # assigns row.id
+        conn.exec_driver_sql(
+            "INSERT INTO rag_chunk_vec(rowid, embedding, topic_id, recording_id) "
+            "VALUES (?, ?, ?, ?)",
+            (row.id, sqlite_vec.serialize_float32(vec), topic_id, vec_recording_id),
+        )
+        _fts_insert(conn, row.id, row.text)
+    doc.text_chars = len(text)
+    session.add(doc)
+    session.commit()
+    return len(pending)
+
+
 def _fts_insert(conn, rowid: int, text: str) -> None:
     from .db import fts_available
 
@@ -374,6 +458,24 @@ def delete_summary_index(session: Session, summary_id: int) -> None:
         conn.exec_driver_sql("DELETE FROM rag_chunk_vec WHERE rowid = ?", (row.id,))
         session.delete(row)
     session.flush()
+
+
+def _delete_document_chunks(session: Session, document_id: int) -> None:
+    conn = session.connection()
+    rows = session.exec(
+        select(RagChunk).where(RagChunk.document_id == document_id)
+    ).all()
+    _fts_delete(conn, [row.id for row in rows])
+    for row in rows:
+        conn.exec_driver_sql("DELETE FROM rag_chunk_vec WHERE rowid = ?", (row.id,))
+        session.delete(row)
+    session.flush()
+
+
+def delete_document_index(session: Session, document_id: int) -> None:
+    """Public hook used when a document is deleted."""
+    _delete_document_chunks(session, document_id)
+    session.commit()
 
 
 # --- retrieval -------------------------------------------------------------
@@ -482,7 +584,7 @@ def search(
         chunk = session.get(RagChunk, chunk_id)
         if not chunk:
             continue
-        rec = session.get(Recording, chunk.recording_id)
+        rec = session.get(Recording, chunk.recording_id) if chunk.recording_id else None
         if speaker_lc and speaker_lc not in (chunk.speaker or "").lower():
             continue
         if (date_from or date_to) and rec:
@@ -491,12 +593,20 @@ def search(
                 continue
             if date_to and rec_date > date_to:
                 continue
+        # For document chunks the display title is the document's own title
+        # (recording_title is reused so existing source rendering still works).
+        title = rec.title if rec else ""
+        if chunk.source_type == "document" and chunk.document_id:
+            doc = session.get(Document, chunk.document_id)
+            if doc:
+                title = doc.title
         hits.append(
             {
                 "chunk_id": chunk.id,
                 "recording_id": chunk.recording_id,
-                "recording_title": rec.title if rec else "",
+                "recording_title": title,
                 "topic_id": chunk.topic_id,
+                "document_id": chunk.document_id,
                 "source_type": chunk.source_type,
                 "text": chunk.text,
                 "start_sec": chunk.start_sec,

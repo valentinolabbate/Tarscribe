@@ -99,6 +99,36 @@ export function useUploadRecording() {
   });
 }
 
+// ── Reference documents ───────────────────────────────────────────────────
+export function useDocuments(params: { topicId?: number; recordingId?: number }) {
+  return useQuery({
+    queryKey: ["documents", params.recordingId ?? null, params.topicId ?? null],
+    queryFn: () => api.listDocuments(params),
+    enabled: params.recordingId != null || params.topicId != null,
+    // Keep polling while any document is still being indexed.
+    refetchInterval: (query) =>
+      query.state.data?.some((d) => d.status === "uploaded" || d.status === "indexing")
+        ? 2000
+        : false,
+  });
+}
+
+export function useUploadDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.uploadDocument,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
+export function useDeleteDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteDocument(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
 export function useDeleteRecording(topicId?: number) {
   const qc = useQueryClient();
   return useMutation({

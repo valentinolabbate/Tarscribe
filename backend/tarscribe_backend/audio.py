@@ -30,9 +30,15 @@ def _resolve(tool: str) -> str:
 
 
 def probe_duration(path: Path) -> float:
-    """Return media duration in seconds, or 0.0 if unknown."""
-    ffprobe = _resolve("ffprobe")
+    """Return media duration in seconds, or 0.0 if unknown.
+
+    Falls back to reading the audio header directly (soundfile) when ffprobe
+    fails or reports nothing — for the normalized wav files we feed to the ASR
+    backends this is bullet-proof and keeps progress / chunking working even if
+    ffprobe is flaky.
+    """
     try:
+        ffprobe = _resolve("ffprobe")
         out = subprocess.run(
             [
                 ffprobe,
@@ -48,8 +54,22 @@ def probe_duration(path: Path) -> float:
             check=True,
         )
         data = json.loads(out.stdout or "{}")
-        return float(data.get("format", {}).get("duration", 0.0) or 0.0)
-    except (subprocess.CalledProcessError, ValueError, json.JSONDecodeError):
+        duration = float(data.get("format", {}).get("duration", 0.0) or 0.0)
+        if duration > 0:
+            return duration
+    except (AudioError, subprocess.CalledProcessError, ValueError, json.JSONDecodeError):
+        pass
+    return _soundfile_duration(path)
+
+
+def _soundfile_duration(path: Path) -> float:
+    """Duration from the audio header for formats soundfile can read (wav/flac/…)."""
+    try:
+        import soundfile as sf
+
+        info = sf.info(str(path))
+        return info.frames / info.samplerate if info.samplerate else 0.0
+    except Exception:  # noqa: BLE001 - unreadable/unsupported format
         return 0.0
 
 

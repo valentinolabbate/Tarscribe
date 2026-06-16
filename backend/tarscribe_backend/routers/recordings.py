@@ -240,11 +240,21 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
 
         rag._delete_recording_chunks(session, recording_id)
 
-    from ..models import ActionItem, Chapter
+    from ..models import ActionItem, Chapter, Document
 
     for model in (SpeakerLabel, ManualEdit, Summary, ActionItem, Chapter):
         for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
             session.delete(row)
+
+    # Documents attached to this recording: their RAG chunks were removed above
+    # with the recording's chunks; now drop the rows and (after commit) the files.
+    doc_files: list[Path] = []
+    for doc in session.exec(
+        select(Document).where(Document.recording_id == recording_id)
+    ).all():
+        doc_files.append(Path(doc.file_path))
+        session.delete(doc)
+
     for job in jobs:
         session.delete(job)
 
@@ -264,6 +274,11 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         audio_path.unlink(missing_ok=True)
     except OSError as exc:
         print(f"Audiodatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
+    for doc_file in doc_files:
+        try:
+            doc_file.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"Dokumentdatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
 
 
 @router.get("/{recording_id}/audio")

@@ -102,10 +102,15 @@ def set_config(payload: RagConfigIn, session: Session = Depends(get_session)) ->
     from ..db import _ensure_vec_table
 
     if vec_available() and _ensure_vec_table() and R.rag_enabled():
-        from ..jobs import enqueue_embedding
+        from ..jobs import enqueue_document_embedding, enqueue_embedding
+        from ..models import Document
 
         rec_ids = session.exec(select(Recording.id)).all()
         reindexing = len([j for j in (enqueue_embedding(r) for r in rec_ids) if j is not None])
+        doc_ids = session.exec(select(Document.id)).all()
+        reindexing += len(
+            [j for j in (enqueue_document_embedding(d) for d in doc_ids) if j is not None]
+        )
     return {**get_config(), "reindexing": reindexing}
 
 
@@ -153,11 +158,15 @@ def reindex(session: Session = Depends(get_session)) -> dict:
     """Enqueue a (re)index job for every recording that has a transcript."""
     if not R.rag_enabled():
         raise HTTPException(400, "RAG ist deaktiviert oder sqlite-vec nicht verfügbar.")
-    from ..jobs import enqueue_embedding
+    from ..jobs import enqueue_document_embedding, enqueue_embedding
     from sqlmodel import select
+
+    from ..models import Document
 
     recs = session.exec(select(Recording.id)).all()
     enqueued = [enqueue_embedding(rid) for rid in recs]
+    docs = session.exec(select(Document.id)).all()
+    enqueued += [enqueue_document_embedding(did) for did in docs]
     return {"enqueued": len([j for j in enqueued if j is not None])}
 
 
@@ -223,6 +232,7 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                 "index": i,
                 "recording_id": h["recording_id"],
                 "recording_title": h["recording_title"],
+                "document_id": h.get("document_id"),
                 "source_type": h["source_type"],
                 "start_sec": h.get("start_sec"),
                 "end_sec": h.get("end_sec"),

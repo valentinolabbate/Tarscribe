@@ -205,6 +205,34 @@ class Summary(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class Document(SQLModel, table=True):
+    """An uploaded reference document attached to a topic or a single recording.
+
+    Its extracted text is chunked and embedded into the same RAG index as
+    transcripts/summaries, so it surfaces in search and the knowledge chat.
+    ``recording_id`` is set for recording-scoped documents, ``None`` for
+    topic-level ones.
+    """
+
+    __tablename__ = "documents"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    topic_id: int = Field(foreign_key="topics.id", index=True)
+    recording_id: Optional[int] = Field(
+        default=None, foreign_key="recordings.id", index=True
+    )
+    title: str
+    original_filename: Optional[str] = None
+    # Stored copy of the original upload in the app's documents dir.
+    file_path: str
+    content_type: Optional[str] = None
+    # Length of the extracted plain text (for display; 0 until indexed).
+    text_chars: int = 0
+    status: str = "uploaded"  # uploaded | indexing | ready | failed
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class RagChunk(SQLModel, table=True):
     """A retrievable passage of a transcript or summary, embedded for RAG search.
 
@@ -215,11 +243,17 @@ class RagChunk(SQLModel, table=True):
     __tablename__ = "rag_chunks"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    # Nullable: document chunks attached to a *topic* (not a recording) have no
+    # recording_id. Recording-scoped chunks (transcript/summary/recording-document)
+    # carry it so recording-filtered retrieval includes them.
+    recording_id: Optional[int] = Field(
+        default=None, foreign_key="recordings.id", index=True
+    )
     # Denormalized for fast topic-filtered KNN (mirrored into the vec0 table).
     topic_id: int = Field(index=True)
     summary_id: Optional[int] = Field(default=None, foreign_key="summaries.id")
-    source_type: str = "transcript"  # transcript | summary
+    document_id: Optional[int] = Field(default=None, foreign_key="documents.id", index=True)
+    source_type: str = "transcript"  # transcript | summary | document
     chunk_index: int = 0
     text: str = ""
     start_sec: Optional[float] = None

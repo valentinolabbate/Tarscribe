@@ -109,10 +109,79 @@ def _run_lightweight_migrations() -> None:
                         )
                     )
 
+    _migrate_rag_chunks_for_documents()
     _ensure_vec_table()
     _ensure_fts_table()
     _mark_stale_live_sessions()
     _mark_stale_jobs()
+
+
+def _migrate_rag_chunks_for_documents() -> None:
+    """Make rag_chunks.recording_id nullable and add a document_id column.
+
+    Topic-level document chunks have no recording_id, which the original
+    NOT NULL column rejected; SQLite can't relax NOT NULL in place, so the
+    table is rebuilt once. Chunk ids are preserved so the sqlite-vec and FTS
+    rows (keyed by rag_chunks.id) stay in sync without a re-index.
+    """
+    import sqlite3
+
+    from sqlalchemy import text
+
+    with get_engine().begin() as conn:
+        tables = {
+            r[0]
+            for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        if "rag_chunks" not in tables:
+            return  # fresh DB: create_all already built the new schema
+        cols = {r[1] for r in conn.execute(text("PRAGMA table_info(rag_chunks)"))}
+        if "document_id" in cols:
+            return  # already migrated
+
+    # Rebuild with foreign keys disabled (the standard SQLite table-rebuild
+    # procedure). A plain sqlite3 connection in autocommit mode is used so the
+    # PRAGMA actually takes effect — it is a no-op inside an open transaction.
+    conn = sqlite3.connect(str(get_settings().db_path))
+    conn.isolation_level = None
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN")
+        conn.execute(
+            "CREATE TABLE rag_chunks_new ("
+            " id INTEGER PRIMARY KEY,"
+            " recording_id INTEGER REFERENCES recordings(id),"
+            " topic_id INTEGER NOT NULL,"
+            " summary_id INTEGER REFERENCES summaries(id),"
+            " document_id INTEGER REFERENCES documents(id),"
+            " source_type VARCHAR NOT NULL,"
+            " chunk_index INTEGER NOT NULL,"
+            " text VARCHAR NOT NULL,"
+            " start_sec FLOAT,"
+            " end_sec FLOAT,"
+            " speaker VARCHAR,"
+            " content_hash VARCHAR NOT NULL,"
+            " embed_model VARCHAR NOT NULL,"
+            " created_at DATETIME NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO rag_chunks_new"
+            " (id, recording_id, topic_id, summary_id, document_id, source_type,"
+            "  chunk_index, text, start_sec, end_sec, speaker, content_hash,"
+            "  embed_model, created_at)"
+            " SELECT id, recording_id, topic_id, summary_id, NULL, source_type,"
+            "  chunk_index, text, start_sec, end_sec, speaker, content_hash,"
+            "  embed_model, created_at FROM rag_chunks"
+        )
+        conn.execute("DROP TABLE rag_chunks")
+        conn.execute("ALTER TABLE rag_chunks_new RENAME TO rag_chunks")
+        conn.execute("CREATE INDEX ix_rag_chunks_recording_id ON rag_chunks(recording_id)")
+        conn.execute("CREATE INDEX ix_rag_chunks_topic_id ON rag_chunks(topic_id)")
+        conn.execute("CREATE INDEX ix_rag_chunks_document_id ON rag_chunks(document_id)")
+        conn.execute("COMMIT")
+        conn.execute("PRAGMA foreign_keys=ON")
+    finally:
+        conn.close()
 
 
 def _ensure_vec_table() -> bool:

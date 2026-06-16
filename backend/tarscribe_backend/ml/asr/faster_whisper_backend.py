@@ -44,31 +44,57 @@ class FasterWhisperBackend:
         progress: ProgressCb | None = None,
     ) -> TranscriptResult:
         model = self._ensure_model()
-        duration = probe_duration(audio_path) or 0.0
         if progress:
             progress(0.02, "Modell geladen, starte Transkription…")
 
+        words, info = self._collect(model, audio_path, language, vad_filter=True, progress=progress)
+        # The voice-activity filter can drop quiet or soft speech to nothing.
+        # Rather than return an empty transcript, retry once without it.
+        if not words:
+            words, info = self._collect(
+                model, audio_path, language, vad_filter=False, progress=progress
+            )
+
+        return TranscriptResult(
+            language=getattr(info, "language", None) or language,
+            words=words,
+            model=f"{self.name}:{self.model_size}",
+        )
+
+    def _collect(self, model, audio_path, language, *, vad_filter, progress):
         segments, info = model.transcribe(
             str(audio_path),
             language=language,
             word_timestamps=True,
-            vad_filter=True,
+            vad_filter=vad_filter,
         )
+        # faster-whisper reports a reliable duration up front; fall back to a
+        # header probe so the progress denominator is never zero.
+        total = float(getattr(info, "duration", 0.0) or 0.0) or probe_duration(audio_path)
 
         words: list[WordSeg] = []
+        last_end = 0.0
         for seg in segments:  # generator — work streams in here
-            if seg.words:
-                for w in seg.words:
-                    words.append(
-                        WordSeg(start=w.start, end=w.end, text=w.word, confidence=w.probability)
-                    )
+            seg_words = seg.words or []
+            if seg_words:
+                for w in seg_words:
+                    text = w.word or ""
+                    if not text.strip():
+                        continue
+                    # faster-whisper occasionally emits None timestamps; coerce
+                    # them to a monotonic value so the NOT NULL Word rows insert.
+                    start = float(w.start) if w.start is not None else last_end
+                    end = float(w.end) if w.end is not None else start
+                    words.append(WordSeg(start=start, end=end, text=text, confidence=w.probability))
+                    last_end = end
             else:
-                words.append(WordSeg(start=seg.start, end=seg.end, text=seg.text))
-            if progress and duration:
-                progress(min(0.98, max(0.02, seg.end / duration)), "Transkribiere…")
-
-        return TranscriptResult(
-            language=info.language if info else language,
-            words=words,
-            model=f"{self.name}:{self.model_size}",
-        )
+                text = seg.text or ""
+                if text.strip():
+                    start = float(seg.start) if seg.start is not None else last_end
+                    end = float(seg.end) if seg.end is not None else start
+                    words.append(WordSeg(start=start, end=end, text=text))
+                    last_end = end
+            if progress and total:
+                frac = (seg.end if seg.end is not None else last_end) / total
+                progress(min(0.98, max(0.02, frac)), "Transkribiere…")
+        return words, info

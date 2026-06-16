@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from ...config import get_settings
 from ...hardware import detect_hardware
@@ -12,6 +13,10 @@ from .base import ASRBackend
 
 _cached: ASRBackend | None = None
 _cached_key: str | None = None
+# Guards the cache so warmup (a request thread), the ASR job, and live-analysis
+# ticks can't build/replace the singleton concurrently (which would briefly load
+# two multi-GB models, or hand back a half-swapped instance).
+_lock = threading.Lock()
 
 
 def _selection(override: str | None = None) -> dict:
@@ -50,14 +55,16 @@ def get_backend(override: str | None = None) -> ASRBackend:
     global _cached, _cached_key
     selection = _selection(override)
     key = json.dumps(selection, sort_keys=True)
-    if _cached is None or _cached_key != key:
-        _cached = build_backend(override, selection=selection)
-        _cached_key = key
-    return _cached
+    with _lock:
+        if _cached is None or _cached_key != key:
+            _cached = build_backend(override, selection=selection)
+            _cached_key = key
+        return _cached
 
 
 def unload_backend() -> None:
     """Drop the cached ASR model so its memory can be reclaimed."""
     global _cached, _cached_key
-    _cached = None
-    _cached_key = None
+    with _lock:
+        _cached = None
+        _cached_key = None

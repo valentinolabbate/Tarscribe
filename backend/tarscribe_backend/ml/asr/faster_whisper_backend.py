@@ -28,12 +28,17 @@ class FasterWhisperBackend:
         if self._model is None:
             from faster_whisper import WhisperModel  # lazy, heavy import
 
-            self._model = WhisperModel(
-                self.model_size,
+            kwargs = dict(
                 device=self.device,
                 compute_type=self.compute_type,
                 download_root=self.models_dir,
             )
+            try:
+                # Offline first: an already-downloaded model loads without the
+                # HF etag check, which can hang for over a minute when HF is slow.
+                self._model = WhisperModel(self.model_size, local_files_only=True, **kwargs)
+            except Exception:  # noqa: BLE001 - not cached yet → download once
+                self._model = WhisperModel(self.model_size, local_files_only=False, **kwargs)
         return self._model
 
     def transcribe(

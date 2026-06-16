@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from ...audio import probe_duration
@@ -32,7 +33,7 @@ class ParakeetMlxBackend:
         if self._model is None:
             from parakeet_mlx import from_pretrained  # lazy, heavy import
 
-            self._model = from_pretrained(self.model_id)
+            self._model = from_pretrained(_offline_ref(self.model_id))
         return self._model
 
     def transcribe(
@@ -72,6 +73,29 @@ class ParakeetMlxBackend:
 
         words = _extract_words(result)
         return TranscriptResult(language=language, words=words, model=f"{self.name}")
+
+
+def _offline_ref(model_id: str) -> str:
+    """Resolve an already-downloaded model to its local snapshot directory.
+
+    ``parakeet_mlx.from_pretrained`` calls ``hf_hub_download`` without an offline
+    flag, so each load makes an HTTP etag check against huggingface.co — which can
+    hang for over a minute when HF is slow, even though the files are cached. By
+    handing ``from_pretrained`` the local snapshot dir instead, the load is fully
+    offline (its internal ``hf_hub_download`` fails the path as a repo id instantly
+    and reads the local files). Falls back to the bare id so a *missing* model is
+    still downloaded once.
+    """
+    if os.path.isdir(model_id):
+        return model_id
+    try:
+        from huggingface_hub import hf_hub_download
+
+        cfg = hf_hub_download(model_id, "config.json", local_files_only=True)
+        hf_hub_download(model_id, "model.safetensors", local_files_only=True)
+        return str(Path(cfg).parent)
+    except Exception:  # noqa: BLE001 - not cached yet → download on first use
+        return model_id
 
 
 def _extract_words(result) -> list[WordSeg]:

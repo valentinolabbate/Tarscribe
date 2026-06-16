@@ -37,6 +37,60 @@ def test_parakeet_extract_words_coerces_none_and_skips_empty():
     assert all(isinstance(w.start, float) and isinstance(w.end, float) for w in words)
 
 
+def test_parakeet_offline_ref_returns_local_dir_as_is(tmp_path):
+    from tarscribe_backend.ml.asr.parakeet_mlx_backend import _offline_ref
+
+    assert _offline_ref(str(tmp_path)) == str(tmp_path)
+
+
+def test_parakeet_offline_ref_falls_back_to_id_when_not_cached():
+    from tarscribe_backend.ml.asr.parakeet_mlx_backend import _offline_ref
+
+    # Not a local dir and not in the HF cache (or huggingface_hub absent in CI):
+    # must hand back the bare id so a first-run download can still happen.
+    assert _offline_ref("definitely-not/cached-model-xyz") == "definitely-not/cached-model-xyz"
+
+
+def test_faster_whisper_loads_offline_first_then_downloads(monkeypatch):
+    import sys
+
+    calls: list[bool] = []
+
+    class _FakeWhisperModel:
+        def __init__(self, _size, *, local_files_only, **_kw):
+            calls.append(local_files_only)
+            if local_files_only:
+                raise RuntimeError("model not found in cache")
+
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = _FakeWhisperModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+
+    from tarscribe_backend.ml.asr.faster_whisper_backend import FasterWhisperBackend
+
+    FasterWhisperBackend()._ensure_model()
+    assert calls == [True, False]  # offline attempt first, then download fallback
+
+
+def test_faster_whisper_offline_hit_skips_download(monkeypatch):
+    import sys
+
+    calls: list[bool] = []
+
+    class _FakeWhisperModel:
+        def __init__(self, _size, *, local_files_only, **_kw):
+            calls.append(local_files_only)  # offline succeeds, no exception
+
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = _FakeWhisperModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+
+    from tarscribe_backend.ml.asr.faster_whisper_backend import FasterWhisperBackend
+
+    FasterWhisperBackend()._ensure_model()
+    assert calls == [True]  # cached → no online fallback
+
+
 def test_parakeet_extract_words_falls_back_to_sentence_without_tokens():
     from tarscribe_backend.ml.asr.parakeet_mlx_backend import _extract_words
 

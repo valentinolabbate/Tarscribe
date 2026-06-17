@@ -66,6 +66,13 @@ def get_diarization(recording_id: int) -> dict:
         return c.get_diarization(recording_id)
 
 
+@mcp.tool()
+def get_chapters(recording_id: int) -> list[dict]:
+    """Fetch detected chapters for a recording."""
+    with _client() as c:
+        return c.get_chapters(recording_id)
+
+
 # ── actions ──────────────────────────────────────────────────────────────────
 @mcp.tool()
 def upload_recording(file_path: str, topic_id: int, title: str | None = None) -> dict:
@@ -89,6 +96,13 @@ def start_diarization(recording_id: int) -> dict:
 
 
 @mcp.tool()
+def start_chapter_detection(recording_id: int) -> dict:
+    """Queue automatic chapter detection. Returns the job id to poll with get_jobs."""
+    with _client() as c:
+        return c.generate_chapters(recording_id)
+
+
+@mcp.tool()
 def match_speakers(recording_id: int) -> dict:
     """Match this recording's diarized speakers against the known-speaker library."""
     with _client() as c:
@@ -101,13 +115,15 @@ def process_recording_pipeline(
     topic_id: int,
     title: str | None = None,
     asr_model: str | None = None,
+    detect_chapters: bool = True,
     diarize: bool = True,
     match_speakers: bool = True,
     timeout_sec: float = 1800.0,
 ) -> dict[str, Any]:
-    """End-to-end: upload → transcribe → (diarize → match speakers), blocking
-    until done. Returns the transcript text plus speakers and utterances. Use
-    this for one-shot autonomous processing of a single audio file."""
+    """End-to-end: upload → transcribe → chapters → (diarize → match speakers),
+    blocking until done. Returns transcript text, chapters, speakers and
+    utterances. Use this for one-shot autonomous processing of a single audio
+    file."""
     with _client() as c:
         return process_recording(
             c,
@@ -115,6 +131,7 @@ def process_recording_pipeline(
             topic_id,
             title=title,
             asr_model=asr_model,
+            detect_chapters=detect_chapters,
             diarize=diarize,
             match_speakers=match_speakers,
             timeout_sec=timeout_sec,

@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 POLL_INTERVAL = 2.0
-DEFAULT_TIMEOUT = 1800.0  # 30 min — long enough for ASR + diarization
+DEFAULT_TIMEOUT = 1800.0  # 30 min — long enough for ASR, chapters + diarization
 TERMINAL = {"done", "failed"}
 
 
@@ -118,6 +118,9 @@ class BackendClient:
     def get_diarization(self, recording_id: int) -> dict:
         return self._request("GET", f"/api/recordings/{recording_id}/diarization")
 
+    def get_chapters(self, recording_id: int) -> list[dict]:
+        return self._request("GET", f"/api/recordings/{recording_id}/chapters")
+
     # --- write / actions ----------------------------------------------------
     def create_topic(self, name: str, color: str | None = None) -> dict:
         body: dict[str, Any] = {"name": name}
@@ -145,6 +148,9 @@ class BackendClient:
 
     def diarize(self, recording_id: int) -> dict:
         return self._request("POST", f"/api/recordings/{recording_id}/diarize")
+
+    def generate_chapters(self, recording_id: int) -> dict:
+        return self._request("POST", f"/api/recordings/{recording_id}/chapters/generate")
 
     def match_speakers(self, recording_id: int) -> dict:
         return self._request("POST", f"/api/recordings/{recording_id}/match")
@@ -184,12 +190,13 @@ def process_recording(
     *,
     title: str | None = None,
     asr_model: str | None = None,
+    detect_chapters: bool = True,
     diarize: bool = True,
     match_speakers: bool = True,
     timeout_sec: float = DEFAULT_TIMEOUT,
     **wait_kw: Any,
 ) -> dict:
-    """Run the full pipeline (upload → transcribe → diarize → match) end-to-end."""
+    """Run the full pipeline (upload → transcribe → chapters → diarize → match)."""
     steps: list[dict] = []
 
     rec = client.upload_recording(file_path, topic_id, title)
@@ -199,6 +206,11 @@ def process_recording(
     tj = client.transcribe(rid, asr_model)
     client.wait_for_job(rid, int(tj["job_id"]), timeout_sec, **wait_kw)
     steps.append({"step": "transcribe", "job_id": tj["job_id"]})
+
+    if detect_chapters:
+        cj = client.generate_chapters(rid)
+        client.wait_for_job(rid, int(cj["job_id"]), timeout_sec, **wait_kw)
+        steps.append({"step": "detect_chapters", "job_id": cj["job_id"]})
 
     matches = None
     if diarize:
@@ -216,6 +228,8 @@ def process_recording(
         "language": transcript.get("language"),
         "steps": steps,
     }
+    if detect_chapters:
+        result["chapters"] = client.get_chapters(rid)
     if diarize:
         diar = client.get_diarization(rid)
         result["speakers"] = diar.get("speakers")

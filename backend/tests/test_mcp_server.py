@@ -143,20 +143,59 @@ def test_process_recording_end_to_end(tmp_path):
             return httpx.Response(200, json={"job_id": 10, "status": "queued"})
         if path == "/api/recordings/1/diarize":
             return httpx.Response(200, json={"job_id": 11, "status": "queued"})
+        if path == "/api/recordings/1/chapters/generate":
+            return httpx.Response(200, json={"job_id": 12, "status": "queued"})
         if path == "/api/recordings/1/match":
             return httpx.Response(200, json={"matches": [{"label": "S1", "name": "Anna"}]})
         if path == "/api/recordings/1/jobs":
-            return httpx.Response(200, json=[
-                {"job_id": 10, "phase": "asr", "status": "done"},
-                {"job_id": 11, "phase": "diarization", "status": "done"},
-            ])
+            return httpx.Response(
+                200,
+                json=[
+                    {"job_id": 10, "phase": "asr", "status": "done"},
+                    {"job_id": 11, "phase": "diarization", "status": "done"},
+                    {"job_id": 12, "phase": "chapters", "status": "done"},
+                ],
+            )
         if path == "/api/recordings/1/transcript":
             return httpx.Response(200, json={"text": "Hallo Welt", "language": "de"})
+        if path == "/api/recordings/1/chapters":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 1,
+                        "recording_id": 1,
+                        "idx": 0,
+                        "start": 0.0,
+                        "end": 60.0,
+                        "title": "Intro",
+                    },
+                    {
+                        "id": 2,
+                        "recording_id": 1,
+                        "idx": 1,
+                        "start": 60.0,
+                        "end": 120.0,
+                        "title": "Plan",
+                    },
+                ],
+            )
         if path == "/api/recordings/1/diarization":
-            return httpx.Response(200, json={
-                "speakers": [{"label": "S1", "name": "Anna"}],
-                "utterances": [{"speaker": "S1", "name": "Anna", "start": 0, "end": 1, "text": "Hallo"}],
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "speakers": [{"label": "S1", "name": "Anna"}],
+                    "utterances": [
+                        {
+                            "speaker": "S1",
+                            "name": "Anna",
+                            "start": 0,
+                            "end": 1,
+                            "text": "Hallo",
+                        }
+                    ],
+                },
+            )
         return httpx.Response(404, text=f"unexpected {method} {path}")
 
     with _client(handler) as c:
@@ -164,10 +203,17 @@ def test_process_recording_end_to_end(tmp_path):
 
     assert result["recording_id"] == 1
     assert result["transcript_text"] == "Hallo Welt"
+    assert result["chapters"][1]["title"] == "Plan"
     assert result["speakers"][0]["name"] == "Anna"
     assert result["utterances"][0]["text"] == "Hallo"
     assert result["speaker_matches"][0]["name"] == "Anna"
-    assert [s["step"] for s in result["steps"]] == ["upload", "transcribe", "diarize", "match_speakers"]
+    assert [s["step"] for s in result["steps"]] == [
+        "upload",
+        "transcribe",
+        "detect_chapters",
+        "diarize",
+        "match_speakers",
+    ]
 
 
 def test_process_recording_skips_diarization():
@@ -189,9 +235,15 @@ def test_process_recording_skips_diarization():
     with tempfile.NamedTemporaryFile(suffix=".wav") as f:
         with _client(handler) as c:
             result = C.process_recording(
-                c, f.name, topic_id=1, diarize=False, sleep=lambda _: None
+                c,
+                f.name,
+                topic_id=1,
+                detect_chapters=False,
+                diarize=False,
+                sleep=lambda _: None,
             )
     assert "speakers" not in result
+    assert "chapters" not in result
     assert [s["step"] for s in result["steps"]] == ["upload", "transcribe"]
 
 
@@ -302,5 +354,12 @@ def test_server_exposes_expected_tools():
     from tarscribe_backend.mcp_server import server
 
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
-    assert {"process_recording_pipeline", "upload_recording", "start_transcription",
-            "get_diarization", "list_topics"} <= tools
+    assert {
+        "process_recording_pipeline",
+        "upload_recording",
+        "start_transcription",
+        "start_chapter_detection",
+        "get_chapters",
+        "get_diarization",
+        "list_topics",
+    } <= tools

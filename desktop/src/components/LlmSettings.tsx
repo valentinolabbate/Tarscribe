@@ -79,6 +79,8 @@ export function LlmSettings() {
   const [useTopK, setUseTopK] = useState(false);
   const [maxTokens, setMaxTokens] = useState(2048);
   const [useMaxTokens, setUseMaxTokens] = useState(false);
+  // Reasoning/"thinking" depth ("" = off / model default).
+  const [reasoningEffort, setReasoningEffort] = useState("");
   const [chunkSize, setChunkSize] = useState(48000);
 
   useEffect(() => {
@@ -90,6 +92,7 @@ export function LlmSettings() {
       if (c.top_p != null) { setTopP(c.top_p); setUseTopP(true); }
       if (c.top_k != null) { setTopK(c.top_k); setUseTopK(true); }
       if (c.max_tokens != null) { setMaxTokens(c.max_tokens); setUseMaxTokens(true); }
+      if (c.reasoning_effort) setReasoningEffort(c.reasoning_effort);
       if (c.api_key_set) setApiKeySet(true);
     });
     api.getSettings().then((s) => {
@@ -145,7 +148,15 @@ export function LlmSettings() {
       top_p: useTopP ? topP : null,
       top_k: useTopK ? topK : null,
       max_tokens: useMaxTokens ? maxTokens : null,
+      reasoning_effort: reasoningEffort || null,
     });
+    qc.invalidateQueries({ queryKey: ["llm-config"] });
+  }
+
+  async function saveReasoning(v: string) {
+    setReasoningEffort(v);
+    // Partial update — backend only touches fields that are explicitly sent.
+    await api.setLlmConfig({ reasoning_effort: v || null });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
   }
 
@@ -160,7 +171,7 @@ export function LlmSettings() {
 
   return (
     <div className="field">
-      <label>LLM für Zusammenfassungen</label>
+      <label>LLM (Zusammenfassungen &amp; Chat)</label>
       <div className="seg" style={{ marginBottom: 8, flexWrap: "wrap" }}>
         {[
           ["ollama", "Ollama"],
@@ -290,6 +301,27 @@ export function LlmSettings() {
           step={64}
           placeholder="z.B. 2048"
         />
+
+        <div className="tuning-row" style={{ marginTop: 6 }}>
+          <label title="Denk-/Reasoning-Tiefe für Chat und Zusammenfassungen. Wird nur an das Modell gesendet, wenn nicht Aus gewählt ist.">
+            Reasoning / Thinking-Level
+          </label>
+          <select
+            value={reasoningEffort}
+            onChange={(e) => saveReasoning(e.target.value)}
+            style={{ width: 130 }}
+          >
+            <option value="">Aus (Standard)</option>
+            <option value="minimal">Minimal</option>
+            <option value="low">Niedrig</option>
+            <option value="medium">Mittel</option>
+            <option value="high">Hoch</option>
+          </select>
+        </div>
+        <div className="tuning-hint">
+          Nur für Reasoning-fähige Modelle (z.B. GPT-5/o-Serie, gpt-oss, DeepSeek-R1).
+          Höher = gründlicher, aber langsamer. Gilt für Chat &amp; Zusammenfassungen.
+        </div>
 
         <div className="tuning-row" style={{ marginTop: 6 }}>
           <label title="Maximale Transkript-Zeichen pro LLM-Aufruf. Längere Texte werden in Abschnitte aufgeteilt.">

@@ -261,6 +261,8 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                 top_k=cfg.get("top_k"),
                 max_tokens=cfg.get("max_tokens"),
                 api_key=cfg.get("api_key"),
+                reasoning_effort=cfg.get("reasoning_effort"),
+                provider=cfg.get("provider"),
             ):
                 yield f"data: {json.dumps({'type': 'delta', 'content': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"

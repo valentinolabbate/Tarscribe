@@ -29,6 +29,9 @@ def get_llm_config() -> dict:
         "top_p": float(llm["top_p"]) if llm.get("top_p") is not None else None,
         "top_k": int(llm["top_k"]) if llm.get("top_k") is not None else None,
         "max_tokens": int(llm["max_tokens"]) if llm.get("max_tokens") is not None else None,
+        # Reasoning/"thinking" depth for capable models (minimal|low|medium|high);
+        # None = don't send the param (model uses its default).
+        "reasoning_effort": llm.get("reasoning_effort") or None,
     }
 
 
@@ -65,6 +68,8 @@ def stream_chat(
     top_k: int | None = None,
     max_tokens: int | None = None,
     api_key: str | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
 ) -> Iterator[str]:
     """Yield content deltas from a streaming chat completion."""
     payload: dict = {
@@ -79,6 +84,13 @@ def stream_chat(
         payload["top_k"] = top_k
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
+    if reasoning_effort:
+        # OpenRouter exposes reasoning depth via a `reasoning` object; OpenAI,
+        # Ollama and LM Studio accept the top-level `reasoning_effort` field.
+        if provider == "openrouter":
+            payload["reasoning"] = {"effort": reasoning_effort}
+        else:
+            payload["reasoning_effort"] = reasoning_effort
     with httpx.stream(
         "POST",
         f"{base_url}/chat/completions",

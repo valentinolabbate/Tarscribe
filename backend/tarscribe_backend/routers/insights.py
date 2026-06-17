@@ -54,7 +54,31 @@ THREAD_STOPWORDS = {
     "and",
     "for",
     "with",
+    # Structural chapter words — recurring meeting scaffolding, not a topic.
+    "begrüßung",
+    "begrüssung",
+    "einleitung",
+    "einführung",
+    "einstieg",
+    "abschluss",
+    "verabschiedung",
+    "ausblick",
+    "organisatorisches",
+    "vorstellung",
+    # Session formats — apply to every subject, so useless as a topic label.
+    "vorlesung",
+    "vorlesungen",
+    "übung",
+    "übungen",
+    "seminar",
+    "tutorium",
+    "sitzung",
+    "besprechung",
+    "meeting",
 }
+
+# Minimum keyword length to be considered topical (drops short connectives).
+THREAD_KEYWORD_MIN_LEN = 4
 
 
 def _get_recording(session: Session, recording_id: int) -> Recording:
@@ -316,17 +340,20 @@ def export_chapters(
 
 # ── Cross-recording threads ──────────────────────────────────────────────────
 
-def _thread_key(title: str) -> str:
-    words = [
-        word
-        for word in re.findall(r"[a-zA-ZäöüÄÖÜß0-9]+", title.lower())
-        if word not in THREAD_STOPWORDS and len(word) > 2
-    ]
-    return " ".join(words[:6])
+def _thread_keywords(title: str) -> dict[str, str]:
+    """Significant topical keywords in a chapter title.
 
-
-def _thread_title(titles: list[str]) -> str:
-    return max(titles, key=lambda title: (titles.count(title), len(title))).strip()
+    Returns a ``{lowercased: display}`` map so each keyword keeps the original
+    casing of its first occurrence for the thread title. De-duplicated per title
+    so a word repeated within one chapter still counts once.
+    """
+    keywords: dict[str, str] = {}
+    for word in re.findall(r"[a-zA-ZäöüÄÖÜß0-9]+", title):
+        low = word.lower()
+        if low in THREAD_STOPWORDS or len(low) < THREAD_KEYWORD_MIN_LEN:
+            continue
+        keywords.setdefault(low, word)
+    return keywords
 
 
 def _mention_dict(
@@ -363,6 +390,14 @@ def _thread_dict(thread: TopicThread, mentions: list[dict]) -> dict:
 
 @router.post("/threads/rebuild")
 def rebuild_threads(session: Session = Depends(get_session)) -> dict:
+    """Cluster chapters into recurring threads by shared topical keyword.
+
+    Chapter titles are LLM-generated and essentially never match verbatim across
+    recordings, so we group on individual significant keywords instead. Keywords
+    that connect ≥2 distinct recordings become threads; the strongest (most
+    connecting) keyword claims its chapters first so each chapter lands in a
+    single thread.
+    """
     for mention in session.exec(select(ThreadMention)).all():
         session.delete(mention)
     for thread in session.exec(select(TopicThread)).all():
@@ -370,39 +405,51 @@ def rebuild_threads(session: Session = Depends(get_session)) -> dict:
     session.commit()
 
     chapters = session.exec(select(Chapter).order_by(Chapter.recording_id, Chapter.idx)).all()
-    groups: dict[str, list[Chapter]] = defaultdict(list)
-    for chapter in chapters:
-        key = _thread_key(chapter.title)
-        if key:
-            groups[key].append(chapter)
+    recordings = {
+        rec.id: rec
+        for rec in session.exec(select(Recording)).all()
+        if rec.id is not None
+    }
 
+    # keyword -> chapters mentioning it (only chapters with a known recording).
+    keyword_chapters: dict[str, list[Chapter]] = defaultdict(list)
+    keyword_display: dict[str, str] = {}
+    for chapter in chapters:
+        if chapter.recording_id not in recordings:
+            continue
+        for low, display in _thread_keywords(chapter.title).items():
+            keyword_chapters[low].append(chapter)
+            keyword_display.setdefault(low, display)
+
+    def recording_span(keyword: str) -> int:
+        return len({c.recording_id for c in keyword_chapters[keyword]})
+
+    # Strongest keyword first; ties broken by chapter count then alphabetically
+    # for deterministic output.
+    ranked = sorted(
+        (kw for kw in keyword_chapters if recording_span(kw) >= 2),
+        key=lambda kw: (-recording_span(kw), -len(keyword_chapters[kw]), kw),
+    )
+
+    used_chapter_ids: set[int] = set()
     created = 0
     mentions_created = 0
-    for grouped in groups.values():
-        recording_ids = {chapter.recording_id for chapter in grouped}
-        if len(recording_ids) < 2:
+    for keyword in ranked:
+        grouped = [c for c in keyword_chapters[keyword] if c.id not in used_chapter_ids]
+        # A stronger thread may have already claimed enough chapters to drop this
+        # one below the cross-recording threshold.
+        if len({c.recording_id for c in grouped}) < 2:
             continue
-        recordings = {
-            rec.id: rec
-            for rec in session.exec(
-                select(Recording).where(Recording.id.in_(recording_ids))
-            ).all()
-            if rec.id is not None
-        }
-        if len(recordings) < 2:
-            continue
-        updated_at = max((recordings[ch.recording_id].created_at for ch in grouped if ch.recording_id in recordings))
+        updated_at = max(recordings[c.recording_id].created_at for c in grouped)
         thread = TopicThread(
-            title=_thread_title([chapter.title for chapter in grouped]),
+            title=keyword_display[keyword].capitalize(),
             updated_at=updated_at,
         )
         session.add(thread)
         session.flush()
         created += 1
         for chapter in grouped:
-            rec = recordings.get(chapter.recording_id)
-            if not rec:
-                continue
+            used_chapter_ids.add(chapter.id)
             session.add(
                 ThreadMention(
                     thread_id=thread.id,
@@ -410,7 +457,7 @@ def rebuild_threads(session: Session = Depends(get_session)) -> dict:
                     chapter_id=chapter.id,
                     start_sec=chapter.start,
                     text=chapter.title,
-                    created_at=rec.created_at,
+                    created_at=recordings[chapter.recording_id].created_at,
                 )
             )
             mentions_created += 1
@@ -651,6 +698,8 @@ Quellen:
                 top_k=cfg.get("top_k"),
                 max_tokens=cfg.get("max_tokens"),
                 api_key=cfg.get("api_key"),
+                reasoning_effort=cfg.get("reasoning_effort"),
+                provider=cfg.get("provider"),
             )
         ).strip()
     except HTTPException:

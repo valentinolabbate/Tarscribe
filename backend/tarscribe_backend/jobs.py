@@ -366,6 +366,8 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         top_p = cfg.get("top_p")
         top_k = cfg.get("top_k")
         max_tokens = cfg.get("max_tokens")
+        reasoning_effort = cfg.get("reasoning_effort")
+        provider = cfg.get("provider")
 
         from .settings_store import load_prefs as _load_prefs
         chunk_size = int(_load_prefs().get("llm_chunk_size") or 48000)
@@ -374,7 +376,9 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
             return "".join(L.stream_chat(msgs, model, base,
                                          temperature=temperature, top_p=top_p,
                                          top_k=top_k, max_tokens=max_tokens,
-                                         api_key=api_key))
+                                         api_key=api_key,
+                                         reasoning_effort=reasoning_effort,
+                                         provider=provider))
 
         # Map step: condense long transcripts before applying the template.
         chunks = L.chunk_text(text, size=chunk_size)
@@ -400,7 +404,9 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         for delta in L.stream_chat(messages, model, base,
                                    temperature=temperature, top_p=top_p,
                                    top_k=top_k, max_tokens=max_tokens,
-                                   api_key=api_key):
+                                   api_key=api_key,
+                                   reasoning_effort=reasoning_effort,
+                                   provider=provider):
             acc += delta
             now = time.monotonic()
             if now - last_save >= 0.25:
@@ -445,6 +451,8 @@ def _llm_chat_fn():
                 top_k=cfg.get("top_k"),
                 max_tokens=cfg.get("max_tokens"),
                 api_key=cfg.get("api_key"),
+                reasoning_effort=cfg.get("reasoning_effort"),
+                provider=cfg.get("provider"),
             )
         )
 

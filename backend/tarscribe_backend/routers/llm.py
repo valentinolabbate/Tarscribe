@@ -29,6 +29,7 @@ class LlmConfigIn(BaseModel):
     top_p: float | None = None
     top_k: int | None = None
     max_tokens: int | None = None
+    reasoning_effort: str | None = None
 
 
 class LlmApiKeyIn(BaseModel):

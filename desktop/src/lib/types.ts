@@ -153,6 +153,8 @@ export interface LlmConfig {
   top_p?: number | null;
   top_k?: number | null;
   max_tokens?: number | null;
+  /** Reasoning/"thinking" depth for capable models: minimal|low|medium|high. */
+  reasoning_effort?: string | null;
   /** Read-only: whether a (secret) API key is stored in the keychain. */
   api_key_set?: boolean;
 }

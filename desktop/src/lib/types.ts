@@ -159,6 +159,24 @@ export interface LlmConfig {
   api_key_set?: boolean;
 }
 
+export interface McpHostTarget {
+  id: string;
+  label: string;
+  fmt: string;
+  path: string;
+  present: boolean;
+  registered: boolean;
+}
+
+export interface McpInfo {
+  module: string;
+  command: string;
+  args: string[];
+  connection_file: string;
+  snippet: string;
+  targets: McpHostTarget[];
+}
+
 export interface SummaryEvent {
   type: "summary";
   recording_id: number;

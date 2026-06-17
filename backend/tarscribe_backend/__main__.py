@@ -8,6 +8,7 @@ the shell can detect readiness.
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import secrets
@@ -49,6 +50,14 @@ def main() -> None:
         ),
         flush=True,
     )
+
+    # Publish a discovery descriptor so an external MCP server can reach this
+    # running instance. Best-effort; removed on clean exit (the shell may SIGKILL,
+    # so the MCP server also verifies the file via /health).
+    from .mcp_link import remove_connection_file, write_connection_file
+
+    write_connection_file(settings)
+    atexit.register(remove_connection_file)
 
     uvicorn.run(
         "tarscribe_backend.main:app",

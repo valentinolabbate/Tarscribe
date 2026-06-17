@@ -12,6 +12,7 @@ import type {
   LlmConfig,
   LiveEvent,
   LiveSession,
+  McpInfo,
   RagConfig,
   RagHit,
   RagSource,
@@ -698,4 +699,17 @@ export const api = {
     if (!res.ok) throw new Error("Audio konnte nicht geladen werden");
     return URL.createObjectURL(await res.blob());
   },
+
+  // MCP (agent integration)
+  getMcpInfo: () => request<McpInfo>("/api/mcp/info"),
+  registerMcp: (targetId: string) =>
+    request<{ registered: boolean; path: string; id: string }>(
+      `/api/mcp/register/${targetId}`,
+      { method: "POST" },
+    ),
+  unregisterMcp: (targetId: string) =>
+    request<{ registered: boolean; removed: boolean; path: string; id: string }>(
+      `/api/mcp/register/${targetId}`,
+      { method: "DELETE" },
+    ),
 };

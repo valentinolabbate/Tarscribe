@@ -17,6 +17,17 @@ def _default_data_dir() -> Path:
     return Path(user_data_dir(APP_NAME, APP_AUTHOR))
 
 
+def mcp_connection_path() -> Path:
+    """Canonical, identifier-independent file an external MCP server reads to
+    discover the running backend (base_url + token).
+
+    Deliberately uses the default ``Tarscribe`` data dir even when the actual
+    ``data_dir`` is overridden (the packaged app runs with a bundle-identifier
+    dir), so the MCP server has a single well-known location to look at.
+    """
+    return _default_data_dir() / "mcp-connection.json"
+
+
 class Settings(BaseSettings):
     """Backend settings, overridable via TARSCRIBE_* environment variables."""
 

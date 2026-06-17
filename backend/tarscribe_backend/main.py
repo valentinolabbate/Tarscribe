@@ -20,6 +20,7 @@ from .routers import (
     insights,
     live_recordings,
     llm,
+    mcp,
     rag,
     recordings,
     settings,
@@ -64,6 +65,7 @@ def create_app() -> FastAPI:
     app.include_router(speakers.router)
     app.include_router(templates.router)
     app.include_router(llm.router)
+    app.include_router(mcp.router)
     app.include_router(rag.router)
     app.include_router(settings.router)
 

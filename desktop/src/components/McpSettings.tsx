@@ -135,7 +135,9 @@ export function McpSettings() {
 }
 
 const preStyle: CSSProperties = {
-  background: "var(--bg-elev, #1c1c22)",
+  background: "var(--bg-input)",
+  border: "1px solid var(--border-strong)",
+  color: "var(--text)",
   padding: 10,
   borderRadius: 8,
   fontSize: 11,

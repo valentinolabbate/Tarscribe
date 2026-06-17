@@ -154,7 +154,10 @@ pub fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let tray_menu = tray_menu(app, &meta)?;
 
     let tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().unwrap().clone())
+        // Monochrome menu-bar glyph; `icon_as_template` lets macOS auto-invert it
+        // for light/dark menu bars (the full-colour app icon would look wrong here).
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true)
         .tooltip("Tarscribe")
         .menu(&tray_menu)
         .on_menu_event(|app, event| match event.id().as_ref() {

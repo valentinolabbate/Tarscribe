@@ -1395,6 +1395,48 @@ select:focus {
   font-size: 10.5px;
   font-weight: 650;
 }
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(142px, 0.45fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.suggestion-chip {
+  display: inline-grid;
+  grid-template-columns: auto;
+  gap: 2px;
+  max-width: 100%;
+  text-align: left;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  cursor: pointer;
+}
+.suggestion-chip:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.suggestion-chip span {
+  font-size: 12px;
+  font-weight: 650;
+}
+.suggestion-chip code {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+.suggestion-chip small {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
 @media (max-width: 560px) {
   .settings-layout {
     flex-direction: column;
@@ -1403,6 +1445,9 @@ select:focus {
     flex-direction: row;
     flex-wrap: wrap;
     width: auto;
+  }
+  .model-row {
+    grid-template-columns: 1fr;
   }
 }
 

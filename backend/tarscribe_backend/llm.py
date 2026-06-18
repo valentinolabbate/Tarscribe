@@ -1,7 +1,7 @@
-"""OpenAI-compatible LLM client for local servers (Ollama / LM Studio).
+"""OpenAI-compatible chat client for configurable providers/endpoints.
 
-Both expose /v1/models and /v1/chat/completions, so a single client covers both
-plus any custom OpenAI-compatible endpoint.
+The same /v1/models and /v1/chat/completions shape covers hosted providers,
+self-hosted servers, and custom OpenAI-compatible endpoints.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def get_llm_config() -> dict:
 
 
 def _auth_headers(api_key: str | None) -> dict:
-    """Bearer header for hosted OpenAI-compatible providers; empty for local servers."""
+    """Bearer header for OpenAI-compatible providers that require an API key."""
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
 

@@ -1,10 +1,11 @@
 # Tarscribe
 
-Tarscribe ist eine lokale macOS-App für Aufnahmen, Transkription, Sprechererkennung,
-Zusammenfassungen und Wissenssuche über Audioinhalte. Die App läuft auf Apple Silicon
-und verarbeitet deine Daten lokal auf dem Mac.
+Tarscribe ist eine macOS-App für Aufnahmen, Transkription, Sprechererkennung,
+Zusammenfassungen und Wissenssuche über Audioinhalte. Die Audioverarbeitung läuft auf
+Apple Silicon; optionale Chat- und Embedding-Funktionen nutzt du über frei
+konfigurierbare Anbieter oder Endpoints.
 
-**Aktueller Stand:** v0.10.2 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.10.3 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 
@@ -21,7 +22,7 @@ und verarbeitet deine Daten lokal auf dem Mac.
 - Aufnahmen automatisch in Kapitel gliedern
 
 **Auswerten**
-- KI-Zusammenfassungen über frei wählbare Vorlagen mit lokalen LLM-Servern wie Ollama oder LM Studio
+- KI-Zusammenfassungen über frei wählbare Vorlagen mit einem konfigurierbaren Chat-Modell
 - Zusammenfassungen beziehen bei Bedarf automatisch relevantes Wissen aus demselben Themenbereich ein (andere Transkripte, Zusammenfassungen und hochgeladene Dateien) – sichtbar belegt, welche Quellen eingeflossen sind
 - Aufgaben und Entscheidungen automatisch aus Gesprächen extrahieren; der **Aufgaben**-Bereich zeigt standardmäßig nur deine eigenen (lege in den Einstellungen fest, wer „Ich" ist) und lässt andere gezielt übernehmen
 - Wochen-Digest über die letzten Tage erzeugen und Themen-Threads über mehrere Aufnahmen hinweg verfolgen
@@ -64,10 +65,9 @@ fallen also wirklich nur beim ersten Mal an.
 ## Erster Start
 
 Beim ersten Start prüft Tarscribe die lokale Umgebung und richtet die benötigten Komponenten ein.
-Modell-Downloads benötigen einmalig Internet. Danach funktionieren Transkription, Suche und
-lokale Verarbeitung offline. Zusammenfassungen und Chat benötigen zusätzlich einen lokalen
-LLM-Server (z. B. Ollama oder LM Studio); der Wissens-Chat/RAG nutzt einen lokalen
-Embedding-Endpoint (Default `nomic-embed-text` via Ollama).
+Modell-Downloads benötigen einmalig Internet. Danach funktionieren Transkription und
+grundlegende Verarbeitung offline. Zusammenfassungen und Chat benötigen ein konfiguriertes
+Chat-Modell; der Wissens-Chat/RAG nutzt einen separat konfigurierbaren Embedding-Endpoint.
 
 Für Sprechererkennung mit bestimmten Modellen kann ein Hugging Face Token nötig sein. Die App
 fragt diesen bei Bedarf im Einrichtungsassistenten ab.
@@ -189,6 +189,6 @@ Weitergabe ohne Apple Developer ID in [SHARING.md](SHARING.md).
   `/opt/homebrew/bin` oder `/usr/local/bin` werden automatisch erkannt.
 - Ohne Apple Developer ID kann die App nicht vollständig notarisiert werden. Für interne Tests
   und private Weitergabe ist der Installer-Workflow in der DMG der vorgesehene Weg.
-- Tarscribe ist auf lokale Verarbeitung ausgelegt. Externe LLM- oder Embedding-Server werden nur
-  genutzt, wenn du sie in den Einstellungen konfigurierst.
+- Tarscribe verarbeitet Audio und Transkription auf dem Mac. Chat- und Embedding-Endpoints
+  werden nur genutzt, wenn du sie in den Einstellungen konfigurierst.
 ```

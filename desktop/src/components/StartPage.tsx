@@ -69,7 +69,7 @@ function DigestPanel() {
 
       {isLoading && <div className="digest-empty">Digests werden geladen...</div>}
       {createDigest.isPending && (
-        <div className="digest-empty">Der Digest wird mit deinem lokalen LLM erstellt.</div>
+        <div className="digest-empty">Der Digest wird mit deinem konfigurierten Chat-Modell erstellt.</div>
       )}
       {!isLoading && !createDigest.isPending && latest && stale && (
         <div className="digest-reminder">
@@ -196,7 +196,7 @@ export function StartPage({
         <div className="start-header-text">
           <span className="page-kicker">Start</span>
           <h2>Willkommen zurück</h2>
-          <p>Durchsuche deine Aufnahmen, stelle Fragen oder halte einen Gedanken fest — alles bleibt lokal.</p>
+          <p>Durchsuche deine Aufnahmen, stelle Fragen oder halte einen Gedanken fest.</p>
         </div>
         <div className="start-stats">
           <div className="stat">

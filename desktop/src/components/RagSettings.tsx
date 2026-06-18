@@ -114,7 +114,7 @@ export function RagSettings() {
       <label>Wissens-Chat (RAG)</label>
       <div className="rec-sub" style={{ fontSize: 12, marginBottom: 8 }}>
         Transkripte und Zusammenfassungen werden eingebettet und durchsuchbar gemacht. Der
-        Embedding-Endpoint wird unabhängig vom Chat-LLM konfiguriert.
+        Embedding-Endpoint wird unabhängig vom Chat-Modell konfiguriert.
       </div>
 
       {!vecAvailable && (
@@ -139,7 +139,7 @@ export function RagSettings() {
           ["ollama", "Ollama"],
           ["lmstudio", "LM Studio"],
           ["openai", "OpenAI"],
-          ["custom", "Custom"],
+          ["custom", "Eigener Endpoint"],
         ].map(([v, l]) => (
           <button key={v} className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
             {l}

@@ -1,4 +1,4 @@
-"""LLM server config, model listing, and summarization endpoints."""
+"""Chat model config, model listing, and summarization endpoints."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def list_models(base_url: str | None = None) -> dict:
     try:
         return {"models": L.list_models(base_url)}
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"LLM-Server nicht erreichbar: {exc}") from exc
+        raise HTTPException(502, f"Chat-Endpoint nicht erreichbar: {exc}") from exc
 
 
 @router.post("/api/llm/test")

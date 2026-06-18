@@ -584,7 +584,7 @@ def test_digest_endpoint_requires_configured_llm(client, monkeypatch):
     )
     r = client.post("/api/digests?days=7")
     assert r.status_code == 400
-    assert "Kein LLM-Modell" in r.json()["detail"]
+    assert "Kein Chat-Modell" in r.json()["detail"]
 
 
 # ── Cross-recording threads ─────────────────────────────────────────────────

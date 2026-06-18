@@ -167,7 +167,7 @@ export function ActionItemsPanel({ recordingId }: { recordingId: number }) {
           <p>
             {items && items.length > 0
               ? `${open} offen · ${items.length} insgesamt`
-              : "Lass das LLM Action-Items und Beschlüsse aus dem Transkript ziehen."}
+              : "Lass das konfigurierte Chat-Modell Action-Items und Beschlüsse aus dem Transkript ziehen."}
           </p>
         </div>
         <button

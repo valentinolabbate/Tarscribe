@@ -47,3 +47,44 @@ def test_quality_profile_uses_larger_faster_whisper_on_cuda():
     assert asr["engine"] == "faster-whisper"
     assert asr["model_size"] == "large-v3"
     assert asr["compute_type"] == "float16"
+
+
+def test_asr_model_override_is_free_form_for_selected_engine():
+    hw = _apple_m1_8gb()
+
+    asr = resolve_asr_selection(
+        {
+            "asr_override": "parakeet-mlx",
+            "asr_model": "custom/parakeet-experiment",
+        },
+        hw,
+    )
+
+    assert asr["engine"] == "parakeet-mlx"
+    assert asr["model_id"] == "custom/parakeet-experiment"
+
+
+def test_faster_whisper_override_accepts_arbitrary_model_name():
+    hw = _apple_m1_8gb()
+
+    asr = resolve_asr_selection(
+        {
+            "asr_override": "faster-whisper",
+            "asr_model": "distil-large-v3",
+        },
+        hw,
+    )
+
+    assert asr["engine"] == "faster-whisper"
+    assert asr["model_size"] == "distil-large-v3"
+
+
+def test_diarization_model_override_is_trimmed_and_free_form():
+    hw = _apple_m1_8gb()
+
+    diarization = resolve_diarization_selection(
+        {"diarization_model": " pyannote/custom-speaker-model "},
+        hw,
+    )
+
+    assert diarization["model_id"] == "pyannote/custom-speaker-model"

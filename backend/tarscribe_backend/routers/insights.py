@@ -716,7 +716,7 @@ def _generate_digest_markdown(
     if not cfg["model"]:
         raise HTTPException(
             400,
-            "Kein LLM-Modell gewählt. Bitte in den Einstellungen Ollama/LM Studio + Modell wählen.",
+            "Kein Chat-Modell gewählt. Bitte in den Einstellungen Anbieter/Endpoint und Modell konfigurieren.",
         )
 
     budget = max(6000, chunk_size - 5000)

@@ -74,19 +74,38 @@ def _faster_whisper_asr(profile: str, hw: Any) -> dict[str, Any]:
     }
 
 
+def _clean_model_name(value: Any) -> str | None:
+    if isinstance(value, str):
+        value = value.strip()
+        if value:
+            return value
+    return None
+
+
 def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None = None) -> dict[str, Any]:
     """Resolve settings + hardware into a concrete ASR backend configuration."""
     profile = normalize_profile(prefs.get("performance_profile"))
     engine_override = override or prefs.get("asr_override")
+    if isinstance(engine_override, str) and not engine_override.strip():
+        engine_override = None
     if engine_override:
         profile = "balanced"
 
-    if getattr(hw, "is_apple_silicon", False) and (engine_override in (None, "parakeet-mlx")):
+    if engine_override == "parakeet-mlx":
+        selection = _apple_asr(profile)
+    elif getattr(hw, "is_apple_silicon", False) and engine_override is None:
         selection = _apple_asr(profile)
     else:
         selection = _faster_whisper_asr(profile, hw)
-        if engine_override in ("faster-whisper", "parakeet-mlx"):
+        if engine_override == "faster-whisper":
             selection["engine"] = engine_override
+
+    model_name = _clean_model_name(prefs.get("asr_model"))
+    if model_name:
+        if selection["engine"] == "parakeet-mlx":
+            selection["model_id"] = model_name
+        elif selection["engine"] == "faster-whisper":
+            selection["model_size"] = model_name
 
     selection["profile"] = profile
     return selection
@@ -95,7 +114,7 @@ def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None =
 def resolve_diarization_selection(prefs: dict[str, Any], hw: Any) -> dict[str, Any]:
     """Resolve settings + hardware into a diarization runtime configuration."""
     profile = normalize_profile(prefs.get("performance_profile"))
-    model_id = prefs.get("diarization_model") or DEFAULT_DIARIZATION_MODEL
+    model_id = _clean_model_name(prefs.get("diarization_model")) or DEFAULT_DIARIZATION_MODEL
     device = getattr(hw, "recommended_device", "cpu")
     if device not in ("mps", "cuda", "cpu"):
         device = "cpu"

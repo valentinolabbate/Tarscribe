@@ -202,7 +202,7 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
 
     cfg = L.get_llm_config()
     if not cfg["model"]:
-        raise HTTPException(400, "Kein Chat-LLM konfiguriert (siehe LLM-Einstellungen).")
+        raise HTTPException(400, "Kein Chat-Modell konfiguriert (siehe Einstellungen).")
 
     query = payload.messages[-1].content
     try:

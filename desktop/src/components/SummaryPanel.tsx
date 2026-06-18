@@ -177,7 +177,7 @@ export function SummaryPanel({
           className="btn primary"
           disabled={summarize.isPending || !!streaming || modelMissing || !effectiveTemplate}
           onClick={run}
-          title={modelMissing ? "Erst ein LLM-Modell in den Einstellungen wählen" : ""}
+          title={modelMissing ? "Erst ein Chat-Modell in den Einstellungen wählen" : ""}
         >
           {summarize.isPending ? "Startet…" : streaming ? "Generiere…" : "Zusammenfassen"}
         </button>
@@ -190,8 +190,8 @@ export function SummaryPanel({
       {modelMissing ? (
         <div className="summary-callout">
           <span>
-            Kein LLM-Modell konfiguriert. Wähle in den Einstellungen Ollama oder LM Studio und ein
-            Modell, um Zusammenfassungen zu erstellen.
+            Kein Chat-Modell konfiguriert. Wähle in den Einstellungen einen Anbieter oder Endpoint
+            und ein Modell, um Zusammenfassungen zu erstellen.
           </span>
           {onOpenSettings && (
             <button className="btn" onClick={onOpenSettings}>

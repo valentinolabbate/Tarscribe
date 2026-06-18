@@ -9,7 +9,7 @@ const PRESETS: Record<string, string> = {
   openrouter: "https://openrouter.ai/api/v1",
 };
 
-// Hosted providers that authenticate with an API key (vs. local Ollama/LM Studio).
+// Providers that usually authenticate with an API key.
 const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
 
 function NumField({
@@ -171,14 +171,14 @@ export function LlmSettings() {
 
   return (
     <div className="field">
-      <label>LLM (Zusammenfassungen &amp; Chat)</label>
+      <label>Chat-Modell (Zusammenfassungen &amp; Chat)</label>
       <div className="seg" style={{ marginBottom: 8, flexWrap: "wrap" }}>
         {[
           ["ollama", "Ollama"],
           ["lmstudio", "LM Studio"],
           ["openai", "OpenAI"],
           ["openrouter", "OpenRouter"],
-          ["custom", "Custom"],
+          ["custom", "Eigener Endpoint"],
         ].map(([v, l]) => (
           <button key={v} className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
             {l}
@@ -219,7 +219,7 @@ export function LlmSettings() {
             />
           )}
           <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
-            Für gehostete Anbieter (OpenAI, OpenRouter, …). Wird beim Klick auf „Modelle laden"
+            Für Anbieter mit API-Key. Wird beim Klick auf „Modelle laden"
             gespeichert &amp; geprüft und sicher in der OS-Keychain abgelegt.
           </div>
         </div>

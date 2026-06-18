@@ -42,6 +42,64 @@ function KnownSpeakers() {
   );
 }
 
+type AsrEngine = "" | "parakeet-mlx" | "faster-whisper";
+
+const ASR_MODEL_SUGGESTIONS: Array<{
+  engine: Exclude<AsrEngine, "">;
+  label: string;
+  model: string;
+  note: string;
+}> = [
+  {
+    engine: "parakeet-mlx",
+    label: "Parakeet MLX",
+    model: "mlx-community/parakeet-tdt-0.6b-v3",
+    note: "empfohlen auf Apple Silicon",
+  },
+  {
+    engine: "faster-whisper",
+    label: "Whisper Small",
+    model: "small",
+    note: "schnell und sparsam",
+  },
+  {
+    engine: "faster-whisper",
+    label: "Whisper Medium",
+    model: "medium",
+    note: "ausgewogen",
+  },
+  {
+    engine: "faster-whisper",
+    label: "Whisper Large v3",
+    model: "large-v3",
+    note: "hohe Qualität",
+  },
+  {
+    engine: "faster-whisper",
+    label: "Distil Large v3",
+    model: "distil-large-v3",
+    note: "schneller large-v3-Ableger",
+  },
+];
+
+const DIARIZATION_MODEL_SUGGESTIONS = [
+  {
+    label: "Community 1",
+    model: "pyannote/speaker-diarization-community-1",
+    note: "aktueller Standard",
+  },
+  {
+    label: "Pyannote 3.1",
+    model: "pyannote/speaker-diarization-3.1",
+    note: "Alternative mit HF-Lizenz",
+  },
+  {
+    label: "Pyannote 3.0",
+    model: "pyannote/speaker-diarization-3.0",
+    note: "ältere Alternative",
+  },
+];
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [token, setToken] = useState("");
@@ -116,6 +174,63 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     } catch (e) {
       setSettings(previous);
       setStatus({ ok: false, msg: `Leistungsstufe konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function saveAsrEngine(asr_override: AsrEngine) {
+    if (!settings) return;
+    setSettings({ ...settings, asr_override });
+    try {
+      await api.updateSettings({ asr_override });
+      setStatus({ ok: true, msg: "Transkriptions-Engine gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Transkriptions-Engine konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function saveAsrModel(value: string) {
+    if (!settings) return;
+    const asr_model = value.trim();
+    setSettings({ ...settings, asr_model });
+    try {
+      await api.updateSettings({ asr_model });
+      setStatus({ ok: true, msg: asr_model ? "Transkriptions-Modell gespeichert." : "Transkriptions-Modell auf Vorschlag zurückgesetzt." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function applyAsrSuggestion(suggestion: (typeof ASR_MODEL_SUGGESTIONS)[number]) {
+    if (!settings) return;
+    setSettings({ ...settings, asr_override: suggestion.engine, asr_model: suggestion.model });
+    try {
+      await api.updateSettings({ asr_override: suggestion.engine, asr_model: suggestion.model });
+      setStatus({ ok: true, msg: "Transkriptions-Modell gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function saveDiarizationModel(value: string) {
+    if (!settings) return;
+    const diarization_model = value.trim();
+    setSettings({ ...settings, diarization_model });
+    try {
+      await api.updateSettings({ diarization_model });
+      setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
+    }
+  }
+
+  async function applyDiarizationSuggestion(suggestion: (typeof DIARIZATION_MODEL_SUGGESTIONS)[number]) {
+    if (!settings) return;
+    setSettings({ ...settings, diarization_model: suggestion.model });
+    try {
+      await api.updateSettings({ diarization_model: suggestion.model });
+      setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
     }
   }
 
@@ -337,6 +452,59 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     {hardware
                       ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Niedrigste Stufe nutzt auf M-Macs weiterhin die GPU.`
                       : "Prüfe RAM und GPU für die empfohlene Stufe…"}
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Transkriptions-Modell</label>
+                  <div className="model-row">
+                    <select
+                      value={settings.asr_override ?? ""}
+                      aria-label="Transkriptions-Engine"
+                      onChange={(e) => saveAsrEngine(e.target.value as AsrEngine)}
+                    >
+                      <option value="">Automatisch nach System</option>
+                      <option value="parakeet-mlx">Parakeet MLX</option>
+                      <option value="faster-whisper">faster-whisper</option>
+                    </select>
+                    <input
+                      type="text"
+                      list="asr-model-suggestions"
+                      value={settings.asr_model ?? ""}
+                      placeholder={
+                        settings.asr_override === "faster-whisper"
+                          ? "medium, large-v3 oder eigener Modellname"
+                          : "mlx-community/parakeet-tdt-0.6b-v3"
+                      }
+                      onChange={(e) => setSettings({ ...settings, asr_model: e.target.value })}
+                      onBlur={(e) => saveAsrModel(e.target.value)}
+                      spellCheck={false}
+                    />
+                    <datalist id="asr-model-suggestions">
+                      {ASR_MODEL_SUGGESTIONS.map((suggestion) => (
+                        <option key={`${suggestion.engine}:${suggestion.model}`} value={suggestion.model} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="suggestion-chips">
+                    {ASR_MODEL_SUGGESTIONS.filter(
+                      (suggestion) => !settings.asr_override || suggestion.engine === settings.asr_override,
+                    ).map((suggestion) => (
+                      <button
+                        key={`${suggestion.engine}:${suggestion.model}`}
+                        type="button"
+                        className="suggestion-chip"
+                        onClick={() => applyAsrSuggestion(suggestion)}
+                      >
+                        <span>{suggestion.label}</span>
+                        <code>{suggestion.model}</code>
+                        <small>{suggestion.note}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    Die Leistungsstufe bleibt nur ein Vorschlag für Laufzeit und Speicher. Der Modellname
+                    ist frei wählbar und wird beim nächsten Transkriptionslauf verwendet.
                   </div>
                 </div>
 
@@ -648,7 +816,38 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 {settings && (
                   <div className="field">
                     <label>Diarisierungs-Modell</label>
-                    <input type="text" value={settings.diarization_model} readOnly />
+                    <input
+                      type="text"
+                      list="diarization-model-suggestions"
+                      value={settings.diarization_model}
+                      placeholder="pyannote/speaker-diarization-community-1"
+                      onChange={(e) => setSettings({ ...settings, diarization_model: e.target.value })}
+                      onBlur={(e) => saveDiarizationModel(e.target.value)}
+                      spellCheck={false}
+                    />
+                    <datalist id="diarization-model-suggestions">
+                      {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
+                        <option key={suggestion.model} value={suggestion.model} />
+                      ))}
+                    </datalist>
+                    <div className="suggestion-chips">
+                      {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
+                        <button
+                          key={suggestion.model}
+                          type="button"
+                          className="suggestion-chip"
+                          onClick={() => applyDiarizationSuggestion(suggestion)}
+                        >
+                          <span>{suggestion.label}</span>
+                          <code>{suggestion.model}</code>
+                          <small>{suggestion.note}</small>
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
+                      Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder
+                      einen lokalen Modellpfad eintragen.
+                    </div>
                   </div>
                 )}
               </>

@@ -59,6 +59,7 @@ export interface AppSettings {
   language: string | null;
   performance_profile: PerformanceProfile;
   asr_override: string | null;
+  asr_model: string;
   recording_source: RecordingSource;
   recording_device_id: string;
   diarization_model: string;

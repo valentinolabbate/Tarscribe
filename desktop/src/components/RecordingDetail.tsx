@@ -564,7 +564,7 @@ export function RecordingDetail({
                 <div className="detail-panel-head">
                   <div>
                     <h2>Fragen & Suchen</h2>
-                    <p>Durchsuche nur diese Aufnahme oder frage den lokalen Wissens-Chat.</p>
+                    <p>Durchsuche nur diese Aufnahme oder frage den konfigurierten Wissens-Chat.</p>
                   </div>
                   <ChatIcon width={20} height={20} />
                 </div>

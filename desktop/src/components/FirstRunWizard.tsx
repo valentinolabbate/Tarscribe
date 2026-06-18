@@ -77,7 +77,8 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
               <LogoIcon className="wizard-logo" />
               <h1>Willkommen bei Tarscribe</h1>
               <p>
-                Transkribiere und analysiere deine Aufnahmen — vollständig lokal auf deinem Mac.
+                Transkribiere und analysiere deine Aufnahmen auf deinem Mac. Optionale Chat-Funktionen
+                verbindest du mit dem Anbieter oder Endpoint deiner Wahl.
                 Lass uns das in wenigen Schritten einrichten.
               </p>
             </div>
@@ -155,8 +156,8 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
             <div>
               <h2>Zusammenfassungen (optional)</h2>
               <p className="muted">
-                Verbinde einen lokalen LLM-Server (Ollama oder LM Studio), um Transkripte
-                zusammenzufassen. Kannst du auch später in den Einstellungen tun.
+                Verbinde ein Chat-Modell, um Transkripte zusammenzufassen. Das kann ein Anbieter
+                oder ein eigener OpenAI-kompatibler Endpoint sein; du kannst es auch später einrichten.
               </p>
               <LlmSettings />
             </div>

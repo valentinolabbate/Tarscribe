@@ -382,7 +382,7 @@ export function ChatPanel({
             className={mode === "chat" ? "seg-btn active" : "seg-btn"}
             onClick={() => chatAvailable && setMode("chat")}
             disabled={!chatAvailable}
-            title={chatAvailable ? "" : "Kein Chat-LLM konfiguriert (Einstellungen → Zusammenfassung)"}
+            title={chatAvailable ? "" : "Kein Chat-Modell konfiguriert (Einstellungen → Zusammenfassung)"}
           >
             Chat
           </button>

@@ -471,7 +471,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         _start_job(job_id, progress=0.05)
         cfg = L.get_llm_config()
         if not cfg["model"]:
-            raise RuntimeError("Kein LLM-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
+            raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
@@ -608,12 +608,12 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
 
 
 def _llm_chat_fn():
-    """Non-streaming chat callable from the configured LLM (raises if unconfigured)."""
+    """Non-streaming chat callable from the configured chat model (raises if unconfigured)."""
     from . import llm as L
 
     cfg = L.get_llm_config()
     if not cfg["model"]:
-        raise RuntimeError("Kein LLM-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
+        raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
     def _chat(msgs: list[dict]) -> str:
         return "".join(

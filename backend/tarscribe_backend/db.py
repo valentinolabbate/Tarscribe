@@ -90,6 +90,8 @@ def _run_lightweight_migrations() -> None:
         ("recordings", "kind", "TEXT DEFAULT 'recording'"),
         ("recordings", "exported_at", "DATETIME"),
         ("action_items", "due_date", "TEXT"),
+        ("action_items", "include_in_tasks", "INTEGER DEFAULT 0"),
+        ("summaries", "sources", "TEXT"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:

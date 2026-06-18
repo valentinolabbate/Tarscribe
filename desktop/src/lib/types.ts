@@ -61,9 +61,12 @@ export interface AppSettings {
   recording_device_id: string;
   diarization_model: string;
   speaker_match_threshold: number;
+  /** Known-speaker id treated as "me" for the Tasks area. 0/null = unset. */
+  my_speaker_id: number | null;
   llm: { provider: string; base_url: string; model: string | null };
   hf_token_set: boolean;
   llm_chunk_size: number;
+  summary_use_topic_knowledge: boolean;
   digest_export_path: string;
   dictation_shortcut: string;
   meeting_detection_enabled: boolean;
@@ -95,12 +98,22 @@ export interface SummaryTemplate {
   is_builtin: boolean;
 }
 
+export interface SummarySource {
+  index: number;
+  recording_id: number | null;
+  recording_title: string | null;
+  document_id?: number | null;
+  source_type: RagSourceType;
+}
+
 export interface Summary {
   id: number;
   recording_id: number;
   template_id: number | null;
   model: string;
   content: string;
+  /** JSON-encoded SummarySource[] of topic knowledge woven into the summary. */
+  sources: string | null;
   created_at: string;
 }
 
@@ -402,6 +415,10 @@ export interface ActionItem {
   due: string | null;
   due_date: string | null;
   done: boolean;
+  /** Assigned to the configured "me" speaker (computed server-side). */
+  is_mine: boolean;
+  /** Explicitly pinned into the global Tasks area despite not being "mine". */
+  include_in_tasks: boolean;
   created_at: string;
   recording_title: string | null;
   topic_id: number | null;

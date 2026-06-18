@@ -309,8 +309,16 @@ export function useExtractActionItems(recordingId: number) {
 export function useUpdateActionItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patch }: { id: number; patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date">> }) =>
-      api.updateActionItem(id, patch),
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: number;
+      patch: Partial<
+        Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date" | "include_in_tasks">
+      >;
+    }) => api.updateActionItem(id, patch),
+    // Prefix match also refreshes the per-recording list (["action-items","recording",id]).
     onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
   });
 }

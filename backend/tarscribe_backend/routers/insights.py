@@ -18,6 +18,7 @@ from ..models import (
     Chapter,
     Digest,
     DiarizationRun,
+    KnownSpeaker,
     Recording,
     RecordingStatus,
     Segment,
@@ -31,6 +32,7 @@ from ..models import (
 )
 from ..overlay import load_overlay
 from ..security import require_token
+from ..settings_store import load_prefs
 
 router = APIRouter(prefix="/api", tags=["insights"], dependencies=[Depends(require_token)])
 
@@ -97,9 +99,49 @@ class ActionItemPatch(BaseModel):
     due: str | None = None
     # ISO date (YYYY-MM-DD); empty string clears the due date.
     due_date: str | None = None
+    include_in_tasks: bool | None = None
 
 
-def _item_dict(item: ActionItem, rec: Recording | None = None, topic: Topic | None = None) -> dict:
+def _norm_name(s: str) -> str:
+    return re.sub(r"\W+", " ", s.lower()).strip()
+
+
+def my_speaker_name(session: Session) -> str | None:
+    """Name of the known speaker the user marked as "me" (None if unset)."""
+    sid = load_prefs().get("my_speaker_id") or None
+    if not sid:
+        return None
+    sp = session.get(KnownSpeaker, int(sid))
+    return sp.name if sp else None
+
+
+def _is_mine(assignee: str | None, my_name: str | None) -> bool:
+    """Whether an action item's assignee refers to the configured "me" speaker.
+
+    Name-based: exact match, a single first name matching mine, or my full name
+    contained in the assignee string. Conservative to avoid grabbing others' tasks.
+    """
+    if not assignee or not my_name:
+        return False
+    a = _norm_name(assignee)
+    n = _norm_name(my_name)
+    if not a or not n:
+        return False
+    if a == n:
+        return True
+    a_tokens = a.split()
+    n_tokens = n.split()
+    if len(a_tokens) == 1 and n_tokens and a_tokens[0] == n_tokens[0]:
+        return True
+    return set(n_tokens) <= set(a_tokens)
+
+
+def _item_dict(
+    item: ActionItem,
+    rec: Recording | None = None,
+    topic: Topic | None = None,
+    my_name: str | None = None,
+) -> dict:
     return {
         "id": item.id,
         "recording_id": item.recording_id,
@@ -109,6 +151,8 @@ def _item_dict(item: ActionItem, rec: Recording | None = None, topic: Topic | No
         "due": item.due,
         "due_date": item.due_date,
         "done": item.done,
+        "include_in_tasks": item.include_in_tasks,
+        "is_mine": _is_mine(item.assignee, my_name),
         "created_at": item.created_at.isoformat(),
         "recording_title": rec.title if rec else None,
         "topic_id": rec.topic_id if rec else None,
@@ -136,7 +180,8 @@ def list_recording_action_items(
         .where(ActionItem.recording_id == recording_id)
         .order_by(ActionItem.id)
     ).all()
-    return [_item_dict(i) for i in items]
+    my_name = my_speaker_name(session)
+    return [_item_dict(i, my_name=my_name) for i in items]
 
 
 @router.get("/action-items")
@@ -157,7 +202,8 @@ def list_action_items(
     if done is not None:
         stmt = stmt.where(ActionItem.done == done)  # noqa: E712
     rows = session.exec(stmt).all()
-    return [_item_dict(item, rec, topic) for item, rec, topic in rows]
+    my_name = my_speaker_name(session)
+    return [_item_dict(item, rec, topic, my_name) for item, rec, topic in rows]
 
 
 @router.patch("/action-items/{item_id}")
@@ -176,7 +222,7 @@ def update_action_item(
     session.add(item)
     session.commit()
     session.refresh(item)
-    return _item_dict(item)
+    return _item_dict(item, my_name=my_speaker_name(session))
 
 
 @router.delete("/action-items/{item_id}", status_code=204)

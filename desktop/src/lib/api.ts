@@ -447,7 +447,9 @@ export const api = {
   },
   updateActionItem: (
     id: number,
-    patch: Partial<Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date">>,
+    patch: Partial<
+      Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date" | "include_in_tasks">
+    >,
   ) =>
     request<ActionItem>(`/api/action-items/${id}`, {
       method: "PATCH",

@@ -25,16 +25,22 @@ Schick die **.dmg** (oder die gezippte **.app**) per AirDrop / USB / Download we
 
 ## 2. So installieren deine Freundin / dein Kumpel die App (einmalig)
 
-Weil die App nicht von Apple notarisiert ist, setzt macOS beim Download ein
-„Quarantäne"-Flag. Bei Apple Silicon erscheint dann oft **„Tarscribe ist beschädigt"**
-— das ist **kein** echter Defekt, sondern Gatekeeper. **Zuverlässigster Weg:**
+Weil die App nicht von Apple notarisiert ist, führt macOS (Sequoia) durch eine mehrstufige
+Gatekeeper-Freigabe. Das ist **kein** echter Defekt, sondern normal – und nur **einmalig** nötig.
+Zuverlässigster Weg:
 
 1. DMG öffnen.
-2. Rechtsklick auf `Tarscribe installieren.command` → **Öffnen**.
-3. Falls macOS das Skript blockiert: einmalig unter **Systemeinstellungen → Datenschutz &
-   Sicherheit → Trotzdem öffnen** freigeben und das Skript erneut öffnen.
-4. Das Skript kopiert Tarscribe nach **Programme**, entfernt die Quarantäne-Flags und startet
-   die App. Danach läuft sie normal über Finder, Launchpad und Spotlight.
+2. Rechtsklick auf `Tarscribe installieren.command` → **Öffnen**. macOS **blockiert** das Skript.
+3. **Systemeinstellungen → Datenschutz & Sicherheit** öffnen und beim Hinweis auf das blockierte
+   Skript **„Trotzdem öffnen"** wählen.
+4. Das Skript **erneut öffnen**. Es kopiert Tarscribe nach **Programme** und startet die App –
+   aber macOS **blockiert jetzt Tarscribe selbst**, weil das Programm noch nicht freigegeben ist.
+5. Wieder in **Datenschutz & Sicherheit** beim Hinweis auf **Tarscribe** **„Trotzdem öffnen"** wählen.
+6. Das Skript **noch einmal öffnen** und in den Einstellungen erneut freigeben.
+7. Zuletzt Tarscribe kurz **mit dem Admin-Passwort** bestätigen – fertig.
+
+Danach läuft Tarscribe normal über Finder, Launchpad und Spotlight. Spätere App-Updates laufen
+über den integrierten Updater **ohne** erneute Freigabe.
 
 > Tipp: Falls schon das **DMG** als „beschädigt" gemeldet wird, vorher
 > `xattr -cr ~/Downloads/Tarscribe_*.dmg` ausführen, dann das DMG öffnen.

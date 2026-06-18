@@ -52,6 +52,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [tab, setTab] = useState<"general" | "summaries" | "rag" | "speakers" | "agents">("general");
+  const { data: knownSpeakers } = useKnownSpeakers();
 
   useEffect(() => {
     api.getSettings().then(setSettings);
@@ -316,7 +317,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                         })
                       }
                     />
-                    <span>Nach laufenden Meeting-Apps suchen und Aufnahme anbieten</span>
+                    <span>Aufnahme anbieten, wenn eine Meeting-App aktiv das Mikrofon nutzt</span>
                   </label>
                   <textarea
                     value={(settings.meeting_detection_apps ?? []).join("\n")}
@@ -343,7 +344,9 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   />
                   <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
                     Ein App-Name pro Zeile, z. B. <code>zoom.us</code> oder <code>Microsoft Teams</code>.
-                    Browser-Meetings lassen sich erst zuverlässig erkennen, wenn die Browser-App hier ergänzt wird.
+                    Die Aufnahme wird nur vorgeschlagen, wenn die App gerade das Mikrofon nutzt – im
+                    Hintergrund laufende Apps lösen keinen Hinweis mehr aus. Für Browser-Meetings die
+                    Browser-App ergänzen (z. B. <code>Google Chrome</code>).
                   </div>
                 </div>
 
@@ -355,6 +358,29 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {tab === "summaries" && (
               <>
                 <LlmSettings />
+
+                {settings && (
+                  <div className="field">
+                    <label>Themenbereich-Wissen</label>
+                    <label className="check-row">
+                      <input
+                        type="checkbox"
+                        checked={settings.summary_use_topic_knowledge ?? true}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setSettings({ ...settings, summary_use_topic_knowledge: next });
+                          api.updateSettings({ summary_use_topic_knowledge: next });
+                        }}
+                      />
+                      <span>Relevantes Wissen aus dem Themenbereich in Zusammenfassungen einbeziehen</span>
+                    </label>
+                    <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                      Zieht passende Passagen aus anderen Transkripten, Zusammenfassungen und
+                      hochgeladenen Dateien desselben Themenbereichs hinzu. Benötigt aktiven
+                      Wissens-Chat (RAG).
+                    </div>
+                  </div>
+                )}
 
                 {settings && (
                   <div className="field">
@@ -443,6 +469,34 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 </div>
 
                 <KnownSpeakers />
+
+                {settings && (
+                  <div className="field">
+                    <label>Das bin ich</label>
+                    <select
+                      value={settings.my_speaker_id ?? 0}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setSettings({ ...settings, my_speaker_id: v || null });
+                        api.updateSettings({ my_speaker_id: v });
+                      }}
+                    >
+                      <option value={0}>— Nicht festgelegt —</option>
+                      {(knownSpeakers ?? []).map((sp) => (
+                        <option key={sp.id} value={sp.id}>
+                          {sp.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 7, lineHeight: 1.5 }}>
+                      Der Aufgaben-Bereich zeigt standardmäßig nur Aufgaben und Entscheidungen, die
+                      diesem Sprecher zugeordnet sind. In jeder Aufnahme werden weiterhin alle
+                      Aufgaben extrahiert; andere lassen sich gezielt zu „Meine Aufgaben“ hinzufügen.
+                      {(knownSpeakers ?? []).length === 0 &&
+                        " Lege zuerst über „Bekannte Sprecher“ eine Stimme an."}
+                    </div>
+                  </div>
+                )}
 
                 {settings && (
                   <div className="field">

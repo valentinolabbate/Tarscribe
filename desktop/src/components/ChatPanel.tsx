@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -15,24 +15,30 @@ interface UiMessage extends ChatMessage {
 
 type Mode = "search" | "chat";
 
-// Turn inline citation markers like [1] into clickable links (url "citation:1").
+// Turn inline citation markers into clickable links (url "citation:1"). Handles
+// single markers ([1]) as well as grouped ones the LLM tends to emit when more
+// than one source backs a statement ([1, 2], [1,2,3]) — each number becomes its
+// own clickable citation so multi-source references aren't lost.
 function remarkCitations() {
   return (tree: unknown) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     visit(tree as any, "text", (node: any, index: number | undefined, parent: any) => {
       if (!parent || index == null || parent.type === "link") return;
       const value: string = node.value;
-      const regex = /\[(\d+)\]/g;
+      const regex = /\[\s*(\d+(?:\s*,\s*\d+)*)\s*\]/g;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const parts: any[] = [];
       let last = 0;
       let match: RegExpExecArray | null;
       while ((match = regex.exec(value))) {
         if (match.index > last) parts.push({ type: "text", value: value.slice(last, match.index) });
-        parts.push({
-          type: "link",
-          url: `citation:${match[1]}`,
-          children: [{ type: "text", value: `[${match[1]}]` }],
+        const nums = match[1].split(",").map((n) => n.trim()).filter(Boolean);
+        nums.forEach((n) => {
+          parts.push({
+            type: "link",
+            url: `citation:${n}`,
+            children: [{ type: "text", value: `[${n}]` }],
+          });
         });
         last = match.index + match[0].length;
       }
@@ -44,7 +50,18 @@ function remarkCitations() {
   };
 }
 
-function ChatMarkdown({ text, onCite }: { text: string; onCite: (n: number) => void }) {
+function ChatMarkdown({
+  text,
+  onCite,
+  validCites,
+}: {
+  text: string;
+  onCite: (n: number) => void;
+  /** Indices that map to a real source. Citations outside it render as plain
+   *  text (the LLM sometimes cites a number with no matching source). When
+   *  undefined (sources not yet known), every citation stays clickable. */
+  validCites?: Set<number>;
+}) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkMath, remarkCitations]}
@@ -52,13 +69,11 @@ function ChatMarkdown({ text, onCite }: { text: string; onCite: (n: number) => v
       components={{
         a({ href, children, ...props }) {
           if (href?.startsWith("citation:")) {
+            const n = Number(href.slice("citation:".length));
+            if (validCites && !validCites.has(n)) return <sup>{children}</sup>;
             return (
               <sup>
-                <button
-                  type="button"
-                  className="cite-link"
-                  onClick={() => onCite(Number(href.slice("citation:".length)))}
-                >
+                <button type="button" className="cite-link" onClick={() => onCite(n)}>
                   {children}
                 </button>
               </sup>
@@ -75,6 +90,36 @@ function ChatMarkdown({ text, onCite }: { text: string; onCite: (n: number) => v
       {text}
     </ReactMarkdown>
   );
+}
+
+// Persist chat history + the chosen mode per scope so both survive page switches
+// and app restarts. Global chat and each recording's scoped chat get their own key.
+const CHAT_HISTORY_LIMIT = 50;
+
+interface PersistedChat {
+  messages: UiMessage[];
+  /** null = no stored preference yet (fall back to availability-based default). */
+  mode: Mode | null;
+}
+
+function chatStorageKey(scope?: { id: number }): string {
+  return scope ? `ts-chat-rec-${scope.id}` : "ts-chat-global";
+}
+
+function loadPersistedChat(key: string): PersistedChat {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { messages: [], mode: null };
+    const parsed = JSON.parse(raw);
+    // Tolerate the older array-only format as well as the {messages, mode} object.
+    if (Array.isArray(parsed)) return { messages: parsed as UiMessage[], mode: null };
+    return {
+      messages: Array.isArray(parsed.messages) ? (parsed.messages as UiMessage[]) : [],
+      mode: parsed.mode === "search" || parsed.mode === "chat" ? parsed.mode : null,
+    };
+  } catch {
+    return { messages: [], mode: null };
+  }
 }
 
 function sourceTypeLabel(t: RagSource["source_type"]): string {
@@ -107,10 +152,14 @@ export function ChatPanel({
   embedded?: boolean;
 }) {
   const scoped = !!scopeRecording;
-  const [mode, setMode] = useState<Mode>("search");
+  const storageKey = chatStorageKey(scopeRecording);
+  // Restore persisted history + mode once at mount (kept in a ref so the
+  // mount-only LLM-config effect can tell whether a mode preference was stored).
+  const restored = useRef<PersistedChat>(loadPersistedChat(storageKey));
+  const [mode, setMode] = useState<Mode>(() => restored.current.mode ?? "search");
   const [chatAvailable, setChatAvailable] = useState(false);
 
-  const [messages, setMessages] = useState<UiMessage[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>(() => restored.current.messages);
   const [input, setInput] = useState("");
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [speakerFilter, setSpeakerFilter] = useState("");
@@ -130,13 +179,15 @@ export function ChatPanel({
 
   useEffect(() => {
     api.getRagStatus().then(setStatus).catch(() => {});
-    // Default to Chat only when a chat model is actually configured.
     api
       .getLlmConfig()
       .then((c) => {
         const ok = !!c.model;
         setChatAvailable(ok);
-        setMode(ok ? "chat" : "search");
+        // Chat needs a model; otherwise force Search. When a model exists, respect
+        // a restored preference and default to Chat only if none was stored.
+        if (!ok) setMode("search");
+        else if (restored.current.mode == null) setMode("chat");
       })
       .catch(() => {});
   }, []);
@@ -145,6 +196,55 @@ export function ChatPanel({
     if (mode === "chat")
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, mode]);
+
+  // Snapshot of what should be persisted; read by the debounced writer + unmount
+  // flush so neither captures stale values.
+  const persistState = useRef<{ key: string; messages: UiMessage[]; mode: Mode }>({
+    key: storageKey,
+    messages,
+    mode,
+  });
+  persistState.current = { key: storageKey, messages, mode };
+
+  const flushPersist = useCallback(() => {
+    const { key, messages, mode } = persistState.current;
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify({ messages: messages.slice(-CHAT_HISTORY_LIMIT), mode }),
+      );
+    } catch {
+      /* ignore quota / serialization errors */
+    }
+  }, []);
+
+  // Persist history + mode per scope. Writes are debounced so a streaming answer's
+  // many deltas coalesce into a single write instead of hammering localStorage.
+  // When the scope itself changes (a reused panel now points at a different
+  // recording), load that conversation instead of writing the previous one over it.
+  const keyRef = useRef(storageKey);
+  useEffect(() => {
+    if (keyRef.current !== storageKey) {
+      keyRef.current = storageKey;
+      const next = loadPersistedChat(storageKey);
+      restored.current = next;
+      setMessages(next.messages);
+      if (next.mode) setMode(next.mode);
+      return;
+    }
+    const timer = setTimeout(flushPersist, 400);
+    return () => clearTimeout(timer);
+  }, [messages, mode, storageKey, flushPersist]);
+
+  // On unmount: stop any in-flight stream and flush the latest state immediately
+  // (the debounce timer above is cancelled on unmount, so flush here too).
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+      flushPersist();
+    },
+    [flushPersist],
+  );
 
   const activeFilterCount =
     (speakerFilter.trim() ? 1 : 0) + (dateFrom ? 1 : 0) + (dateTo ? 1 : 0);
@@ -220,6 +320,13 @@ export function ChatPanel({
     else send();
   }
 
+  function clearChat() {
+    abortRef.current?.abort();
+    setStreaming(false);
+    setOpenSnippet(null);
+    setMessages([]);
+  }
+
   const ragOff = status && !status.vec_available;
 
   function SourceAction({ s }: { s: RagSource | RagHit }) {
@@ -287,6 +394,16 @@ export function ChatPanel({
               : "…"}
         </span>
         <div style={{ flex: 1 }} />
+        {mode === "chat" && messages.length > 0 && (
+          <button
+            className="btn ghost"
+            style={{ padding: "4px 10px", fontSize: 12 }}
+            onClick={clearChat}
+            title="Diesen Chat-Verlauf löschen"
+          >
+            Neuer Chat
+          </button>
+        )}
         <button
           className={showFilters || activeFilterCount > 0 ? "btn ghost active" : "btn ghost"}
           style={{ padding: "4px 10px", fontSize: 12 }}
@@ -467,6 +584,7 @@ export function ChatPanel({
                       <ChatMarkdown
                         text={m.content}
                         onCite={(n) => setOpenSnippet({ m: i, s: n })}
+                        validCites={m.sources ? new Set(m.sources.map((s) => s.index)) : undefined}
                       />
                     ) : streaming && i === messages.length - 1 ? (
                       "…"

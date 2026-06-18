@@ -30,6 +30,9 @@ DEFAULT_PREFS: dict[str, Any] = {
     "recording_device_id": "",  # empty => browser/system default microphone
     "diarization_model": DEFAULT_DIARIZATION_MODEL,
     "speaker_match_threshold": 0.5,
+    # Known-speaker id treated as "me": action items assigned to this speaker's
+    # name are the ones shown in the global Tasks area by default. 0/None = unset.
+    "my_speaker_id": None,
     "llm": {"provider": "ollama", "base_url": "http://localhost:11434/v1", "model": None},
     # RAG embedding endpoint — configured independently from the chat `llm` block.
     "rag_enabled": True,
@@ -45,6 +48,9 @@ DEFAULT_PREFS: dict[str, Any] = {
     "live_speaker_detection_enabled": True,
     # Maximum transcript characters per LLM call before map-reduce chunking kicks in.
     "llm_chunk_size": 48000,
+    # When on (and RAG is enabled), summaries are enriched with relevant passages
+    # from the same topic's other transcripts, summaries and uploaded documents.
+    "summary_use_topic_knowledge": True,
     # Global Markdown destination for cross-topic digests, e.g. an Obsidian vault folder.
     "digest_export_path": "",
     "dictation_shortcut": "Alt+Meta+D",

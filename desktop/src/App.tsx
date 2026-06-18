@@ -504,7 +504,10 @@ export default function App() {
         }
       }).then((u) => unlisteners.push(u));
       listen<{ app_name: string }>("meeting-detected", (e) => {
+        // Don't offer to record while already recording, or while dictation is
+        // using the mic — the live mic would otherwise read as a "meeting".
         if (recordingRef.current.state !== "idle") return;
+        if (dictationRef.current.state !== "idle") return;
         setDetectedMeeting({ appName: e.payload.app_name });
       }).then((u) => unlisteners.push(u));
     });
@@ -695,7 +698,7 @@ export default function App() {
         <div className="meeting-prompt" role="dialog" aria-label="Meeting erkannt">
           <div>
             <strong>Meeting erkannt</strong>
-            <span>{detectedMeeting.appName} läuft. Aufnahme starten?</span>
+            <span>{detectedMeeting.appName} nutzt gerade das Mikrofon. Aufnahme starten?</span>
           </div>
           <button className="btn ghost" onClick={() => setDetectedMeeting(null)}>
             Ignorieren

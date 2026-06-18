@@ -247,6 +247,95 @@ def test_process_recording_skips_diarization():
     assert [s["step"] for s in result["steps"]] == ["upload", "transcribe"]
 
 
+# ── summary creation + export ────────────────────────────────────────────────
+def test_create_summary_default_template_waits_and_returns_content():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/templates":
+            return httpx.Response(
+                200,
+                json=[
+                    {"id": 1, "name": "Custom", "is_builtin": False},
+                    {"id": 2, "name": "Standard", "is_builtin": True},
+                ],
+            )
+        if path == "/api/recordings/5/summarize":
+            captured["template_id"] = request.url.params.get("template_id")
+            return httpx.Response(200, json={"job_id": 9, "summary_id": 3})
+        if path == "/api/recordings/5/jobs":
+            return httpx.Response(200, json=[{"job_id": 9, "phase": "summarize", "status": "done"}])
+        if path == "/api/summaries/3":
+            return httpx.Response(
+                200,
+                json={
+                    "id": 3,
+                    "content": "## Ergebnis\nAlles gut.",
+                    "model": "llama",
+                    "sources": '[{"index": 1, "recording_id": null, "recording_title": "Vorgaben.pdf", "document_id": 4, "source_type": "document"}]',
+                },
+            )
+        return httpx.Response(404, text=path)
+
+    with _client(handler) as c:
+        res = C.create_summary(c, 5, sleep=lambda _: None)
+
+    # Default resolution prefers the built-in template.
+    assert captured["template_id"] == "2"
+    assert res["summary_id"] == 3
+    assert res["status"] == "done"
+    assert "Alles gut" in res["content"]
+    # sources JSON is parsed into a list for the agent.
+    assert res["sources"][0]["recording_title"] == "Vorgaben.pdf"
+
+
+def test_create_summary_resolves_template_by_name():
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/templates":
+            return httpx.Response(
+                200, json=[{"id": 1, "name": "Meeting"}, {"id": 2, "name": "Aufgaben"}]
+            )
+        if path == "/api/recordings/5/summarize":
+            assert request.url.params.get("template_id") == "2"
+            return httpx.Response(200, json={"job_id": 9, "summary_id": 3})
+        return httpx.Response(404, text=path)
+
+    with _client(handler) as c:
+        res = C.create_summary(c, 5, template_name="aufgaben", wait=False)
+    assert res["template_id"] == 2
+    assert res["status"] == "running"
+
+
+def test_create_summary_no_templates_raises():
+    with _client(lambda r: httpx.Response(200, json=[])) as c:
+        with pytest.raises(RuntimeError, match="Vorlage"):
+            C.create_summary(c, 5)
+
+
+def test_export_summary_writes_markdown(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/summaries/3":
+            return httpx.Response(200, json={"id": 3, "content": "# Titel\nInhalt."})
+        return httpx.Response(404, text=request.url.path)
+
+    target = tmp_path / "out" / "summary.md"
+    with _client(handler) as c:
+        res = C.export_summary(c, 3, str(target))
+    assert target.read_text(encoding="utf-8") == "# Titel\nInhalt."
+    assert res["path"] == str(target)
+
+
+def test_export_summary_empty_content_raises(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": 3, "content": "   "})
+
+    with _client(handler) as c:
+        with pytest.raises(RuntimeError, match="keinen Inhalt"):
+            C.export_summary(c, 3, str(tmp_path / "x.md"))
+
+
 # ── host registration ────────────────────────────────────────────────────────
 def _make_target(tmp_path, fmt: str, name: str) -> mcp_link.HostTarget:
     path = tmp_path / name
@@ -362,4 +451,7 @@ def test_server_exposes_expected_tools():
         "get_chapters",
         "get_diarization",
         "list_topics",
+        "list_templates",
+        "create_summary",
+        "export_summary",
     } <= tools

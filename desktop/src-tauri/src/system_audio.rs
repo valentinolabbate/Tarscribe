@@ -117,6 +117,23 @@ pub fn stop_if_recording() {
     cancel_system_audio_recording();
 }
 
+/// Whether the default input device (microphone) is currently in use by any
+/// process. `Some(true)` means a call/recording is live, `Some(false)` means the
+/// mic is idle, and `None` means the platform can't report mic state (so callers
+/// should fall back to a weaker signal rather than assume "idle").
+#[cfg(target_os = "macos")]
+pub fn microphone_in_use() -> Option<bool> {
+    unsafe extern "C" {
+        fn tarscribe_microphone_in_use() -> bool;
+    }
+    Some(unsafe { tarscribe_microphone_in_use() })
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn microphone_in_use() -> Option<bool> {
+    None
+}
+
 fn active_path() -> &'static Mutex<Option<PathBuf>> {
     static ACTIVE_PATH: OnceLock<Mutex<Option<PathBuf>>> = OnceLock::new();
     ACTIVE_PATH.get_or_init(|| Mutex::new(None))

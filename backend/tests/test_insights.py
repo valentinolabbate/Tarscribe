@@ -154,6 +154,46 @@ def test_action_item_crud_and_global_list(client):
     assert len(client.get("/api/action-items").json()) == 1
 
 
+def test_action_items_mine_flagging_and_import(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem, KnownSpeaker
+
+    rec_id, _ = _make_recording()
+    with Session(db.get_engine()) as s:
+        me = KnownSpeaker(name="Valentino L'Abbate")
+        s.add(me)
+        s.flush()
+        me_id = me.id
+        s.add(ActionItem(recording_id=rec_id, kind="task", text="A", assignee="Valentino"))
+        s.add(ActionItem(recording_id=rec_id, kind="task", text="B", assignee="Anna"))
+        s.add(ActionItem(recording_id=rec_id, kind="decision", text="C", assignee=None))
+        s.commit()
+
+    # No "me" configured yet → nothing is mine.
+    items = client.get("/api/action-items").json()
+    assert {i["text"]: i["is_mine"] for i in items} == {"A": False, "B": False, "C": False}
+
+    # Designate the known speaker as "me": first-name match flags item A.
+    assert client.put("/api/settings", json={"my_speaker_id": me_id}).status_code == 200
+    items = client.get("/api/action-items").json()
+    mine = {i["text"]: i["is_mine"] for i in items}
+    assert mine == {"A": True, "B": False, "C": False}
+
+    # Importing another item sets include_in_tasks (round-trips in the payload).
+    item_b = next(i for i in items if i["text"] == "B")
+    r = client.patch(f"/api/action-items/{item_b['id']}", json={"include_in_tasks": True})
+    assert r.status_code == 200
+    assert r.json()["include_in_tasks"] is True
+    assert r.json()["is_mine"] is False
+
+    # Clearing "me" again (sentinel 0) drops the assignment.
+    assert client.put("/api/settings", json={"my_speaker_id": 0}).status_code == 200
+    items = client.get("/api/action-items").json()
+    assert all(i["is_mine"] is False for i in items)
+
+
 def test_extract_endpoint_enqueues_job(client, monkeypatch):
     import tarscribe_backend.jobs as jobs
 

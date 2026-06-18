@@ -276,6 +276,72 @@ def test_hybrid_search_keyword_boosts_exact_term(env):
     assert hits[0]["recording_id"] == rid_a
 
 
+def _add_recording_to_topic(db, topic_id, title, words_text):
+    from tarscribe_backend.models import Recording, Transcript, Word
+
+    with db.session_scope() as s:
+        rec = Recording(topic_id=topic_id, title=title, audio_path="/x.wav")
+        s.add(rec)
+        s.flush()
+        tr = Transcript(recording_id=rec.id, asr_model="m")
+        s.add(tr)
+        s.flush()
+        for i, w in enumerate(words_text.split(" ")):
+            s.add(Word(transcript_id=tr.id, idx=i, start=i * 0.5, end=i * 0.5 + 0.4, text=w + " "))
+        return rec.id
+
+
+def test_retrieve_topic_knowledge_excludes_self_and_other_topics(env):
+    db, rag = env
+    # Two recordings in topic A (one is the one being summarized), one in topic B.
+    rid_self, tid_a = _make_recording(
+        db, title="Self", topic_name="TopicA",
+        words_text="Velociraptor Projekt Zeitplan Meilenstein Abstimmung " * 4,
+    )
+    rid_other = _add_recording_to_topic(
+        db, tid_a, "Other-A",
+        words_text="Velociraptor Projekt Anweisung Sicherheit Vorgabe " * 4,
+    )
+    rid_b, _tid_b = _make_recording(
+        db, title="B", topic_name="TopicB",
+        words_text="Velociraptor Projekt Budget Quartal Umsatz " * 4,
+    )
+    with db.session_scope() as s:
+        rag.index_recording(s, rid_self)
+        rag.index_recording(s, rid_other)
+        rag.index_recording(s, rid_b)
+
+    with db.session_scope() as s:
+        hits = rag.retrieve_topic_knowledge(
+            s, "Velociraptor Projekt", tid_a, exclude_recording_id=rid_self
+        )
+    assert hits, "expected enrichment hits from the same topic"
+    # Strictly the topic of the recording, never the current recording itself.
+    assert all(h["topic_id"] == tid_a for h in hits)
+    assert all(h["recording_id"] != rid_self for h in hits)
+    # The other recording in the same topic is the source of the extra knowledge.
+    assert any(h["recording_id"] == rid_other for h in hits)
+
+
+def test_retrieve_topic_knowledge_caps_total_chars(env):
+    db, rag = env
+    rid_self, tid_a = _make_recording(db, title="Self", topic_name="TopicA")
+    rid_other = _add_recording_to_topic(
+        db, tid_a, "Other", words_text="Budget Quartal Marketing Strategie Umsatz Planung " * 60
+    )
+    with db.session_scope() as s:
+        rag.index_recording(s, rid_self)
+        rag.index_recording(s, rid_other)
+    with db.session_scope() as s:
+        hits = rag.retrieve_topic_knowledge(
+            s, "Budget Quartal", tid_a, exclude_recording_id=rid_self, max_chars=1200
+        )
+    total = sum(len(h["text"]) for h in hits)
+    # First hit may exceed the cap, but we stop adding once it's reached.
+    assert total <= 1200 + len(hits[0]["text"]) if hits else True
+    assert len(hits) <= 8
+
+
 def test_search_date_and_speaker_filters(env):
     db, rag = env
     from datetime import datetime, timezone

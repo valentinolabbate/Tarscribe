@@ -202,6 +202,9 @@ class Summary(SQLModel, table=True):
     template_id: Optional[int] = Field(default=None, foreign_key="summary_templates.id")
     model: str
     content: str = ""
+    # JSON-encoded list of topic-knowledge passages woven into this summary
+    # (see jobs._run_summary). None when no extra knowledge was used.
+    sources: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -278,6 +281,9 @@ class ActionItem(SQLModel, table=True):
     due: Optional[str] = None  # free-text deadline as spoken ("bis Freitag")
     due_date: Optional[str] = None  # user-set ISO date (YYYY-MM-DD) for filtering/calendar export
     done: bool = False
+    # User opt-in to surface a not-"mine" item in the global Tasks area (which by
+    # default only shows items assigned to the configured "me" speaker).
+    include_in_tasks: bool = False
     created_at: datetime = Field(default_factory=_utcnow)
 
 

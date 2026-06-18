@@ -13,7 +13,7 @@ import {
 } from "../hooks/queries";
 import { trackSummaryStart, useSummaryStream } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
-import type { SummaryTemplate } from "../lib/types";
+import type { SummarySource, SummaryTemplate } from "../lib/types";
 import { ChevronIcon, TrashIcon } from "./icons";
 import { useToast } from "./Toast";
 
@@ -42,6 +42,45 @@ function previewLine(md: string): string {
 function describeTemplate(t: SummaryTemplate): string {
   const text = t.system_prompt.trim() || t.user_prompt_template.trim();
   return text.length > 150 ? `${text.slice(0, 150)}…` : text;
+}
+
+function parseSources(raw: string | null): SummarySource[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as SummarySource[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function sourceTypeLabel(t: SummarySource["source_type"]): string {
+  if (t === "document") return "Datei";
+  if (t === "summary") return "Zusammenfassung";
+  return "Transkript";
+}
+
+/** Chips showing which topic knowledge a summary drew on (RAG enrichment). */
+function SummarySources({ raw }: { raw: string | null }) {
+  const sources = parseSources(raw);
+  if (sources.length === 0) return null;
+  return (
+    <div className="summary-sources">
+      <span className="rec-sub">Einbezogenes Wissen aus dem Themenbereich:</span>
+      <div className="summary-sources-chips">
+        {sources.map((s) => (
+          <span
+            key={s.index}
+            className="badge"
+            title={sourceTypeLabel(s.source_type)}
+            style={{ fontSize: 11 }}
+          >
+            {s.recording_title || "Quelle"} · {sourceTypeLabel(s.source_type)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function SummaryPanel({
@@ -187,6 +226,9 @@ export function SummaryPanel({
               {streaming && <span className="caret">▋</span>}
             </div>
           )}
+          {!streaming && !streamError && (
+            <SummarySources raw={summaries?.find((s) => s.id === activeSummaryId)?.sources ?? null} />
+          )}
         </div>
       )}
 
@@ -231,6 +273,7 @@ export function SummaryPanel({
               {open && (
                 <div className="summary-text markdown">
                   <Markdown>{s.content}</Markdown>
+                  <SummarySources raw={s.sources} />
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 #include <AudioToolbox/ExtendedAudioFile.h>
+#include <CoreAudio/AudioHardware.h>
 #include <CoreAudio/AudioHardwareTapping.h>
 #include <CoreAudio/CATapDescription.h>
 #include <Foundation/Foundation.h>
@@ -328,4 +329,31 @@ extern "C" int tarscribe_system_audio_poll(float* out, int maxSamples) {
     }
     state.ringRead.store(read, std::memory_order_release);
     return count;
+}
+
+// True if the system's default input device (microphone) is currently running —
+// i.e. some process is actively capturing from it. Meeting detection uses this to
+// distinguish "a conferencing app is merely open" from "a call is actually live",
+// so permanently-running background helpers don't trigger a recording prompt.
+extern "C" bool tarscribe_microphone_in_use() {
+    AudioObjectID device = kAudioObjectUnknown;
+    UInt32 size = sizeof(device);
+    AudioObjectPropertyAddress defaultInput =
+        propertyAddress(kAudioHardwarePropertyDefaultInputDevice);
+    OSStatus status = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &defaultInput, 0, nullptr, &size, &device);
+    if (status != kAudioHardwareNoError || device == kAudioObjectUnknown) {
+        return false;
+    }
+
+    UInt32 running = 0;
+    size = sizeof(running);
+    AudioObjectPropertyAddress runningSomewhere =
+        propertyAddress(kAudioDevicePropertyDeviceIsRunningSomewhere);
+    status = AudioObjectGetPropertyData(
+        device, &runningSomewhere, 0, nullptr, &size, &running);
+    if (status != kAudioHardwareNoError) {
+        return false;
+    }
+    return running != 0;
 }

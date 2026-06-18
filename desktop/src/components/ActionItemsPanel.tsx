@@ -57,6 +57,23 @@ export function ActionItemRow({
             {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
           </span>
           {item.assignee && <span>{item.assignee}</span>}
+          {item.is_mine ? (
+            <span className="action-mine" title="Dir zugeordnet">Ich</span>
+          ) : (
+            <button
+              className={`action-import ${item.include_in_tasks ? "on" : ""}`}
+              title={
+                item.include_in_tasks
+                  ? "Aus „Meine Aufgaben“ entfernen"
+                  : "Zu „Meine Aufgaben“ hinzufügen"
+              }
+              onClick={() =>
+                update.mutate({ id: item.id, patch: { include_in_tasks: !item.include_in_tasks } })
+              }
+            >
+              {item.include_in_tasks ? "★ Meine Aufgabe" : "☆ Übernehmen"}
+            </button>
+          )}
           {!item.due_date && item.due && <span>bis {item.due}</span>}
           <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
             {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}

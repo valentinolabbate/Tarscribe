@@ -121,6 +121,12 @@ class BackendClient:
     def get_chapters(self, recording_id: int) -> list[dict]:
         return self._request("GET", f"/api/recordings/{recording_id}/chapters")
 
+    def list_templates(self) -> list[dict]:
+        return self._request("GET", "/api/templates")
+
+    def get_summary(self, summary_id: int) -> dict:
+        return self._request("GET", f"/api/summaries/{summary_id}")
+
     # --- write / actions ----------------------------------------------------
     def create_topic(self, name: str, color: str | None = None) -> dict:
         body: dict[str, Any] = {"name": name}
@@ -154,6 +160,13 @@ class BackendClient:
 
     def match_speakers(self, recording_id: int) -> dict:
         return self._request("POST", f"/api/recordings/{recording_id}/match")
+
+    def summarize(self, recording_id: int, template_id: int) -> dict:
+        return self._request(
+            "POST",
+            f"/api/recordings/{recording_id}/summarize",
+            params={"template_id": template_id},
+        )
 
     # --- job polling --------------------------------------------------------
     def wait_for_job(
@@ -237,3 +250,88 @@ def process_recording(
     if matches is not None:
         result["speaker_matches"] = matches
     return result
+
+
+def _resolve_template(
+    client: BackendClient, template_id: int | None, template_name: str | None
+) -> int:
+    """Pick a summary template: explicit id wins, then name match, then a default
+    (preferring a built-in template, otherwise the first one)."""
+    if template_id is not None:
+        return template_id
+    templates = client.list_templates()
+    if not templates:
+        raise RuntimeError(
+            "Keine Zusammenfassungs-Vorlage vorhanden. Bitte zuerst eine Vorlage anlegen."
+        )
+    if template_name:
+        wanted = template_name.strip().lower()
+        match = next(
+            (t for t in templates if str(t.get("name", "")).strip().lower() == wanted), None
+        )
+        if match is None:
+            names = ", ".join(str(t.get("name")) for t in templates)
+            raise RuntimeError(f"Vorlage '{template_name}' nicht gefunden. Verfügbar: {names}")
+        return int(match["id"])
+    default = next((t for t in templates if t.get("is_builtin")), templates[0])
+    return int(default["id"])
+
+
+def create_summary(
+    client: BackendClient,
+    recording_id: int,
+    *,
+    template_id: int | None = None,
+    template_name: str | None = None,
+    wait: bool = True,
+    timeout_sec: float = 600.0,
+    **wait_kw: Any,
+) -> dict:
+    """Generate a summary for a recording, optionally with a specific template.
+
+    Blocks until the summary is ready (``wait``) and returns its content; set
+    ``wait=False`` to return immediately with the job id to poll via get_jobs.
+    """
+    tpl_id = _resolve_template(client, template_id, template_name)
+    started = client.summarize(recording_id, tpl_id)
+    summary_id = int(started["summary_id"])
+    job_id = int(started["job_id"])
+    result: dict[str, Any] = {
+        "recording_id": recording_id,
+        "summary_id": summary_id,
+        "template_id": tpl_id,
+        "job_id": job_id,
+    }
+    if not wait:
+        result["status"] = "running"
+        return result
+
+    client.wait_for_job(recording_id, job_id, timeout_sec, **wait_kw)
+    summary = client.get_summary(summary_id)
+    sources_raw = summary.get("sources")
+    if isinstance(sources_raw, str) and sources_raw:
+        try:
+            sources_raw = json.loads(sources_raw)
+        except json.JSONDecodeError:
+            sources_raw = None
+    result.update(
+        status="done",
+        content=summary.get("content", ""),
+        model=summary.get("model"),
+        sources=sources_raw or [],
+    )
+    return result
+
+
+def export_summary(client: BackendClient, summary_id: int, file_path: str) -> dict:
+    """Write a summary's Markdown content to ``file_path``. Returns the path."""
+    summary = client.get_summary(summary_id)
+    content = (summary.get("content") or "").strip()
+    if not content:
+        raise RuntimeError(
+            f"Zusammenfassung {summary_id} hat noch keinen Inhalt — ist der Job fertig?"
+        )
+    target = Path(file_path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return {"path": str(target), "bytes": len(content.encode("utf-8"))}

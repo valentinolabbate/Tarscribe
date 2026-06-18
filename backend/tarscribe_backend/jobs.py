@@ -84,6 +84,31 @@ def _save_summary_content(summary_id: int, content: str, model: str) -> None:
             s.add(summary)
 
 
+def _save_summary_sources(summary_id: int, hits: list[dict]) -> None:
+    """Persist the topic-knowledge passages woven into a summary (for the UI).
+
+    Stored as a compact JSON list (no full passage text) so the recording detail
+    can show which files/recordings the summary drew on.
+    """
+    import json
+
+    sources = [
+        {
+            "index": i,
+            "recording_id": h.get("recording_id"),
+            "recording_title": h.get("recording_title"),
+            "document_id": h.get("document_id"),
+            "source_type": h.get("source_type"),
+        }
+        for i, h in enumerate(hits, 1)
+    ]
+    with session_scope() as s:
+        summary = s.get(Summary, summary_id)
+        if summary:
+            summary.sources = json.dumps(sources, ensure_ascii=False)
+            s.add(summary)
+
+
 def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
     from .ml.asr.factory import get_backend  # lazy: avoids importing ML at startup
 
@@ -331,6 +356,26 @@ def _assemble_transcript(session, recording_id: int) -> tuple[str, list[str]]:
     return "\n".join(lines), speakers
 
 
+_KNOWLEDGE_TYPE_LABELS = {
+    "document": "Datei",
+    "summary": "Zusammenfassung",
+    "transcript": "Transkript",
+}
+
+
+def _format_topic_knowledge(hits: list[dict]) -> str:
+    """Render retrieved topic passages into a labeled, numbered context block."""
+    lines: list[str] = []
+    for i, h in enumerate(hits, 1):
+        title = h.get("recording_title") or "Quelle"
+        type_label = _KNOWLEDGE_TYPE_LABELS.get(h.get("source_type"), h.get("source_type") or "")
+        text = (h.get("text") or "").strip()
+        if not text:
+            continue
+        lines.append(f"[{i}] {title} ({type_label}):\n{text}")
+    return "\n\n".join(lines)
+
+
 def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: int) -> None:
     from . import llm as L
     from .models import SummaryTemplate, Topic
@@ -351,6 +396,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
                 raise RuntimeError("Aufnahme oder Vorlage nicht gefunden")
             topic = s.get(Topic, rec.topic_id)
             topic_name = topic.name if topic else ""
+            topic_id = rec.topic_id
             rec_duration = rec.duration_sec
             rec_created = rec.created_at
             tpl_system = tpl.system_prompt
@@ -370,7 +416,9 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         provider = cfg.get("provider")
 
         from .settings_store import load_prefs as _load_prefs
-        chunk_size = int(_load_prefs().get("llm_chunk_size") or 48000)
+        prefs = _load_prefs()
+        chunk_size = int(prefs.get("llm_chunk_size") or 48000)
+        use_topic_knowledge = bool(prefs.get("summary_use_topic_knowledge", True))
 
         def _chat(msgs: list[dict]) -> str:
             return "".join(L.stream_chat(msgs, model, base,
@@ -395,8 +443,38 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
 
         ctx = L.build_context(rec_duration, rec_created, topic_name, text, speakers)
         user_prompt = L.render_template(tpl_user, ctx)
+        system_prompt = tpl_system or "Du bist ein hilfreicher Assistent."
+
+        # Enrich the summary with relevant knowledge from the same topic (other
+        # transcripts, summaries and uploaded documents). Best-effort: any failure
+        # (RAG off, embedding endpoint down, no hits) just summarizes as before.
+        if use_topic_knowledge:
+            from . import rag as R
+
+            if R.rag_enabled():
+                try:
+                    with session_scope() as s:
+                        hits = R.retrieve_topic_knowledge(
+                            s, text, topic_id, exclude_recording_id=recording_id
+                        )
+                    block = _format_topic_knowledge(hits)
+                    if block:
+                        _save_summary_sources(summary_id, hits)
+                        system_prompt += (
+                            "\n\nDir steht zusätzlicher Kontext aus demselben Themenbereich "
+                            "zur Verfügung (Dateien, andere Transkripte und Zusammenfassungen). "
+                            "Nutze ihn, wo er inhaltlich zur Aufnahme passt, um die "
+                            "Zusammenfassung präziser und vollständiger zu machen. Erfinde "
+                            "nichts und übernimm nichts Unpassendes."
+                        )
+                        user_prompt += (
+                            "\n\n--- Zusätzlicher Kontext aus dem Themenbereich ---\n" + block
+                        )
+                except Exception:  # noqa: BLE001 - never fail a summary over enrichment
+                    traceback.print_exc()
+
         messages = [
-            {"role": "system", "content": tpl_system or "Du bist ein hilfreicher Assistent."},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
 
@@ -566,6 +644,9 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
                     text=item["text"],
                     assignee=item.get("assignee"),
                     due=item.get("due"),
+                    # Dictation captures the user's own notes — always surface them
+                    # in the Tasks area regardless of the detected assignee.
+                    include_in_tasks=True,
                 )
             )
 

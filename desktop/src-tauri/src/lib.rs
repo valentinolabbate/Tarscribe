@@ -205,6 +205,14 @@ fn start_meeting_detection_loop(app: tauri::AppHandle) {
             continue;
         };
 
+        // Conferencing apps keep helper processes running permanently, so "app is
+        // running" alone produces constant false positives. Only prompt when the
+        // microphone is actually live (a call is in progress). Where mic state
+        // can't be read, fall back to the app-running signal.
+        if system_audio::microphone_in_use() == Some(false) {
+            continue;
+        }
+
         let now = Instant::now();
         let should_emit = {
             let mut last = match state.last_prompted.lock() {

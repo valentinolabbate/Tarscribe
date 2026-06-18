@@ -9,6 +9,7 @@ import { useToast } from "./Toast";
 
 type DoneFilter = "open" | "all" | "done";
 type DueFilter = "any" | "overdue" | "week";
+type OwnerFilter = "mine" | "all";
 
 /** Local ISO date (YYYY-MM-DD) `days` from today. */
 function isoInDays(days: number): string {
@@ -28,6 +29,7 @@ export function TasksPage({
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [doneFilter, setDoneFilter] = useState<DoneFilter>("open");
   const [dueFilter, setDueFilter] = useState<DueFilter>("any");
+  const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>("mine");
   const toast = useToast();
 
   const { data: items, isLoading } = useActionItems({
@@ -35,15 +37,22 @@ export function TasksPage({
     done: doneFilter === "all" ? null : doneFilter === "done",
   });
 
+  // "mine": only items assigned to the configured "me" speaker plus ones the user
+  // explicitly imported; "all": every extracted item across recordings.
+  const ownerItems = useMemo(() => {
+    const list = items ?? [];
+    return ownerFilter === "all" ? list : list.filter((i) => i.is_mine || i.include_in_tasks);
+  }, [items, ownerFilter]);
+
   const visibleItems = useMemo(() => {
-    if (dueFilter === "any") return items ?? [];
+    if (dueFilter === "any") return ownerItems;
     const weekLimit = isoInDays(7);
-    return (items ?? []).filter((item) => {
+    return ownerItems.filter((item) => {
       if (dueFilter === "overdue") return isOverdue(item);
       // "week": open items due within the next 7 days (incl. overdue).
       return !item.done && !!item.due_date && item.due_date <= weekLimit;
     });
-  }, [items, dueFilter]);
+  }, [ownerItems, dueFilter]);
 
   async function exportIcs() {
     try {
@@ -68,8 +77,8 @@ export function TasksPage({
     return [...map.entries()];
   }, [visibleItems]);
 
-  const openCount = items?.filter((i) => !i.done).length ?? 0;
-  const hasDatedOpen = (items ?? []).some((i) => !i.done && !!i.due_date);
+  const openCount = ownerItems.filter((i) => !i.done).length;
+  const hasDatedOpen = ownerItems.some((i) => !i.done && !!i.due_date);
 
   return (
     <div className="tasks-page">
@@ -96,6 +105,22 @@ export function TasksPage({
       </header>
 
       <div className="tasks-filters">
+        <div className="seg">
+          {(["mine", "all"] as const).map((f) => (
+            <button
+              key={f}
+              className={ownerFilter === f ? "seg-btn active" : "seg-btn"}
+              onClick={() => setOwnerFilter(f)}
+              title={
+                f === "mine"
+                  ? "Nur mir zugeordnete und übernommene Einträge"
+                  : "Alle extrahierten Einträge aller Sprecher"
+              }
+            >
+              {f === "mine" ? "Meine" : "Alle"}
+            </button>
+          ))}
+        </div>
         <div className="seg">
           {(["open", "all", "done"] as const).map((f) => (
             <button
@@ -158,9 +183,11 @@ export function TasksPage({
           <TasksIcon width={28} height={28} />
           <div className="big">Keine Einträge</div>
           <div>
-            {doneFilter === "open"
-              ? "Nichts offen — oder es wurde noch nichts extrahiert."
-              : "Für diesen Filter gibt es keine Einträge."}
+            {ownerFilter === "mine" && (items?.length ?? 0) > 0
+              ? "Nichts dir zugeordnet. Lege in den Einstellungen fest, wer „Ich“ ist, oder übernimm Einträge über „Alle“."
+              : doneFilter === "open"
+                ? "Nichts offen — oder es wurde noch nichts extrahiert."
+                : "Für diesen Filter gibt es keine Einträge."}
           </div>
         </div>
       )}

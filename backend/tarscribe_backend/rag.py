@@ -621,6 +621,46 @@ def search(
     return hits
 
 
+def retrieve_topic_knowledge(
+    session: Session,
+    query: str,
+    topic_id: int,
+    exclude_recording_id: int | None = None,
+    top_k: int = 8,
+    max_chars: int = 6000,
+) -> list[dict]:
+    """Passages from the *same topic* used to enrich a recording's summary.
+
+    Reuses the hybrid :func:`search`, restricted to ``topic_id`` and with the
+    recording being summarized removed (its own transcript/summary is not "extra"
+    knowledge). Returns at most ``top_k`` hits, capped to ``max_chars`` total text
+    so the summary prompt stays within budget. Generous by design: no relevance
+    floor — the LLM is told to use the context only where it fits.
+    """
+    if not query.strip():
+        return []
+    # Embedding endpoints truncate or error on very long inputs; a representative
+    # slice is enough to surface the dominant themes of the recording.
+    q = query[:4000]
+    # Over-fetch so dropping the current recording still leaves enough material.
+    hits = search(session, q, top_k=top_k * 3, topic_id=topic_id)
+    out: list[dict] = []
+    used = 0
+    for h in hits:
+        if exclude_recording_id is not None and h.get("recording_id") == exclude_recording_id:
+            continue
+        text = (h.get("text") or "").strip()
+        if not text:
+            continue
+        if out and used + len(text) > max_chars:
+            break
+        out.append(h)
+        used += len(text)
+        if len(out) >= top_k:
+            break
+    return out
+
+
 def index_stats(session: Session) -> dict:
     from sqlalchemy import func
 

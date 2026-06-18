@@ -155,36 +155,6 @@ function TopicRow({
           ))}
         </span>
       )}
-      {topic.calendar_export_mode !== "off" && (
-        <span
-          className={`topic-calendar-indicator ${topic.calendar_export_mode}`}
-          title={
-            topic.calendar_export_mode === "auto"
-              ? "Kalender: automatisch"
-              : "Kalender: mit Freigabe"
-          }
-        >
-          <CalendarIcon width={12} height={12} />
-        </span>
-      )}
-      <select
-        className="topic-calendar-mode"
-        value={topic.calendar_export_mode}
-        title="Kalender-Export für Aufgaben"
-        onClick={(e) => e.stopPropagation()}
-        onDoubleClick={(e) => e.stopPropagation()}
-        onChange={(e) => {
-          e.stopPropagation();
-          update.mutate({
-            id: topic.id,
-            patch: { calendar_export_mode: e.target.value as Topic["calendar_export_mode"] },
-          });
-        }}
-      >
-        <option value="off">Kalender aus</option>
-        <option value="approval">Freigabe</option>
-        <option value="auto">Auto</option>
-      </select>
       <span className="topic-reorder" aria-label="Sortieren">
         <button
           className="topic-move"
@@ -227,6 +197,32 @@ function TopicRow({
         <TrashIcon width={13} height={13} />
       </button>
     </div>
+  );
+}
+
+function TopicCalendarControl({ topic }: { topic: Topic }) {
+  const update = useUpdateTopic();
+  return (
+    <label
+      className={`topic-calendar-control ${topic.calendar_export_mode}`}
+      title="Kalender-Export für erkannte Aufgaben"
+    >
+      <CalendarIcon width={16} height={16} />
+      <select
+        value={topic.calendar_export_mode}
+        disabled={update.isPending}
+        onChange={(e) => {
+          update.mutate({
+            id: topic.id,
+            patch: { calendar_export_mode: e.target.value as Topic["calendar_export_mode"] },
+          });
+        }}
+      >
+        <option value="off">Kalender aus</option>
+        <option value="approval">Kalender: Freigabe</option>
+        <option value="auto">Kalender: Auto</option>
+      </select>
+    </label>
   );
 }
 
@@ -696,14 +692,17 @@ export default function App() {
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
           {current && !showHome && !showTasks && !showJobs && (
-            <button
-              className="btn ghost"
-              title={current.export_path ? `Export-Ordner: ${current.export_path}` : "Export-Ordner festlegen"}
-              onClick={() => setShowTopicExport(true)}
-            >
-              <FolderIcon width={16} height={16} />
-              {current.export_path ? "Export bereit" : "Export-Ordner"}
-            </button>
+            <>
+              <button
+                className="btn ghost"
+                title={current.export_path ? `Export-Ordner: ${current.export_path}` : "Export-Ordner festlegen"}
+                onClick={() => setShowTopicExport(true)}
+              >
+                <FolderIcon width={16} height={16} />
+                {current.export_path ? "Export bereit" : "Export-Ordner"}
+              </button>
+              <TopicCalendarControl topic={current} />
+            </>
           )}
           <HardwarePill />
         </div>

@@ -162,6 +162,10 @@ button {
   box-shadow: inset 3px 0 var(--accent);
   font-weight: 650;
 }
+.topic-row {
+  position: relative;
+  min-width: 0;
+}
 .debug-jobs-nav {
   min-height: 32px;
   padding-block: 7px;
@@ -180,6 +184,7 @@ button {
 }
 .topic-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -189,6 +194,7 @@ button {
   align-items: center;
   gap: 3px;
   flex: none;
+  margin-left: auto;
 }
 .topic-artifact {
   min-width: 18px;
@@ -214,38 +220,11 @@ button {
   background: color-mix(in srgb, var(--ok) 14%, transparent);
   color: var(--ok);
 }
-.topic-calendar-indicator {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  color: var(--text-faint);
-  background: color-mix(in srgb, var(--text-faint) 10%, transparent);
-  flex: none;
-}
-.topic-calendar-indicator.auto {
-  color: var(--ok);
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
-}
-.topic-calendar-indicator.approval {
-  color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 13%, transparent);
-}
-.topic-calendar-mode {
-  width: 82px;
-  min-height: 24px;
-  padding: 2px 5px;
-  font-size: 10.5px;
-  flex: none;
-  opacity: 0;
-  transition: opacity 0.12s;
-}
-.topic-row:hover .topic-calendar-mode,
-.topic-calendar-mode:focus {
-  opacity: 1;
-}
 .topic-del {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   opacity: 0;
   background: transparent;
   border: none;
@@ -255,23 +234,32 @@ button {
   display: grid;
   place-items: center;
   transition: opacity 0.12s, color 0.12s;
+  pointer-events: none;
 }
-.topic-item:hover .topic-del {
+.topic-item:hover .topic-del,
+.topic-row:focus-within .topic-del {
   opacity: 1;
+  pointer-events: auto;
 }
 .topic-del:hover {
   color: var(--danger);
 }
 .topic-reorder {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  flex: none;
   opacity: 0;
   transition: opacity 0.12s;
+  pointer-events: none;
 }
-.topic-row:hover .topic-reorder {
+.topic-row:hover .topic-reorder,
+.topic-row:focus-within .topic-reorder {
   opacity: 1;
+  pointer-events: auto;
 }
 .topic-move {
   background: transparent;
@@ -372,6 +360,41 @@ button {
 .topbar .spacer {
   flex: 1 1 auto;
   min-width: 0;
+}
+.topic-calendar-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 6px 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  background: transparent;
+}
+.topic-calendar-control:hover {
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  color: var(--text);
+}
+.topic-calendar-control.approval {
+  color: var(--warn);
+}
+.topic-calendar-control.auto {
+  color: var(--ok);
+}
+.topic-calendar-control select {
+  width: 142px;
+  min-height: 28px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+.topic-calendar-control select:focus {
+  outline: 1px solid color-mix(in srgb, currentColor 36%, transparent);
+  outline-offset: 1px;
 }
 .content {
   flex: 1;

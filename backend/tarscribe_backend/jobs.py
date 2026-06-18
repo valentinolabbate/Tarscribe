@@ -38,6 +38,31 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-job"
 _embed_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-embed")
 
 
+class JobCanceled(RuntimeError):
+    """Raised inside worker threads when a user cancels a job."""
+
+
+def _status_value(status) -> str:
+    return status.value if isinstance(status, JobStatus) else str(status)
+
+
+def _is_job_canceled(job_id: int) -> bool:
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        return bool(job and _status_value(job.status) == JobStatus.canceled.value)
+
+
+def _raise_if_canceled(job_id: int) -> None:
+    if _is_job_canceled(job_id):
+        raise JobCanceled()
+
+
+def _start_job(job_id: int, progress: float) -> None:
+    _raise_if_canceled(job_id)
+    _update_job(job_id, status=JobStatus.running, progress=progress)
+    _raise_if_canceled(job_id)
+
+
 def serialize_job(job: Job) -> dict:
     """Return the shared REST/WS job event shape."""
     return {
@@ -57,6 +82,12 @@ def _update_job(job_id: int, **fields) -> dict:
         job = s.get(Job, job_id)
         if not job:
             return {}
+        requested_status = fields.get("status")
+        if (
+            _status_value(job.status) == JobStatus.canceled.value
+            and _status_value(requested_status) != JobStatus.canceled.value
+        ):
+            return serialize_job(job)
         for k, v in fields.items():
             setattr(job, k, v)
         s.add(job)
@@ -72,6 +103,41 @@ def _set_recording_status(recording_id: int, status: RecordingStatus) -> None:
         if rec:
             rec.status = status
             s.add(rec)
+
+
+def _set_recording_status_after_cancel(recording_id: int) -> None:
+    with session_scope() as s:
+        rec = s.get(Recording, recording_id)
+        if not rec:
+            return
+        has_transcript = (
+            s.exec(select(Transcript).where(Transcript.recording_id == recording_id)).first()
+            is not None
+        )
+        rec.status = RecordingStatus.ready if has_transcript else RecordingStatus.uploaded
+        s.add(rec)
+
+
+def cancel_job(job_id: int) -> dict | None:
+    """Mark a pending/running job as canceled and broadcast the update."""
+    reset_recording_id: int | None = None
+    with session_scope() as s:
+        job = s.get(Job, job_id)
+        if not job:
+            return None
+        if _status_value(job.status) not in {JobStatus.pending.value, JobStatus.running.value}:
+            return serialize_job(job)
+        if job.phase in (JobPhase.asr, JobPhase.diarization):
+            reset_recording_id = job.recording_id
+        job.status = JobStatus.canceled
+        job.updated_at = datetime.now(timezone.utc)
+        s.add(job)
+        s.flush()
+        payload = serialize_job(job)
+    if reset_recording_id is not None:
+        _set_recording_status_after_cancel(reset_recording_id)
+    hub.broadcast(payload)
+    return payload
 
 
 def _save_summary_content(summary_id: int, content: str, model: str) -> None:
@@ -113,7 +179,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
     from .ml.asr.factory import get_backend  # lazy: avoids importing ML at startup
 
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.0)
+        _start_job(job_id, progress=0.0)
         _set_recording_status(recording_id, RecordingStatus.transcribing)
 
         with session_scope() as s:
@@ -135,6 +201,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         last = {"t": 0.0}
 
         def progress(frac: float, _msg: str) -> None:
+            _raise_if_canceled(job_id)
             # Throttle DB writes / broadcasts to ~4/sec.
             now = time.monotonic()
             if now - last["t"] >= 0.25 or frac >= 0.99:
@@ -148,6 +215,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
             backend = get_backend(override)
             result = backend.transcribe(audio_path, language=language, progress=progress)
         backend = None  # drop strong ref so the model can be unloaded below
+        _raise_if_canceled(job_id)
 
         if not result.words:
             raise RuntimeError(
@@ -195,10 +263,17 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         _maybe_postprocess_dictation(recording_id)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
+        _set_recording_status_after_cancel(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
-        _set_recording_status(recording_id, RecordingStatus.failed)
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+            _set_recording_status_after_cancel(recording_id)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
+            _set_recording_status(recording_id, RecordingStatus.failed)
     finally:
         # Free the ASR model so the app doesn't keep it resident while idle.
         from .ml.lifecycle import unload_all
@@ -215,7 +290,7 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
     from .settings_store import get_hf_token, load_prefs
 
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.0)
+        _start_job(job_id, progress=0.0)
         _set_recording_status(recording_id, RecordingStatus.diarizing)
 
         token = get_hf_token()
@@ -238,6 +313,7 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         last = {"t": 0.0}
 
         def progress(frac: float, _msg: str) -> None:
+            _raise_if_canceled(job_id)
             now = time.monotonic()
             if now - last["t"] >= 0.25 or frac >= 0.99:
                 last["t"] = now
@@ -250,6 +326,7 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         with diar_lock:
             segments = backend.diarize(audio_path, params=params, progress=progress)
         backend = None  # drop strong ref to the pyannote pipeline
+        _raise_if_canceled(job_id)
 
         # Persist as a new active run (Stage B, versioned).
         with session_scope() as s:
@@ -294,23 +371,30 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         # Re-diarization changes speaker assignment -> re-embed the (re-labeled) text.
         schedule_reindex(recording_id)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
+        _set_recording_status_after_cancel(recording_id)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
-        # Diarization is optional: a recording that already has a transcript stays
-        # usable ("ready"). But without a transcript, "ready" would render a blank
-        # detail page, so fall back to "failed" so the user can re-transcribe.
-        with session_scope() as s:
-            has_transcript = (
-                s.exec(
-                    select(Transcript).where(Transcript.recording_id == recording_id)
-                ).first()
-                is not None
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+            _set_recording_status_after_cancel(recording_id)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
+            # Diarization is optional: a recording that already has a transcript stays
+            # usable ("ready"). But without a transcript, "ready" would render a blank
+            # detail page, so fall back to "failed" so the user can re-transcribe.
+            with session_scope() as s:
+                has_transcript = (
+                    s.exec(
+                        select(Transcript).where(Transcript.recording_id == recording_id)
+                    ).first()
+                    is not None
+                )
+            _set_recording_status(
+                recording_id,
+                RecordingStatus.ready if has_transcript else RecordingStatus.failed,
             )
-        _set_recording_status(
-            recording_id,
-            RecordingStatus.ready if has_transcript else RecordingStatus.failed,
-        )
     finally:
         # Free the diarization + embedding models after the pipeline run.
         from .ml.lifecycle import unload_all
@@ -384,7 +468,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
     model = ""
     last_save = 0.0
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.05)
+        _start_job(job_id, progress=0.05)
         cfg = L.get_llm_config()
         if not cfg["model"]:
             raise RuntimeError("Kein LLM-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
@@ -433,12 +517,14 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         if len(chunks) > 1:
             notes: list[str] = []
             for i, ch in enumerate(chunks):
+                _raise_if_canceled(job_id)
                 _update_job(job_id, progress=0.05 + 0.5 * (i / len(chunks)))
                 msgs = [
                     {"role": "system", "content": "Fasse den folgenden Transkript-Abschnitt in knappen Stichpunkten zusammen, behalte Sprecher und wichtige Fakten."},
                     {"role": "user", "content": ch},
                 ]
                 notes.append(_chat(msgs))
+                _raise_if_canceled(job_id)
             text = "\n".join(notes)
 
         ctx = L.build_context(rec_duration, rec_created, topic_name, text, speakers)
@@ -485,6 +571,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
                                    api_key=api_key,
                                    reasoning_effort=reasoning_effort,
                                    provider=provider):
+            _raise_if_canceled(job_id)
             acc += delta
             now = time.monotonic()
             if now - last_save >= 0.25:
@@ -500,11 +587,21 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
+    except JobCanceled:
+        if acc:
+            _save_summary_content(summary_id, acc, model)
+        _update_job(job_id, status=JobStatus.canceled)
+        hub.broadcast(
+            {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True, "error": "Abgebrochen"}
+        )
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
         if acc:
             _save_summary_content(summary_id, acc, model)
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True, "error": str(exc)}
         )
@@ -539,13 +636,16 @@ def _llm_chat_fn():
 
 def _run_action_items(recording_id: int, job_id: int) -> None:
     from . import analysis
+    from .calendar_sync import sync_action_item
     from .models import ActionItem
     from .settings_store import load_prefs
 
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.05)
+        _start_job(job_id, progress=0.05)
         chat = _llm_chat_fn()
         with session_scope() as s:
+            rec = s.get(Recording, recording_id)
+            reference_date = rec.created_at.date().isoformat() if rec and rec.created_at else None
             text, speakers = _assemble_transcript(s, recording_id)
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")
@@ -553,11 +653,18 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
 
         def progress(frac: float) -> None:
+            _raise_if_canceled(job_id)
             _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
 
         items = analysis.extract_action_items(
-            chat, text, speakers, chunk_size=chunk_size, progress=progress
+            chat,
+            text,
+            speakers,
+            chunk_size=chunk_size,
+            progress=progress,
+            reference_date=reference_date,
         )
+        _raise_if_canceled(job_id)
 
         with session_scope() as s:
             old = s.exec(
@@ -569,30 +676,38 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
                 s.delete(o)
             s.flush()
             for it in items:
-                s.add(
-                    ActionItem(
-                        recording_id=recording_id,
-                        kind=it["kind"],
-                        text=it["text"],
-                        assignee=it.get("assignee"),
-                        due=it.get("due"),
-                        done=analysis._norm_text(it["text"]) in done_texts,
-                    )
+                item = ActionItem(
+                    recording_id=recording_id,
+                    kind=it["kind"],
+                    text=it["text"],
+                    assignee=it.get("assignee"),
+                    due=it.get("due"),
+                    due_date=it.get("due_date"),
+                    done=analysis._norm_text(it["text"]) in done_texts,
                 )
+                sync_action_item(s, item)
+                s.add(item)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
 
 
 def _maybe_postprocess_dictation(recording_id: int) -> None:
     from . import analysis
+    from .calendar_sync import sync_action_item
     from .settings_store import load_prefs
 
     with session_scope() as s:
         rec = s.get(Recording, recording_id)
         if not rec or rec.kind != "dictation":
             return
+        reference_date = rec.created_at.date().isoformat() if rec.created_at else None
         text, _speakers = _assemble_transcript(s, recording_id)
         topics = [
             (topic.id, topic.name)
@@ -613,7 +728,13 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
     chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
 
     try:
-        result = analysis.analyze_dictation(chat, text, topic_names, chunk_size=chunk_size)
+        result = analysis.analyze_dictation(
+            chat,
+            text,
+            topic_names,
+            chunk_size=chunk_size,
+            reference_date=reference_date,
+        )
     except Exception:  # noqa: BLE001
         traceback.print_exc()
         return
@@ -637,18 +758,19 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
             s.delete(item)
         s.flush()
         for item in result.get("action_items") or []:
-            s.add(
-                ActionItem(
-                    recording_id=recording_id,
-                    kind=item["kind"],
-                    text=item["text"],
-                    assignee=item.get("assignee"),
-                    due=item.get("due"),
-                    # Dictation captures the user's own notes — always surface them
-                    # in the Tasks area regardless of the detected assignee.
-                    include_in_tasks=True,
-                )
+            action = ActionItem(
+                recording_id=recording_id,
+                kind=item["kind"],
+                text=item["text"],
+                assignee=item.get("assignee"),
+                due=item.get("due"),
+                due_date=item.get("due_date"),
+                # Dictation captures the user's own notes — always surface them
+                # in the Tasks area regardless of the detected assignee.
+                include_in_tasks=True,
             )
+            sync_action_item(s, action)
+            s.add(action)
 
 
 def _run_chapters(recording_id: int, job_id: int) -> None:
@@ -658,7 +780,7 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
     from .settings_store import load_prefs
 
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.1)
+        _start_job(job_id, progress=0.1)
         chat = _llm_chat_fn()
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
@@ -672,6 +794,7 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
         _update_job(job_id, progress=0.3)
         chapters = analysis.generate_chapters(chat, utts, duration, chunk_size=chunk_size)
+        _raise_if_canceled(job_id)
         if not chapters:
             raise RuntimeError("Das LLM hat keine verwertbaren Kapitel geliefert.")
 
@@ -692,9 +815,14 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
                     )
                 )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
 
 
 def enqueue_action_items(recording_id: int) -> int:
@@ -721,11 +849,12 @@ def _run_embedding(recording_id: int, job_id: int) -> None:
     from . import rag
 
     try:
-        _update_job(job_id, status=JobStatus.running, progress=0.0)
+        _start_job(job_id, progress=0.0)
 
         last = {"t": 0.0}
 
         def progress(frac: float) -> None:
+            _raise_if_canceled(job_id)
             now = time.monotonic()
             if now - last["t"] >= 0.25 or frac >= 0.99:
                 last["t"] = now
@@ -733,11 +862,17 @@ def _run_embedding(recording_id: int, job_id: int) -> None:
 
         with session_scope() as s:
             rag.index_recording(s, recording_id, progress=progress)
+        _raise_if_canceled(job_id)
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+        if _is_job_canceled(job_id):
+            _update_job(job_id, status=JobStatus.canceled)
+        else:
+            _update_job(job_id, status=JobStatus.failed, error=str(exc))
 
 
 def enqueue_embedding(recording_id: int) -> int | None:

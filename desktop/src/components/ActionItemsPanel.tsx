@@ -2,12 +2,13 @@ import {
   useDeleteActionItem,
   useExtractActionItems,
   useRecordingActionItems,
+  useSyncActionItemCalendar,
   useUpdateActionItem,
 } from "../hooks/queries";
 import { useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem } from "../lib/types";
-import { TasksIcon, TrashIcon } from "./icons";
+import { CalendarIcon, TasksIcon, TrashIcon } from "./icons";
 
 /** Today as a local ISO date (YYYY-MM-DD), matching the <input type="date"> format. */
 function todayIso(): string {
@@ -36,12 +37,23 @@ export function ActionItemRow({
   onOpenRecording?: (recordingId: number) => void;
 }) {
   const update = useUpdateActionItem();
+  const syncCalendar = useSyncActionItemCalendar();
   const del = useDeleteActionItem();
   const undoDelete = useUndoableDelete();
 
   if (undoDelete.isPending(item.id)) return null;
 
   const overdue = isOverdue(item);
+  const calendarLabel =
+    item.calendar_status === "synced"
+      ? "Kalender"
+      : item.calendar_status === "pending_approval"
+        ? "Freigabe"
+        : item.calendar_status === "failed"
+          ? "Fehler"
+          : item.calendar_status === "not_configured"
+            ? "Kalender offen"
+            : null;
   return (
     <div className={`action-item ${item.done ? "done" : ""} ${overdue ? "overdue" : ""}`}>
       <input
@@ -93,6 +105,27 @@ export function ActionItemRow({
             >
               {item.recording_title}
             </button>
+          )}
+          {calendarLabel && (
+            item.calendar_status === "pending_approval" || item.calendar_status === "failed" ? (
+              <button
+                className={`action-calendar ${item.calendar_status}`}
+                title={item.calendar_error ?? "In CalDAV-Kalender exportieren"}
+                disabled={syncCalendar.isPending}
+                onClick={() => syncCalendar.mutate(item.id)}
+              >
+                <CalendarIcon width={12} height={12} />
+                {item.calendar_status === "failed" ? "Retry" : "In Kalender"}
+              </button>
+            ) : (
+              <span
+                className={`action-calendar ${item.calendar_status}`}
+                title={item.calendar_error ?? undefined}
+              >
+                <CalendarIcon width={12} height={12} />
+                {calendarLabel}
+              </span>
+            )
           )}
         </span>
       </div>

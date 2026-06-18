@@ -21,6 +21,7 @@ SERVICE = "Tarscribe"
 HF_TOKEN_KEY = "hf_token"
 LLM_API_KEY_KEY = "llm_api_key"
 RAG_API_KEY_KEY = "rag_api_key"
+CALDAV_PASSWORD_KEY = "caldav_password"
 
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
@@ -56,6 +57,7 @@ DEFAULT_PREFS: dict[str, Any] = {
     "dictation_shortcut": "Alt+Meta+D",
     "meeting_detection_enabled": False,
     "meeting_detection_apps": ["zoom.us", "Microsoft Teams", "Webex", "Cisco Webex Meetings"],
+    "caldav": {"url": "", "username": ""},
 }
 
 
@@ -188,3 +190,15 @@ def set_rag_api_key(key: str | None) -> None:
 
 def has_rag_api_key() -> bool:
     return bool(get_rag_api_key())
+
+
+def get_caldav_password() -> str | None:
+    return _secret_get(CALDAV_PASSWORD_KEY)
+
+
+def set_caldav_password(password: str | None) -> None:
+    _secret_set(CALDAV_PASSWORD_KEY, password)
+
+
+def has_caldav_password() -> bool:
+    return bool(get_caldav_password())

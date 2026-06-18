@@ -3,6 +3,8 @@ export interface Topic {
   name: string;
   color: string;
   export_path: string | null;
+  calendar_export_mode: "off" | "approval" | "auto";
+  calendar_url: string | null;
   position: number;
   created_at: string;
   recording_count: number;
@@ -71,6 +73,8 @@ export interface AppSettings {
   dictation_shortcut: string;
   meeting_detection_enabled: boolean;
   meeting_detection_apps: string[];
+  caldav: { url: string; username: string };
+  caldav_password_set: boolean;
 }
 
 export interface WordSeg {
@@ -232,6 +236,14 @@ export interface JobEvent {
   status: "pending" | "running" | "done" | "failed" | "canceled";
   progress: number;
   error: string | null;
+}
+
+export interface DebugJob extends JobEvent {
+  recording_title: string | null;
+  topic_id: number | null;
+  topic_name: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface HardwareInfo {
@@ -419,6 +431,9 @@ export interface ActionItem {
   is_mine: boolean;
   /** Explicitly pinned into the global Tasks area despite not being "mine". */
   include_in_tasks: boolean;
+  calendar_status: "idle" | "pending_approval" | "synced" | "skipped" | "failed" | "not_configured";
+  calendar_error: string | null;
+  calendar_exported_at: string | null;
   created_at: string;
   recording_title: string | null;
   topic_id: number | null;

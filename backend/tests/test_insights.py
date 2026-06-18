@@ -70,21 +70,27 @@ def test_extract_json_array_tolerates_fences_and_prose():
 def test_extract_action_items_dedupes_and_validates():
     from tarscribe_backend.analysis import extract_action_items
 
-    def fake_chat(_msgs):
+    def fake_chat(msgs):
+        assert "Referenzdatum für relative Fristen: 2026-06-18" in msgs[-1]["content"]
         return (
-            '[{"kind": "task", "text": "Bericht schreiben", "assignee": "Anna", "due": null},'
-            '{"kind": "decision", "text": "Budget freigegeben", "assignee": null, "due": null},'
+            '[{"kind": "task", "text": "Bericht schreiben", "assignee": "Anna",'
+            '"due": "bis Freitag", "due_date": "2026-06-19"},'
+            '{"kind": "decision", "text": "Budget freigegeben", "assignee": null,'
+            '"due": null, "due_date": null},'
             '{"kind": "task", "text": "Bericht schreiben!", "assignee": null, "due": null},'
-            '{"kind": "quatsch", "text": "X klären", "assignee": null, "due": null},'
+            '{"kind": "quatsch", "text": "X klären", "assignee": null,'
+            '"due": "am 30. Februar", "due_date": "2026-02-30"},'
             '{"kind": "task", "text": "", "assignee": null, "due": null}]'
         )
 
-    items = extract_action_items(fake_chat, "Transkript", ["Anna"])
+    items = extract_action_items(fake_chat, "Transkript", ["Anna"], reference_date="2026-06-18")
     texts = [i["text"] for i in items]
     assert "Bericht schreiben" in texts
     assert "Budget freigegeben" in texts
     assert len([t for t in texts if t.lower().startswith("bericht")]) == 1  # dedupe
     assert all(i["kind"] in ("task", "decision") for i in items)
+    assert next(i for i in items if i["text"] == "Bericht schreiben")["due_date"] == "2026-06-19"
+    assert next(i for i in items if i["text"] == "X klären")["due_date"] is None
 
 
 def test_generate_chapters_normalizes_and_orders():
@@ -202,6 +208,164 @@ def test_extract_endpoint_enqueues_job(client, monkeypatch):
     r = client.post(f"/api/recordings/{rec_id}/action-items/extract")
     assert r.status_code == 200
     assert r.json()["job_id"] > 0
+
+
+def test_run_action_items_persists_llm_due_date(client, monkeypatch):
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    from tarscribe_backend.models import ActionItem, Job, JobPhase, JobStatus, Transcript, Word
+
+    rec_id, _ = _make_recording(created_at=datetime(2026, 6, 18, tzinfo=timezone.utc))
+    with Session(db.get_engine()) as s:
+        transcript = Transcript(recording_id=rec_id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Bitte "))
+        s.add(Word(transcript_id=transcript.id, idx=1, start=1, end=2, text="Bericht "))
+        s.add(Word(transcript_id=transcript.id, idx=2, start=2, end=3, text="morgen "))
+        job = Job(recording_id=rec_id, phase=JobPhase.action_items, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        job_id = job.id
+
+    def fake_chat(msgs):
+        assert "Referenzdatum für relative Fristen: 2026-06-18" in msgs[-1]["content"]
+        return (
+            '[{"kind":"task","text":"Bericht schreiben","assignee":null,'
+            '"due":"morgen","due_date":"2026-06-19"}]'
+        )
+
+    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
+    jobs._run_action_items(rec_id, job_id)
+
+    with Session(db.get_engine()) as s:
+        items = s.exec(select(ActionItem).where(ActionItem.recording_id == rec_id)).all()
+        assert len(items) == 1
+        assert items[0].due == "morgen"
+        assert items[0].due_date == "2026-06-19"
+        assert s.get(Job, job_id).status == JobStatus.done
+
+
+def test_run_action_items_auto_syncs_caldav(client, monkeypatch):
+    from sqlmodel import Session, select
+
+    import httpx
+    import tarscribe_backend.calendar_sync as calendar_sync
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    from tarscribe_backend.models import ActionItem, Job, JobPhase, JobStatus, Topic, Transcript, Word
+
+    requests: list[tuple[str, str, bytes]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def put(self, url, content=None, headers=None):
+            requests.append(("PUT", url, content or b""))
+            return httpx.Response(201, headers={"ETag": '"abc"'})
+
+        def delete(self, url):
+            requests.append(("DELETE", url, b""))
+            return httpx.Response(204)
+
+    monkeypatch.setattr(calendar_sync.httpx, "Client", FakeClient)
+    client.put("/api/settings", json={"caldav": {"url": "https://dav.example/cal/", "username": "u"}})
+
+    rec_id, topic_id = _make_recording(created_at=datetime(2026, 6, 18, tzinfo=timezone.utc))
+    with Session(db.get_engine()) as s:
+        topic = s.get(Topic, topic_id)
+        topic.calendar_export_mode = "auto"
+        s.add(topic)
+        transcript = Transcript(recording_id=rec_id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Bericht morgen"))
+        job = Job(recording_id=rec_id, phase=JobPhase.action_items, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        job_id = job.id
+
+    def fake_chat(_msgs):
+        return (
+            '[{"kind":"task","text":"Bericht schreiben","assignee":"Anna",'
+            '"due":"morgen","due_date":"2026-06-19"}]'
+        )
+
+    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
+    jobs._run_action_items(rec_id, job_id)
+
+    with Session(db.get_engine()) as s:
+        item = s.exec(select(ActionItem).where(ActionItem.recording_id == rec_id)).one()
+        assert item.calendar_status == "synced"
+        assert item.calendar_href.startswith("https://dav.example/cal/tarscribe-task-")
+        assert item.calendar_etag == '"abc"'
+    assert requests and requests[0][0] == "PUT"
+    assert b"SUMMARY:Bericht schreiben" in requests[0][2]
+
+
+def test_action_item_calendar_approval_flow(client, monkeypatch):
+    from sqlmodel import Session
+
+    import httpx
+    import tarscribe_backend.calendar_sync as calendar_sync
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem, Topic
+
+    requests: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def put(self, url, content=None, headers=None):
+            requests.append(url)
+            return httpx.Response(201)
+
+        def delete(self, url):
+            return httpx.Response(204)
+
+    monkeypatch.setattr(calendar_sync.httpx, "Client", FakeClient)
+    client.put("/api/settings", json={"caldav": {"url": "https://dav.example/cal/", "username": ""}})
+
+    rec_id, topic_id = _make_recording()
+    with Session(db.get_engine()) as s:
+        topic = s.get(Topic, topic_id)
+        topic.calendar_export_mode = "approval"
+        s.add(topic)
+        s.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Folien senden",
+                due="Freitag",
+                due_date="2026-06-19",
+            )
+        )
+        s.commit()
+
+    item = client.get(f"/api/recordings/{rec_id}/action-items").json()[0]
+    patched = client.patch(f"/api/action-items/{item['id']}", json={"due_date": "2026-06-19"}).json()
+    assert patched["calendar_status"] == "pending_approval"
+    assert requests == []
+
+    synced = client.post(f"/api/action-items/{item['id']}/calendar-sync").json()
+    assert synced["calendar_status"] == "synced"
+    assert len(requests) == 1
 
 
 def test_action_item_due_date_patch_clear_and_ics_export(client):

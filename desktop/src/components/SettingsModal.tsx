@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { PERFORMANCE_PROFILES } from "../lib/performanceProfiles";
 import { errorMessage, listRecordingDevices, type RecordingDevice } from "../lib/recorder";
 import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../lib/tauri";
-import { ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
+import { CalendarIcon, ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
 import { LlmSettings } from "./LlmSettings";
 import { McpSettings } from "./McpSettings";
 import { RagSettings } from "./RagSettings";
@@ -45,13 +45,14 @@ function KnownSpeakers() {
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [token, setToken] = useState("");
+  const [caldavPassword, setCaldavPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [tab, setTab] = useState<"general" | "summaries" | "rag" | "speakers" | "agents">("general");
+  const [tab, setTab] = useState<"general" | "summaries" | "rag" | "calendar" | "speakers" | "agents">("general");
   const { data: knownSpeakers } = useKnownSpeakers();
 
   useEffect(() => {
@@ -139,6 +140,56 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function saveCaldav() {
+    if (!settings) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      await api.updateSettings({ caldav: settings.caldav });
+      if (caldavPassword.trim()) {
+        const res = await api.setCaldavPassword(caldavPassword.trim());
+        setSettings((s) => (s ? { ...s, caldav_password_set: res.caldav_password_set } : s));
+        setCaldavPassword("");
+      }
+      setStatus({ ok: true, msg: "Kalender-Verbindung gespeichert." });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Kalender-Verbindung konnte nicht gespeichert werden: ${(e as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testCaldav() {
+    if (!settings) return;
+    setBusy(true);
+    setStatus(null);
+    try {
+      const res = await api.testCaldav({
+        url: settings.caldav.url,
+        username: settings.caldav.username,
+        password: caldavPassword.trim() || undefined,
+      });
+      setStatus({
+        ok: res.ok,
+        msg: res.ok
+          ? `Kalender erreichbar${res.status ? ` (HTTP ${res.status})` : ""}.`
+          : `Kalender nicht erreichbar${res.status ? ` (HTTP ${res.status})` : ""}: ${res.error ?? "Unbekannter Fehler"}`,
+      });
+    } catch (e) {
+      setStatus({ ok: false, msg: `Kalender-Test fehlgeschlagen: ${(e as Error).message}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCaldavPassword() {
+    setBusy(true);
+    await api.deleteCaldavPassword();
+    setSettings((s) => (s ? { ...s, caldav_password_set: false } : s));
+    setStatus({ ok: true, msg: "Kalender-Passwort entfernt." });
+    setBusy(false);
+  }
+
   async function removeToken() {
     setBusy(true);
     await api.deleteHfToken();
@@ -157,6 +208,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     { id: "general", label: "Allgemein", icon: <SettingsIcon width={16} height={16} /> },
     { id: "summaries", label: "Zusammenfassung", icon: <SummaryIcon width={16} height={16} /> },
     { id: "rag", label: "Wissens-Chat", icon: <ChatIcon width={16} height={16} /> },
+    { id: "calendar", label: "Kalender", icon: <CalendarIcon width={16} height={16} /> },
     { id: "speakers", label: "Sprecher", icon: <SpeakerIdIcon width={16} height={16} /> },
     { id: "agents", label: "Agenten (MCP)", icon: <ChatIcon width={16} height={16} /> },
   ] as const;
@@ -419,6 +471,72 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
             {/* ── Wissens-Chat (RAG) ──────────────────────────────────────── */}
             {tab === "rag" && <RagSettings />}
+
+            {/* ── Kalender (CalDAV) ────────────────────────────────────────── */}
+            {tab === "calendar" && settings && (
+              <>
+                <div className="field">
+                  <label>CalDAV-Kalender</label>
+                  <input
+                    type="url"
+                    placeholder="https://cloud.example.com/remote.php/dav/calendars/name/tasks/"
+                    value={settings.caldav.url}
+                    onChange={(e) =>
+                      setSettings({ ...settings, caldav: { ...settings.caldav, url: e.target.value } })
+                    }
+                    spellCheck={false}
+                  />
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    Kalender-Collection-URL, nicht nur die Web-Oberfläche. Nextcloud zeigt sie in den
+                    Kalender-Einstellungen an.
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Benutzername</label>
+                  <input
+                    type="text"
+                    value={settings.caldav.username}
+                    onChange={(e) =>
+                      setSettings({ ...settings, caldav: { ...settings.caldav, username: e.target.value } })
+                    }
+                    spellCheck={false}
+                    autoComplete="username"
+                  />
+                </div>
+
+                <div className="field">
+                  <label>App-Passwort</label>
+                  {settings.caldav_password_set && !caldavPassword ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+                      <span className="badge ready">✓ Passwort hinterlegt</span>
+                      <button className="btn ghost danger" onClick={removeCaldavPassword} disabled={busy}>
+                        Entfernen
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      type="password"
+                      value={caldavPassword}
+                      onChange={(e) => setCaldavPassword(e.target.value)}
+                      spellCheck={false}
+                      autoComplete="current-password"
+                      placeholder={settings.caldav_password_set ? "Neues Passwort setzen" : "App-Passwort"}
+                    />
+                  )}
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button className="btn" onClick={testCaldav} disabled={busy || !settings.caldav.url.trim()}>
+                    Verbindung testen
+                  </button>
+                  <button className="btn primary" onClick={saveCaldav} disabled={busy || !settings.caldav.url.trim()}>
+                    Speichern
+                  </button>
+                </div>
+                {statusEl}
+              </>
+            )}
 
             {/* ── Agenten (MCP) ───────────────────────────────────────────── */}
             {tab === "agents" && <McpSettings />}

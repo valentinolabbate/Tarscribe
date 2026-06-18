@@ -4,6 +4,7 @@ import { StartPage } from "./components/StartPage";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { DictationOverlay } from "./components/DictationOverlay";
 import { GlobalRecordingIndicator } from "./components/GlobalRecordingIndicator";
+import { JobsPage } from "./components/JobsPage";
 import { LiveRecordingDetail } from "./components/LiveRecordingDetail";
 import { SetupScreen } from "./components/SetupScreen";
 import { RecordingDetail } from "./components/RecordingDetail";
@@ -13,7 +14,7 @@ import { TopicModal } from "./components/TopicModal";
 import { UpdateModal } from "./components/UpdateModal";
 import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
-import { ChevronDownIcon, ChevronUpIcon, FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
+import { ActivityIcon, CalendarIcon, ChevronDownIcon, ChevronUpIcon, FolderIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon, TrashIcon } from "./components/icons";
 import { TasksPage } from "./components/TasksPage";
 import { TopicExportModal } from "./components/TopicExportModal";
 import {
@@ -154,6 +155,36 @@ function TopicRow({
           ))}
         </span>
       )}
+      {topic.calendar_export_mode !== "off" && (
+        <span
+          className={`topic-calendar-indicator ${topic.calendar_export_mode}`}
+          title={
+            topic.calendar_export_mode === "auto"
+              ? "Kalender: automatisch"
+              : "Kalender: mit Freigabe"
+          }
+        >
+          <CalendarIcon width={12} height={12} />
+        </span>
+      )}
+      <select
+        className="topic-calendar-mode"
+        value={topic.calendar_export_mode}
+        title="Kalender-Export für Aufgaben"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+        onChange={(e) => {
+          e.stopPropagation();
+          update.mutate({
+            id: topic.id,
+            patch: { calendar_export_mode: e.target.value as Topic["calendar_export_mode"] },
+          });
+        }}
+      >
+        <option value="off">Kalender aus</option>
+        <option value="approval">Freigabe</option>
+        <option value="auto">Auto</option>
+      </select>
       <span className="topic-reorder" aria-label="Sortieren">
         <button
           className="topic-move"
@@ -225,6 +256,7 @@ export default function App() {
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [showHome, setShowHome] = useState(true);
   const [showTasks, setShowTasks] = useState(false);
+  const [showJobs, setShowJobs] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
@@ -323,6 +355,7 @@ export default function App() {
     setActiveTopic(rec.topic_id);
     setShowHome(false);
     setShowTasks(false);
+    setShowJobs(false);
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
@@ -364,6 +397,7 @@ export default function App() {
       setActiveTopic(rec.topic_id);
       setShowHome(false);
       setShowTasks(false);
+      setShowJobs(false);
       setOpenRecording(rec);
     } catch {
       toast("Aufnahme konnte nicht geöffnet werden.", "error");
@@ -442,6 +476,7 @@ export default function App() {
       setActiveTopic(topic.id);
       setShowHome(false);
       setShowTasks(false);
+      setShowJobs(false);
       setOpenRecording(null);
       await recordingRef.current.start(topic.id, topic.name);
       setDetectedMeeting(null);
@@ -552,6 +587,7 @@ export default function App() {
           onClick={() => {
             setShowHome(true);
             setShowTasks(false);
+            setShowJobs(false);
             setOpenRecording(null);
           }}
         >
@@ -563,10 +599,24 @@ export default function App() {
           onClick={() => {
             setShowTasks(true);
             setShowHome(false);
+            setShowJobs(false);
             setOpenRecording(null);
           }}
         >
           <TasksIcon width={16} height={16} /> Aufgaben
+        </button>
+
+        <button
+          className={`topic-item debug-jobs-nav ${showJobs ? "active" : ""}`}
+          title="Laufende Jobs"
+          onClick={() => {
+            setShowJobs(true);
+            setShowTasks(false);
+            setShowHome(false);
+            setOpenRecording(null);
+          }}
+        >
+          <ActivityIcon width={16} height={16} /> Jobs
         </button>
 
         <div className="section-label">
@@ -586,7 +636,7 @@ export default function App() {
             <TopicRow
               key={t.id}
               topic={t}
-              active={t.id === activeTopic && !showHome}
+              active={t.id === activeTopic && !showHome && !showTasks && !showJobs}
               canMoveUp={i > 0}
               canMoveDown={i < (topics?.length ?? 0) - 1}
               onSelect={() => {
@@ -594,6 +644,7 @@ export default function App() {
                 setOpenRecording(null);
                 setShowHome(false);
                 setShowTasks(false);
+                setShowJobs(false);
               }}
               onMoveUp={() => moveTopic(t.id, -1)}
               onMoveDown={() => moveTopic(t.id, 1)}
@@ -626,10 +677,12 @@ export default function App() {
         <div className="topbar">
           <div className="topbar-title">
             <span className="topbar-eyebrow">
-              {showTasks ? "Aufgaben" : showHome ? "Start" : openRecording ? "Aufnahme" : "Themenbereich"}
+              {showJobs ? "Debug" : showTasks ? "Aufgaben" : showHome ? "Start" : openRecording ? "Aufnahme" : "Themenbereich"}
             </span>
             <h1>
-              {showTasks
+              {showJobs
+                ? "Jobs"
+                : showTasks
                 ? "Action-Items"
                 : showHome
                   ? "Tarscribe"
@@ -642,7 +695,7 @@ export default function App() {
           </div>
           <div className="spacer" />
           {recording.state === "idle" && <GlobalRecordingIndicator />}
-          {current && !showHome && !showTasks && (
+          {current && !showHome && !showTasks && !showJobs && (
             <button
               className="btn ghost"
               title={current.export_path ? `Export-Ordner: ${current.export_path}` : "Export-Ordner festlegen"}
@@ -665,6 +718,8 @@ export default function App() {
               onResume={recording.resume}
               onStop={recording.stop}
             />
+          ) : showJobs ? (
+            <JobsPage onOpenRecording={openRecordingById} />
           ) : showTasks ? (
             <TasksPage topics={topics ?? []} onOpenRecording={openRecordingById} />
           ) : showHome ? (

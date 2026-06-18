@@ -29,7 +29,13 @@ export function useUpdateTopic() {
       patch,
     }: {
       id: number;
-      patch: { name?: string; color?: string; export_path?: string };
+      patch: {
+        name?: string;
+        color?: string;
+        export_path?: string;
+        calendar_export_mode?: Topic["calendar_export_mode"];
+        calendar_url?: string | null;
+      };
     }) => api.updateTopic(id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["topics"] }),
   });
@@ -205,6 +211,26 @@ export function useLatestJob(recordingId: number, shouldPoll: boolean) {
   });
 }
 
+export function useActiveJobs() {
+  return useQuery({
+    queryKey: ["jobs", "active"],
+    queryFn: api.listActiveJobs,
+    refetchInterval: (query) => (query.state.data?.length ? 1000 : 3000),
+  });
+}
+
+export function useCancelJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: number) => api.cancelJob(jobId),
+    onSuccess: (job) => {
+      qc.invalidateQueries({ queryKey: ["jobs", "active"] });
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["latest-job", job.recording_id] });
+    },
+  });
+}
+
 export function useDiarize() {
   const qc = useQueryClient();
   return useMutation({
@@ -327,6 +353,14 @@ export function useDeleteActionItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.deleteActionItem(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
+  });
+}
+
+export function useSyncActionItemCalendar() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.syncActionItemCalendar(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
   });
 }

@@ -18,6 +18,7 @@ from .routers import (
     editing,
     export,
     insights,
+    jobs,
     live_recordings,
     llm,
     mcp,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(dictations.router)
     app.include_router(live_recordings.router)
     app.include_router(insights.router)
+    app.include_router(jobs.router)
     app.include_router(transcription.router)
     app.include_router(diarization.router)
     app.include_router(editing.router)

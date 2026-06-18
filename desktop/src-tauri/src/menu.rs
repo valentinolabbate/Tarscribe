@@ -4,14 +4,27 @@
 //! "check-update"); standard items use predefined system actions. The tray is kept
 //! in app state so update and live-recording status can be shown in the status bar.
 
-use std::sync::Mutex;
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
+    time::Duration,
+};
 
 use serde::Deserialize;
 use tauri::{
     menu::{AboutMetadata, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{TrayIcon, TrayIconBuilder},
-    AppHandle, Emitter, Manager,
+    AppHandle, Emitter, Manager, WebviewWindow,
 };
+
+const FULLSCREEN_CLOSE_HIDE_DELAY: Duration = Duration::from_millis(650);
+
+#[derive(Default)]
+pub struct WindowLifecycleState {
+    hide_request: AtomicU64,
+}
 
 #[derive(Default)]
 pub struct TrayState {
@@ -399,11 +412,48 @@ fn tray_tooltip(meta: &TrayMeta) -> String {
 }
 
 pub(crate) fn show_main_window(app: &AppHandle) {
+    cancel_pending_hide(app);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+pub(crate) fn hide_main_window_on_close(app: &AppHandle, window: WebviewWindow) {
+    let request_id = next_hide_request(app);
+    let was_fullscreen = window.is_fullscreen().unwrap_or(false);
+
+    if was_fullscreen {
+        let _ = window.set_fullscreen(false);
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(FULLSCREEN_CLOSE_HIDE_DELAY);
+            if is_current_hide_request(&app, request_id) && window.is_visible().unwrap_or(true) {
+                let _ = window.hide();
+            }
+        });
+    } else {
+        let _ = window.hide();
+    }
+}
+
+fn next_hide_request(app: &AppHandle) -> u64 {
+    app.state::<WindowLifecycleState>()
+        .hide_request
+        .fetch_add(1, Ordering::SeqCst)
+        + 1
+}
+
+fn cancel_pending_hide(app: &AppHandle) {
+    let _ = next_hide_request(app);
+}
+
+fn is_current_hide_request(app: &AppHandle, request_id: u64) -> bool {
+    app.state::<WindowLifecycleState>()
+        .hide_request
+        .load(Ordering::SeqCst)
+        == request_id
 }
 
 impl TrayRecordingMeta {

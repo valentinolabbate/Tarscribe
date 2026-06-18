@@ -114,7 +114,7 @@ def test_dictation_postprocess_titles_moves_and_creates_action_items(client, mon
             '{"title":"Folien für Projekt Alpha",'
             '"topic_name":"Projekt Alpha","topic_confidence":0.92,'
             '"action_items":[{"kind":"task","text":"Folien aktualisieren",'
-            '"assignee":null,"due":null}]}'
+            '"assignee":null,"due":"morgen","due_date":"2026-06-19"}]}'
         )
 
     monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
@@ -126,3 +126,5 @@ def test_dictation_postprocess_titles_moves_and_creates_action_items(client, mon
         assert rec.topic_id == project_id
         items = s.exec(select(ActionItem).where(ActionItem.recording_id == rec_id)).all()
         assert [(item.kind, item.text) for item in items] == [("task", "Folien aktualisieren")]
+        assert items[0].due == "morgen"
+        assert items[0].due_date == "2026-06-19"

@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use menu::TrayState;
+use menu::{TrayState, WindowLifecycleState};
 use sidecar::BackendState;
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
@@ -264,6 +264,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState::default())
         .manage(TrayState::default())
+        .manage(WindowLifecycleState::default())
         .manage(DictationShortcutState::default())
         .manage(MeetingDetectionState::default())
         .invoke_handler(tauri::generate_handler![
@@ -313,11 +314,12 @@ pub fn run() {
                 eprintln!("Tray-Aufbau fehlgeschlagen: {e}");
             }
             if let Some(window) = app.get_webview_window("main") {
+                let handle = handle.clone();
                 let close_window = window.clone();
                 window.on_window_event(move |event| {
                     if let WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        let _ = close_window.hide();
+                        menu::hide_main_window_on_close(&handle, close_window.clone());
                     }
                 });
             }

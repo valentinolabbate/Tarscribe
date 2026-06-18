@@ -462,6 +462,61 @@ def test_delete_recording_rejects_running_job(client):
     assert r.status_code == 409
 
 
+def test_global_jobs_list_and_cancel(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Job, JobPhase, JobStatus, Recording, RecordingStatus, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Debug")
+        s.add(topic)
+        s.flush()
+        rec = Recording(
+            topic_id=topic.id,
+            title="Laufender Auftrag",
+            audio_path="/tmp/job.wav",
+            status=RecordingStatus.transcribing,
+        )
+        s.add(rec)
+        s.flush()
+        running = Job(
+            recording_id=rec.id,
+            phase=JobPhase.asr,
+            status=JobStatus.running,
+            progress=0.42,
+        )
+        done = Job(recording_id=rec.id, phase=JobPhase.chapters, status=JobStatus.done)
+        s.add(running)
+        s.add(done)
+        s.commit()
+        running_id = running.id
+        done_id = done.id
+
+    r = client.get("/api/jobs")
+    assert r.status_code == 200
+    rows = r.json()
+    assert [row["job_id"] for row in rows] == [running_id]
+    assert rows[0]["recording_title"] == "Laufender Auftrag"
+    assert rows[0]["topic_name"] == "Debug"
+    assert rows[0]["progress"] == 0.42
+
+    canceled = client.post(f"/api/jobs/{running_id}/cancel")
+    assert canceled.status_code == 200
+    assert canceled.json()["status"] == "canceled"
+    assert client.get("/api/jobs").json() == []
+
+    rejected = client.post(f"/api/jobs/{done_id}/cancel")
+    assert rejected.status_code == 409
+    missing = client.post("/api/jobs/999999/cancel")
+    assert missing.status_code == 404
+
+    with Session(db.get_engine()) as s:
+        assert s.get(Job, running_id).status == JobStatus.canceled
+        assert s.get(Job, done_id).status == JobStatus.done
+        assert s.get(Recording, rows[0]["recording_id"]).status == RecordingStatus.uploaded
+
+
 def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client, monkeypatch):
     from sqlmodel import Session
 

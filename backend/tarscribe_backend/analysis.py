@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from datetime import date, datetime
 
 Chat = Callable[[list[dict]], str]
 
@@ -64,11 +65,20 @@ _ITEMS_SYSTEM = (
 
 _ITEMS_USER = """Extrahiere alle konkreten Aufgaben und getroffenen Entscheidungen.
 
+Referenzdatum für relative Fristen: {reference_date}
+
 Format: JSON-Array von Objekten mit genau diesen Feldern:
 - "kind": "task" für eine Aufgabe, "decision" für eine Entscheidung
 - "text": die Aufgabe bzw. Entscheidung, knapp in einem Satz
 - "assignee": verantwortliche Person oder null
 - "due": Frist wie im Gespräch genannt oder null
+- "due_date": Frist als ISO-Datum YYYY-MM-DD oder null
+
+Regeln:
+- Setze "due_date" nur, wenn aus dem Transkript eindeutig ein Datum ableitbar ist.
+- Nutze das Referenzdatum für relative Fristen wie "morgen", "Freitag" oder "nächste Woche".
+- Erfinde keine Fristen. Ohne eindeutiges Datum: "due_date": null.
+- Für Entscheidungen sind "due" und "due_date" normalerweise null.
 {speakers_hint}
 Gib [] zurück, wenn nichts gefunden wird.
 
@@ -80,13 +90,40 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\W+", " ", s.lower()).strip()
 
 
-def extract_action_items(chat: Chat, text: str, speakers: list[str], chunk_size: int = 48000, progress=None) -> list[dict]:
+def _reference_date_iso(reference_date: date | datetime | str | None) -> str:
+    if isinstance(reference_date, datetime):
+        return reference_date.date().isoformat()
+    if isinstance(reference_date, date):
+        return reference_date.isoformat()
+    cleaned = _clean_due_date(reference_date)
+    return cleaned or date.today().isoformat()
+
+
+def _clean_due_date(raw: object) -> str | None:
+    value = str(raw or "").strip()
+    if not value or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        return None
+
+
+def extract_action_items(
+    chat: Chat,
+    text: str,
+    speakers: list[str],
+    chunk_size: int = 48000,
+    progress=None,
+    reference_date: date | datetime | str | None = None,
+) -> list[dict]:
     """Run extraction over the (possibly chunked) transcript; dedupe by text."""
     from .llm import chunk_text
 
     speakers_hint = (
         f"Bekannte Personen: {', '.join(speakers)}\n" if speakers else ""
     )
+    reference_date_text = _reference_date_iso(reference_date)
     items: list[dict] = []
     seen: set[str] = set()
     chunks = chunk_text(text, size=chunk_size)
@@ -95,29 +132,24 @@ def extract_action_items(chat: Chat, text: str, speakers: list[str], chunk_size:
             progress(0.05 + 0.9 * (i / len(chunks)))
         raw = chat([
             {"role": "system", "content": _ITEMS_SYSTEM},
-            {"role": "user", "content": _ITEMS_USER.format(speakers_hint=speakers_hint, chunk=chunk)},
+            {
+                "role": "user",
+                "content": _ITEMS_USER.format(
+                    reference_date=reference_date_text,
+                    speakers_hint=speakers_hint,
+                    chunk=chunk,
+                ),
+            },
         ])
         for entry in _extract_json_array(raw):
-            if not isinstance(entry, dict):
+            item = _coerce_action_item(entry)
+            if not item:
                 continue
-            item_text = str(entry.get("text") or "").strip()
-            if not item_text:
-                continue
-            key = _norm_text(item_text)
+            key = _norm_text(item["text"])
             if key in seen:
                 continue
             seen.add(key)
-            kind = str(entry.get("kind") or "task").strip().lower()
-            assignee = entry.get("assignee")
-            due = entry.get("due")
-            items.append(
-                {
-                    "kind": kind if kind in ACTION_ITEM_KINDS else "task",
-                    "text": item_text,
-                    "assignee": str(assignee).strip() if assignee else None,
-                    "due": str(due).strip() if due else None,
-                }
-            )
+            items.append(item)
     return items
 
 
@@ -131,17 +163,20 @@ _DICTATION_SYSTEM = (
 _DICTATION_USER = """Analysiere dieses Diktat.
 
 Verfügbare Themenbereiche: {topics}
+Referenzdatum für relative Fristen: {reference_date}
 
 Format: JSON-Objekt mit genau diesen Feldern:
 - "title": kurzer deutscher Titel, höchstens 8 Wörter
 - "topic_name": passender Themenbereich aus der Liste oder null
 - "topic_confidence": Zahl zwischen 0 und 1
-- "action_items": Array von Objekten wie {{"kind":"task","text":"...","assignee":null,"due":null}}
+- "action_items": Array von Objekten wie {{"kind":"task","text":"...","assignee":null,"due":"morgen","due_date":"2026-06-19"}}
 
 Regeln:
 - Wähle nur einen vorhandenen Themenbereich aus der Liste.
 - Wenn du unsicher bist, setze topic_name auf null und topic_confidence auf 0.
 - action_items nur für konkrete Aufgaben oder Entscheidungen, sonst [].
+- Setze due_date als YYYY-MM-DD nur bei eindeutig ableitbarer Frist; nutze das Referenzdatum
+  für relative Fristen. Ohne eindeutiges Datum: null.
 
 Diktat:
 {text}"""
@@ -170,16 +205,22 @@ def _coerce_action_item(entry: object) -> dict | None:
         "text": item_text,
         "assignee": str(assignee).strip() if assignee else None,
         "due": str(due).strip() if due else None,
+        "due_date": _clean_due_date(entry.get("due_date")),
     }
 
 
 def analyze_dictation(
-    chat: Chat, text: str, topic_names: list[str], chunk_size: int = 48000
+    chat: Chat,
+    text: str,
+    topic_names: list[str],
+    chunk_size: int = 48000,
+    reference_date: date | datetime | str | None = None,
 ) -> dict:
     """Return title/topic suggestion/action items for a short dictation."""
     from .llm import chunk_text
 
     source = chunk_text(text, size=chunk_size)[0]
+    reference_date_text = _reference_date_iso(reference_date)
     raw = chat(
         [
             {"role": "system", "content": _DICTATION_SYSTEM},
@@ -187,6 +228,7 @@ def analyze_dictation(
                 "role": "user",
                 "content": _DICTATION_USER.format(
                     topics=", ".join(topic_names) if topic_names else "keine",
+                    reference_date=reference_date_text,
                     text=source,
                 ),
             },

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { visit } from "unist-util-visit";
@@ -66,6 +66,7 @@ function ChatMarkdown({
     <ReactMarkdown
       remarkPlugins={[remarkMath, remarkCitations]}
       rehypePlugins={[rehypeKatex]}
+      urlTransform={(url) => (url.startsWith("citation:") ? url : defaultUrlTransform(url))}
       components={{
         a({ href, children, ...props }) {
           if (href?.startsWith("citation:")) {

@@ -16,6 +16,8 @@ class TopicUpdate(BaseModel):
     name: str | None = None
     color: str | None = None
     export_path: str | None = None
+    calendar_export_mode: str | None = None
+    calendar_url: str | None = None
 
 
 class TopicReorder(BaseModel):
@@ -28,6 +30,8 @@ class TopicOverview(BaseModel):
     name: str
     color: str
     export_path: str | None = None
+    calendar_export_mode: str = "off"
+    calendar_url: str | None = None
     position: int = 0
     created_at: datetime
     recording_count: int = 0

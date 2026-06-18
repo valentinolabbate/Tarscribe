@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from pathlib import Path
 
+from ..calendar_sync import CALENDAR_MODES, sync_topic_action_items
 from ..db import get_session, vec_available
 from ..models import DiarizationRun, Document, Recording, Topic, Transcript
 from ..schemas import TopicCreate, TopicOverview, TopicReorder, TopicUpdate
@@ -42,6 +43,8 @@ def list_topics(session: Session = Depends(get_session)) -> list[TopicOverview]:
                 name=topic.name,
                 color=topic.color,
                 export_path=topic.export_path,
+                calendar_export_mode=topic.calendar_export_mode,
+                calendar_url=topic.calendar_url,
                 position=topic.position,
                 created_at=topic.created_at,
                 recording_count=len(rows),
@@ -101,7 +104,19 @@ def update_topic(
         topic.color = payload.color
     if payload.export_path is not None:
         topic.export_path = payload.export_path.strip() or None
+    sync_needed = False
+    if payload.calendar_export_mode is not None:
+        mode = payload.calendar_export_mode.strip()
+        if mode not in CALENDAR_MODES:
+            raise HTTPException(400, "Ungültiger Kalender-Modus")
+        topic.calendar_export_mode = mode
+        sync_needed = True
+    if payload.calendar_url is not None:
+        topic.calendar_url = payload.calendar_url.strip() or None
+        sync_needed = True
     session.add(topic)
+    if sync_needed:
+        sync_topic_action_items(session, topic_id)
     session.commit()
     session.refresh(topic)
     return topic

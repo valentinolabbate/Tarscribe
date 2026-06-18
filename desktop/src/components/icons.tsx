@@ -147,6 +147,29 @@ export const TasksIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const CalendarIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <rect x="4" y="5" width="16" height="15" rx="2.5" />
+    <path d="M8 3v4M16 3v4M4 10h16" />
+    <path d="M8 14h3M14 14h2M8 17h2" />
+  </svg>
+);
+
+export const ActivityIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M3 12h4l2-6 4 12 2-6h6" />
+  </svg>
+);
+
+export const RefreshIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M20 12a8 8 0 0 1-13.7 5.7" />
+    <path d="M4 12A8 8 0 0 1 17.7 6.3" />
+    <path d="M7 18H4v3" />
+    <path d="M17 6h3V3" />
+  </svg>
+);
+
 /** Bookmark list — used for chapters. */
 export const ChaptersIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>

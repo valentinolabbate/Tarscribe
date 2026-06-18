@@ -86,11 +86,19 @@ def _run_lightweight_migrations() -> None:
 
     additive = [
         ("topics", "export_path", "TEXT"),
+        ("topics", "calendar_export_mode", "TEXT DEFAULT 'off'"),
+        ("topics", "calendar_url", "TEXT"),
         ("topics", "position", "INTEGER DEFAULT 0"),
         ("recordings", "kind", "TEXT DEFAULT 'recording'"),
         ("recordings", "exported_at", "DATETIME"),
         ("action_items", "due_date", "TEXT"),
         ("action_items", "include_in_tasks", "INTEGER DEFAULT 0"),
+        ("action_items", "calendar_uid", "TEXT"),
+        ("action_items", "calendar_href", "TEXT"),
+        ("action_items", "calendar_etag", "TEXT"),
+        ("action_items", "calendar_status", "TEXT DEFAULT 'idle'"),
+        ("action_items", "calendar_error", "TEXT"),
+        ("action_items", "calendar_exported_at", "DATETIME"),
         ("summaries", "sources", "TEXT"),
     ]
     with get_engine().begin() as conn:

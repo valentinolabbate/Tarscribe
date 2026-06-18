@@ -70,6 +70,10 @@ class Topic(SQLModel, table=True):
     color: str = "#6366f1"
     # Default folder to send Markdown exports to (e.g. an Obsidian vault folder).
     export_path: Optional[str] = None
+    # off | approval | auto: whether dated tasks in this topic sync to CalDAV.
+    calendar_export_mode: str = "off"
+    # Optional per-topic CalDAV collection URL; falls back to the global setting.
+    calendar_url: Optional[str] = None
     # User-defined sort order in the sidebar (ascending). Ties fall back to created_at.
     position: int = Field(default=0, index=True)
     created_at: datetime = Field(default_factory=_utcnow)
@@ -284,6 +288,12 @@ class ActionItem(SQLModel, table=True):
     # User opt-in to surface a not-"mine" item in the global Tasks area (which by
     # default only shows items assigned to the configured "me" speaker).
     include_in_tasks: bool = False
+    calendar_uid: Optional[str] = None
+    calendar_href: Optional[str] = None
+    calendar_etag: Optional[str] = None
+    calendar_status: str = "idle"  # idle | pending_approval | synced | skipped | failed | not_configured
+    calendar_error: Optional[str] = None
+    calendar_exported_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 

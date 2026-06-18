@@ -12,6 +12,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from ..calendar_sync import sync_action_item
 from ..db import get_session
 from ..models import (
     ActionItem,
@@ -152,6 +153,11 @@ def _item_dict(
         "due_date": item.due_date,
         "done": item.done,
         "include_in_tasks": item.include_in_tasks,
+        "calendar_status": item.calendar_status,
+        "calendar_error": item.calendar_error,
+        "calendar_exported_at": item.calendar_exported_at.isoformat()
+        if item.calendar_exported_at
+        else None,
         "is_mine": _is_mine(item.assignee, my_name),
         "created_at": item.created_at.isoformat(),
         "recording_title": rec.title if rec else None,
@@ -219,6 +225,20 @@ def update_action_item(
         data["due_date"] = (data["due_date"] or "").strip() or None
     for key, value in data.items():
         setattr(item, key, value)
+    if any(key in data for key in ("done", "text", "assignee", "due", "due_date")):
+        sync_action_item(session, item)
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return _item_dict(item, my_name=my_speaker_name(session))
+
+
+@router.post("/action-items/{item_id}/calendar-sync")
+def sync_action_item_calendar(item_id: int, session: Session = Depends(get_session)) -> dict:
+    item = session.get(ActionItem, item_id)
+    if not item:
+        raise HTTPException(404, "Eintrag nicht gefunden")
+    sync_action_item(session, item, approved=True)
     session.add(item)
     session.commit()
     session.refresh(item)
@@ -230,6 +250,9 @@ def delete_action_item(item_id: int, session: Session = Depends(get_session)) ->
     item = session.get(ActionItem, item_id)
     if not item:
         raise HTTPException(404, "Eintrag nicht gefunden")
+    if item.calendar_href:
+        item.done = True
+        sync_action_item(session, item, approved=True)
     session.delete(item)
     session.commit()
 

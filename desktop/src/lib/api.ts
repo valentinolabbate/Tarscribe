@@ -3,6 +3,7 @@ import type {
   AppSettings,
   Chapter,
   ChatMessage,
+  DebugJob,
   DiarizationData,
   Digest,
   DictationResult,
@@ -127,6 +128,22 @@ export const api = {
   completeSetup: () =>
     request<{ setup_complete: boolean }>("/api/system/complete-setup", { method: "POST" }),
   warmup: () => request<{ ok: boolean; engine: string }>("/api/system/warmup", { method: "POST" }),
+  setCaldavPassword: (password: string) =>
+    request<{ saved: boolean; caldav_password_set: boolean }>("/api/settings/caldav-password", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }),
+  deleteCaldavPassword: () =>
+    request<{ saved: boolean; caldav_password_set: boolean }>("/api/settings/caldav-password", {
+      method: "DELETE",
+    }),
+  testCaldav: (payload: { url?: string; username?: string; password?: string }) =>
+    request<{ ok: boolean; status?: number; error?: string }>("/api/settings/caldav/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
 
   listTopics: () => request<Topic[]>("/api/topics"),
   createTopic: (name: string, color?: string) =>
@@ -135,7 +152,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, color }),
     }),
-  updateTopic: (id: number, patch: Partial<Pick<Topic, "name" | "color" | "export_path">>) =>
+  updateTopic: (
+    id: number,
+    patch: Partial<Pick<Topic, "name" | "color" | "export_path" | "calendar_export_mode" | "calendar_url">>,
+  ) =>
     request<Topic>(`/api/topics/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -232,6 +252,9 @@ export const api = {
     request<TranscriptData>(`/api/recordings/${id}/transcript`),
   getJobs: (id: number) =>
     request<JobEvent[]>(`/api/recordings/${id}/jobs`),
+  listActiveJobs: () => request<DebugJob[]>("/api/jobs"),
+  cancelJob: (jobId: number) =>
+    request<DebugJob>(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
   retryJob: (recordingId: number, jobId: number) =>
     request<{ job_id: number; phase: string; status: string }>(
       `/api/recordings/${recordingId}/jobs/${jobId}/retry`,
@@ -458,6 +481,8 @@ export const api = {
     }),
   deleteActionItem: (id: number) =>
     request<void>(`/api/action-items/${id}`, { method: "DELETE" }),
+  syncActionItemCalendar: (id: number) =>
+    request<ActionItem>(`/api/action-items/${id}/calendar-sync`, { method: "POST" }),
   async downloadActionItemsIcs(topicId?: number | null): Promise<void> {
     const cfg = await getConfig();
     const headers = new Headers();
@@ -558,7 +583,7 @@ export const api = {
     URL.revokeObjectURL(url);
   },
   getSettings: () => request<AppSettings>("/api/settings"),
-  updateSettings: (patch: Partial<Omit<AppSettings, "hf_token_set">>) =>
+  updateSettings: (patch: Partial<Omit<AppSettings, "hf_token_set" | "caldav_password_set">>) =>
     request<AppSettings>("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

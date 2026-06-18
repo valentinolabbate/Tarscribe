@@ -155,47 +155,49 @@ function TopicRow({
           ))}
         </span>
       )}
-      <span className="topic-reorder" aria-label="Sortieren">
+      <span className="topic-actions">
+        <span className="topic-reorder" aria-label="Sortieren">
+          <button
+            className="topic-move"
+            title="Nach oben"
+            aria-label="Nach oben verschieben"
+            disabled={!canMoveUp}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveUp();
+            }}
+          >
+            <ChevronUpIcon width={13} height={13} />
+          </button>
+          <button
+            className="topic-move"
+            title="Nach unten"
+            aria-label="Nach unten verschieben"
+            disabled={!canMoveDown}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMoveDown();
+            }}
+          >
+            <ChevronDownIcon width={13} height={13} />
+          </button>
+        </span>
         <button
-          className="topic-move"
-          title="Nach oben"
-          aria-label="Nach oben verschieben"
-          disabled={!canMoveUp}
+          className="topic-del"
+          title={
+            recording.topicId === topic.id
+              ? "Während einer laufenden Aufnahme nicht löschbar"
+              : "Themenbereich löschen"
+          }
+          disabled={recording.topicId === topic.id}
           onClick={(e) => {
             e.stopPropagation();
-            onMoveUp();
+            del.mutate(topic.id);
           }}
         >
-          <ChevronUpIcon width={13} height={13} />
-        </button>
-        <button
-          className="topic-move"
-          title="Nach unten"
-          aria-label="Nach unten verschieben"
-          disabled={!canMoveDown}
-          onClick={(e) => {
-            e.stopPropagation();
-            onMoveDown();
-          }}
-        >
-          <ChevronDownIcon width={13} height={13} />
+          <TrashIcon width={13} height={13} />
         </button>
       </span>
-      <button
-        className="topic-del"
-        title={
-          recording.topicId === topic.id
-            ? "Während einer laufenden Aufnahme nicht löschbar"
-            : "Themenbereich löschen"
-        }
-        disabled={recording.topicId === topic.id}
-        onClick={(e) => {
-          e.stopPropagation();
-          del.mutate(topic.id);
-        }}
-      >
-        <TrashIcon width={13} height={13} />
-      </button>
     </div>
   );
 }

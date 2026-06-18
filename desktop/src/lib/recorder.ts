@@ -3,6 +3,18 @@
 
 let micPermissionPrimed = false;
 
+function microphoneCaptureConstraints(deviceId?: string): MediaStreamConstraints {
+  const audio: MediaTrackConstraints = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+  if (deviceId) {
+    audio.deviceId = { exact: deviceId };
+  }
+  return { audio };
+}
+
 /**
  * Make sure the microphone permission is *granted* before we open the real
  * capture stream.
@@ -29,7 +41,7 @@ export async function ensureMicrophonePermission(): Promise<void> {
   } catch {
     // Permissions API unavailable (older WebKit) — fall through to priming.
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const stream = await navigator.mediaDevices.getUserMedia(microphoneCaptureConstraints());
   stream.getTracks().forEach((track) => track.stop());
   micPermissionPrimed = true;
 }
@@ -61,12 +73,10 @@ export class Recorder {
     let usedFallback = false;
     try {
       try {
-        this.stream = await navigator.mediaDevices.getUserMedia({
-          audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-        });
+        this.stream = await navigator.mediaDevices.getUserMedia(microphoneCaptureConstraints(deviceId));
       } catch (e) {
         if (!deviceId || !isMissingDeviceError(e)) throw e;
-        this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.stream = await navigator.mediaDevices.getUserMedia(microphoneCaptureConstraints());
         usedFallback = true;
       }
       this.chunks = [];
@@ -156,7 +166,7 @@ export async function listRecordingDevices(requestPermission = false): Promise<R
   let stream: MediaStream | null = null;
   try {
     if (requestPermission) {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia(microphoneCaptureConstraints());
       micPermissionPrimed = true; // refreshing already obtained the OS permission
     }
     const devices = await navigator.mediaDevices.enumerateDevices();

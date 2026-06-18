@@ -264,6 +264,25 @@ export interface HardwareInfo {
   ffprobe_available: boolean;
 }
 
+export interface LocalModelStatus {
+  key: string;
+  kind: "asr" | "diarization" | "embedding";
+  label: string;
+  engine?: string;
+  model: string;
+  repo_id: string;
+  downloaded: boolean;
+  status: "downloaded" | "missing";
+  path: string | null;
+  active: boolean;
+  note?: string;
+}
+
+export interface ModelStatusPayload {
+  models_dir: string;
+  items: LocalModelStatus[];
+}
+
 export type LiveSessionStatus =
   | "starting"
   | "recording"

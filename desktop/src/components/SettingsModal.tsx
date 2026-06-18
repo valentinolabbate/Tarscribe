@@ -9,7 +9,7 @@ import { LlmSettings } from "./LlmSettings";
 import { McpSettings } from "./McpSettings";
 import { RagSettings } from "./RagSettings";
 import { TemplatesModal } from "./TemplatesModal";
-import type { AppSettings, HardwareInfo, PerformanceProfile } from "../lib/types";
+import type { AppSettings, HardwareInfo, LocalModelStatus, ModelStatusPayload, PerformanceProfile } from "../lib/types";
 
 function KnownSpeakers() {
   const { data: speakers } = useKnownSpeakers();
@@ -102,6 +102,60 @@ const DIARIZATION_MODEL_SUGGESTIONS = [
 
 type SettingsTab = "general" | "models" | "summaries" | "rag" | "calendar" | "speakers" | "agents";
 
+function findModelStatus(
+  items: LocalModelStatus[] | undefined,
+  kind: LocalModelStatus["kind"],
+  model: string,
+  engine?: string,
+): LocalModelStatus | null {
+  return (
+    items?.find(
+      (item) =>
+        item.kind === kind &&
+        item.model === model &&
+        (engine === undefined || item.engine === engine),
+    ) ?? null
+  );
+}
+
+function activeModelStatus(
+  items: LocalModelStatus[] | undefined,
+  kind: LocalModelStatus["kind"],
+): LocalModelStatus | null {
+  return items?.find((item) => item.kind === kind && item.active) ?? null;
+}
+
+function ModelStatusBadge({ item, loading }: { item: LocalModelStatus | null; loading?: boolean }) {
+  if (loading && !item) return <span className="model-status-badge neutral">Prüfe…</span>;
+  if (!item) return <span className="model-status-badge neutral">Unbekannt</span>;
+  return (
+    <span className={item.downloaded ? "model-status-badge ready" : "model-status-badge missing"}>
+      {item.downloaded ? "Geladen" : "Fehlt"}
+    </span>
+  );
+}
+
+function ModelStatusCard({
+  title,
+  item,
+  loading,
+}: {
+  title: string;
+  item: LocalModelStatus | null;
+  loading?: boolean;
+}) {
+  return (
+    <div className="model-status-card">
+      <div className="model-status-card-head">
+        <span>{title}</span>
+        <ModelStatusBadge item={item} loading={loading} />
+      </div>
+      <code>{item?.model ?? "Wird ermittelt…"}</code>
+      {item?.note && <small>{item.note}</small>}
+    </div>
+  );
+}
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [token, setToken] = useState("");
@@ -112,12 +166,26 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelStatusPayload | null>(null);
+  const [modelStatusLoading, setModelStatusLoading] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("general");
   const { data: knownSpeakers } = useKnownSpeakers();
+
+  async function refreshModelStatus() {
+    setModelStatusLoading(true);
+    try {
+      setModelStatus(await api.modelStatus());
+    } catch {
+      setModelStatus(null);
+    } finally {
+      setModelStatusLoading(false);
+    }
+  }
 
   useEffect(() => {
     api.getSettings().then(setSettings);
     api.hardware().then(setHardware).catch(() => {});
+    refreshModelStatus();
     listRecordingDevices().then(setRecordingDevices).catch(() => {});
     getSystemAudioCapability().then(setSystemAudioCapability).catch(() => {});
   }, []);
@@ -172,6 +240,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, performance_profile });
     try {
       await api.updateSettings({ performance_profile });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: "Leistungsstufe gespeichert." });
     } catch (e) {
       setSettings(previous);
@@ -184,6 +253,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, asr_override });
     try {
       await api.updateSettings({ asr_override });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: "Transkriptions-Engine gespeichert." });
     } catch (e) {
       setStatus({ ok: false, msg: `Transkriptions-Engine konnte nicht gespeichert werden: ${(e as Error).message}` });
@@ -196,6 +266,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, asr_model });
     try {
       await api.updateSettings({ asr_model });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: asr_model ? "Transkriptions-Modell gespeichert." : "Transkriptions-Modell auf Vorschlag zurückgesetzt." });
     } catch (e) {
       setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
@@ -207,6 +278,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, asr_override: suggestion.engine, asr_model: suggestion.model });
     try {
       await api.updateSettings({ asr_override: suggestion.engine, asr_model: suggestion.model });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: "Transkriptions-Modell gespeichert." });
     } catch (e) {
       setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
@@ -219,6 +291,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, diarization_model });
     try {
       await api.updateSettings({ diarization_model });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
     } catch (e) {
       setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
@@ -230,6 +303,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setSettings({ ...settings, diarization_model: suggestion.model });
     try {
       await api.updateSettings({ diarization_model: suggestion.model });
+      void refreshModelStatus();
       setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
     } catch (e) {
       setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
@@ -366,6 +440,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     },
   ] as const;
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
+  const modelItems = modelStatus?.items ?? [];
+  const activeAsr = activeModelStatus(modelItems, "asr");
+  const activeDiarization = activeModelStatus(modelItems, "diarization");
+  const embeddingModel = findModelStatus(modelItems, "embedding", "speechbrain/spkrec-ecapa-voxceleb");
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -551,6 +629,24 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {/* ── Modelle ─────────────────────────────────────────────────── */}
             {tab === "models" && settings && (
               <>
+                <div className="settings-section-title model-status-title">
+                  <div>
+                    <span>Lokale Modelle</span>
+                    <small>Cache-Status für die aktuell genutzten lokalen Modelle.</small>
+                  </div>
+                  <button className="btn" onClick={refreshModelStatus} disabled={modelStatusLoading}>
+                    {modelStatusLoading ? "Prüfe…" : "Aktualisieren"}
+                  </button>
+                </div>
+                <div className="model-status-grid">
+                  <ModelStatusCard title="Transkription" item={activeAsr} loading={modelStatusLoading} />
+                  <ModelStatusCard title="Diarisierung" item={activeDiarization} loading={modelStatusLoading} />
+                  <ModelStatusCard title="Sprecher-Matching" item={embeddingModel} loading={modelStatusLoading} />
+                </div>
+                <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                  Cache-Ordner: <code>{modelStatus?.models_dir ?? "wird ermittelt"}</code>
+                </div>
+
                 <div className="settings-section-title">
                   <span>Laufzeitprofil</span>
                   <small>Speicherverhalten und Rechenmodus, nicht deine Modellwahl.</small>
@@ -640,7 +736,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       >
                         <span>{suggestion.label}</span>
                         <code>{suggestion.model}</code>
-                        <small>{suggestion.note}</small>
+                        <span className="suggestion-chip-foot">
+                          <small>{suggestion.note}</small>
+                          <ModelStatusBadge
+                            item={findModelStatus(modelItems, "asr", suggestion.model, suggestion.engine)}
+                            loading={modelStatusLoading}
+                          />
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -719,7 +821,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       >
                         <span>{suggestion.label}</span>
                         <code>{suggestion.model}</code>
-                        <small>{suggestion.note}</small>
+                        <span className="suggestion-chip-foot">
+                          <small>{suggestion.note}</small>
+                          <ModelStatusBadge
+                            item={findModelStatus(modelItems, "diarization", suggestion.model)}
+                            loading={modelStatusLoading}
+                          />
+                        </span>
                       </button>
                     ))}
                   </div>

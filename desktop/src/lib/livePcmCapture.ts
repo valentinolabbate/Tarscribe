@@ -125,7 +125,7 @@ export class LivePcmCapture {
   private audioCtx: AudioContext | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
-  private gainNode: GainNode | null = null;
+  private sinkNode: MediaStreamAudioDestinationNode | null = null;
   private sequenceNumber = 0;
   private started = false;
   private targetSampleRate = 16000;
@@ -164,14 +164,12 @@ export class LivePcmCapture {
       }
     };
 
-    // Silent sink so the graph stays active without playing to speakers.
-    this.gainNode = this.audioCtx.createGain();
-    this.gainNode.gain.value = 0;
-
     this.source = this.audioCtx.createMediaStreamSource(opts.stream);
     this.source.connect(this.workletNode);
-    this.workletNode.connect(this.gainNode);
-    this.gainNode.connect(this.audioCtx.destination);
+    // Pull the graph through an in-memory sink. Connecting a silent node to
+    // audioCtx.destination still opens the hardware output device on macOS.
+    this.sinkNode = this.audioCtx.createMediaStreamDestination();
+    this.workletNode.connect(this.sinkNode);
 
     this.started = true;
 
@@ -264,7 +262,7 @@ export class LivePcmCapture {
     try {
       this.source?.disconnect();
       this.workletNode?.disconnect();
-      this.gainNode?.disconnect();
+      this.sinkNode?.disconnect();
       this.audioCtx?.close();
     } catch {
       /* ignore cleanup errors */
@@ -272,7 +270,7 @@ export class LivePcmCapture {
     this.audioCtx = null;
     this.workletNode = null;
     this.source = null;
-    this.gainNode = null;
+    this.sinkNode = null;
     this.started = false;
     this.sequenceNumber = 0;
     this.systemPaused = false;

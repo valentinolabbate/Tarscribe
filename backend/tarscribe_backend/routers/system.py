@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from .. import __version__
 from ..hardware import detect_hardware
 from ..media_tools import is_media_tool_available
+from ..security import require_token
 from ..settings_store import has_hf_token, load_prefs, save_prefs
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -36,6 +37,13 @@ def setup_status() -> dict:
         "llm_configured": bool(llm.get("model")),
         "hardware": detect_hardware().to_dict(),
     }
+
+
+@router.get("/models", dependencies=[Depends(require_token)])
+def models() -> dict:
+    from ..ml.model_status import model_status_payload
+
+    return model_status_payload()
 
 
 @router.post("/complete-setup")

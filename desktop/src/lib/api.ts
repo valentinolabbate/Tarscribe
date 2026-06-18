@@ -14,6 +14,7 @@ import type {
   LiveEvent,
   LiveSession,
   McpInfo,
+  ModelStatusPayload,
   RagConfig,
   RagHit,
   RagSource,
@@ -117,6 +118,7 @@ export async function waitForBackend(timeoutMs = 30000): Promise<void> {
 export const api = {
   health: () => request<{ status: string; version: string }>("/api/system/health"),
   hardware: () => request<HardwareInfo>("/api/system/hardware"),
+  modelStatus: () => request<ModelStatusPayload>("/api/system/models"),
   setupStatus: () =>
     request<{
       setup_complete: boolean;

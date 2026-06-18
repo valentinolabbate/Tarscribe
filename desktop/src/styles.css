@@ -1428,6 +1428,79 @@ select:focus {
   font-size: 11.5px;
   line-height: 1.4;
 }
+.model-status-title {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.model-status-title > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.model-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 2px;
+}
+.model-status-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 11px;
+}
+.model-status-card-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.model-status-card-head > span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+.model-status-card code {
+  color: var(--text-dim);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.model-status-card small {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.model-status-badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 7px;
+}
+.model-status-badge.ready {
+  background: color-mix(in srgb, var(--ok) 11%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 35%, var(--border));
+  color: var(--ok);
+}
+.model-status-badge.missing {
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  color: var(--danger);
+}
+.model-status-badge.neutral {
+  background: color-mix(in srgb, var(--text-faint) 8%, transparent);
+  color: var(--text-faint);
+}
 .settings-content .field {
   gap: 8px;
   margin: 0 0 16px;
@@ -1538,7 +1611,15 @@ select:focus {
   color: var(--text);
   border-color: var(--border-strong);
 }
-.suggestion-chip span {
+.suggestion-chip-foot {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+.suggestion-chip > span:first-child {
   font-size: 12px;
   font-weight: 650;
 }
@@ -1578,6 +1659,16 @@ select:focus {
     padding: 16px;
   }
   .model-row {
+    grid-template-columns: 1fr;
+  }
+  .model-status-title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .model-status-title .btn {
+    align-self: flex-start;
+  }
+  .model-status-grid {
     grid-template-columns: 1fr;
   }
   .performance-options {

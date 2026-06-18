@@ -49,6 +49,35 @@ def test_hardware(client):
     assert "recommended_profile" in body
 
 
+def test_model_status_lists_local_cache_state(client):
+    r = client.get("/api/system/models")
+    assert r.status_code == 200
+    body = r.json()
+    assert "models_dir" in body
+    assert any(item["kind"] == "asr" for item in body["items"])
+    assert any(item["kind"] == "diarization" for item in body["items"])
+
+
+def test_model_status_marks_custom_local_asr_model_downloaded(client):
+    from tarscribe_backend.config import get_settings
+
+    local_model = get_settings().models_dir / "local-whisper"
+    local_model.mkdir(parents=True)
+    (local_model / "config.json").write_text("{}")
+
+    client.put(
+        "/api/settings",
+        json={"asr_override": "faster-whisper", "asr_model": str(local_model)},
+    )
+
+    r = client.get("/api/system/models")
+    assert r.status_code == 200
+    active = next(item for item in r.json()["items"] if item["kind"] == "asr" and item["active"])
+    assert active["model"] == str(local_model)
+    assert active["downloaded"] is True
+    assert active["path"] == str(local_model)
+
+
 def test_settings_performance_profile(client):
     r = client.get("/api/settings")
     assert r.status_code == 200

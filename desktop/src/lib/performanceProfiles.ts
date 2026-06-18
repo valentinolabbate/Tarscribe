@@ -9,27 +9,27 @@ export const PERFORMANCE_PROFILES: Array<{
 }> = [
   {
     id: "m1_8gb",
-    label: "M1 / 8 GB",
-    detail: "Nutzt Apple-GPU mit kleinerem Speicher-Footprint.",
-    asr: "MLX/MPS, kurze Chunks",
-    diarization: "pyannote auf MPS, ohne Auto-Matching",
+    label: "Kompakt",
+    detail: "Für kleine M-Macs und lange Aufnahmen mit möglichst wenig Speicherdruck.",
+    asr: "kurze Chunks",
+    diarization: "Speaker-Matching pausiert",
   },
   {
     id: "balanced",
-    label: "M-Serie Standard",
-    detail: "Empfohlen für M-Macs mit 16 GB oder mehr.",
-    asr: "MLX/MPS Standard",
-    diarization: "pyannote + Auto-Matching",
+    label: "Ausgewogen",
+    detail: "Der ruhige Standard für moderne Laptops, meist passend ab 16 GB RAM.",
+    asr: "Standard-Chunks",
+    diarization: "Speaker-Matching aktiv",
   },
   {
     id: "quality",
-    label: "Max. Qualität",
-    detail: "Für Pro/Max/Ultra oder viel Speicher.",
-    asr: "größere Modelle wo sinnvoll",
+    label: "Hohe Qualität",
+    detail: "Für aktuelle Laptops empfohlen ab 24 GB RAM; 16 GB gehen oft bei kürzeren Workflows.",
+    asr: "größere Defaults",
     diarization: "volle Sprechererkennung",
   },
 ];
 
 export function performanceProfileLabel(id: PerformanceProfile | null | undefined): string {
-  return PERFORMANCE_PROFILES.find((profile) => profile.id === id)?.label ?? "M-Serie Standard";
+  return PERFORMANCE_PROFILES.find((profile) => profile.id === id)?.label ?? "Ausgewogen";
 }

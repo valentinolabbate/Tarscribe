@@ -100,6 +100,8 @@ const DIARIZATION_MODEL_SUGGESTIONS = [
   },
 ];
 
+type SettingsTab = "general" | "models" | "summaries" | "rag" | "calendar" | "speakers" | "agents";
+
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [token, setToken] = useState("");
@@ -110,7 +112,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [tab, setTab] = useState<"general" | "summaries" | "rag" | "calendar" | "speakers" | "agents">("general");
+  const [tab, setTab] = useState<SettingsTab>("general");
   const { data: knownSpeakers } = useKnownSpeakers();
 
   useEffect(() => {
@@ -320,18 +322,60 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 
   const TABS = [
-    { id: "general", label: "Allgemein", icon: <SettingsIcon width={16} height={16} /> },
-    { id: "summaries", label: "Zusammenfassung", icon: <SummaryIcon width={16} height={16} /> },
-    { id: "rag", label: "Wissens-Chat", icon: <ChatIcon width={16} height={16} /> },
-    { id: "calendar", label: "Kalender", icon: <CalendarIcon width={16} height={16} /> },
-    { id: "speakers", label: "Sprecher", icon: <SpeakerIdIcon width={16} height={16} /> },
-    { id: "agents", label: "Agenten (MCP)", icon: <ChatIcon width={16} height={16} /> },
+    {
+      id: "general",
+      label: "Allgemein",
+      description: "Audio, Sprache, Hotkeys",
+      icon: <SettingsIcon width={16} height={16} />,
+    },
+    {
+      id: "models",
+      label: "Modelle",
+      description: "Transkription & Diarisierung",
+      icon: <SpeakerIdIcon width={16} height={16} />,
+    },
+    {
+      id: "summaries",
+      label: "Zusammenfassung",
+      description: "Chat-Modell & Vorlagen",
+      icon: <SummaryIcon width={16} height={16} />,
+    },
+    {
+      id: "rag",
+      label: "Wissens-Chat",
+      description: "Suche & Embeddings",
+      icon: <ChatIcon width={16} height={16} />,
+    },
+    {
+      id: "calendar",
+      label: "Kalender",
+      description: "CalDAV-Verbindung",
+      icon: <CalendarIcon width={16} height={16} />,
+    },
+    {
+      id: "speakers",
+      label: "Sprecher",
+      description: "Stimmen & Zuordnung",
+      icon: <SpeakerIdIcon width={16} height={16} />,
+    },
+    {
+      id: "agents",
+      label: "Agenten",
+      description: "MCP-Anbindung",
+      icon: <ChatIcon width={16} height={16} />,
+    },
   ] as const;
+  const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Einstellungen</h2>
+        <div className="settings-titlebar">
+          <div>
+            <h2>Einstellungen</h2>
+            <p>Alles, was Tarscribe dauerhaft für Aufnahme, Modelle und Exporte nutzt.</p>
+          </div>
+        </div>
 
         <div className="settings-layout">
           <nav className="settings-nav">
@@ -344,16 +388,28 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   setStatus(null);
                 }}
               >
-                {t.icon}
-                {t.label}
+                <span className="settings-nav-icon">{t.icon}</span>
+                <span className="settings-nav-copy">
+                  <strong>{t.label}</strong>
+                  <small>{t.description}</small>
+                </span>
               </button>
             ))}
           </nav>
 
           <div className="settings-content">
+            <div className="settings-pane-head">
+              <span>{activeTab.label}</span>
+              <p>{activeTab.description}</p>
+            </div>
+
             {/* ── Allgemein ───────────────────────────────────────────────── */}
             {tab === "general" && settings && (
               <>
+                <div className="settings-section-title">
+                  <span>Aufnahme</span>
+                  <small>Quelle, Mikrofon und Sprache für neue Aufnahmen.</small>
+                </div>
                 <div className="field">
                   <label>Aufnahmequelle</label>
                   <select
@@ -422,92 +478,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </select>
                 </div>
 
-                <div className="field">
-                  <label>Leistungsstufe</label>
-                  <div className="performance-options">
-                    {PERFORMANCE_PROFILES.map((profile) => {
-                      const active = settings.performance_profile === profile.id;
-                      const recommended = hardware?.recommended_profile === profile.id;
-                      return (
-                        <button
-                          key={profile.id}
-                          type="button"
-                          className={active ? "performance-option active" : "performance-option"}
-                          onClick={() => savePerformanceProfile(profile.id)}
-                        >
-                          <span className="performance-option-head">
-                            <strong>{profile.label}</strong>
-                            {recommended && <span className="mini-badge">Empfohlen</span>}
-                          </span>
-                          <span>{profile.detail}</span>
-                          <span className="performance-option-meta">
-                            <span>{profile.asr}</span>
-                            <span>{profile.diarization}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    {hardware
-                      ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Niedrigste Stufe nutzt auf M-Macs weiterhin die GPU.`
-                      : "Prüfe RAM und GPU für die empfohlene Stufe…"}
-                  </div>
+                <div className="settings-section-title">
+                  <span>Automationen</span>
+                  <small>Kurze Wege für Diktat und Meeting-Erkennung.</small>
                 </div>
-
-                <div className="field">
-                  <label>Transkriptions-Modell</label>
-                  <div className="model-row">
-                    <select
-                      value={settings.asr_override ?? ""}
-                      aria-label="Transkriptions-Engine"
-                      onChange={(e) => saveAsrEngine(e.target.value as AsrEngine)}
-                    >
-                      <option value="">Automatisch nach System</option>
-                      <option value="parakeet-mlx">Parakeet MLX</option>
-                      <option value="faster-whisper">faster-whisper</option>
-                    </select>
-                    <input
-                      type="text"
-                      list="asr-model-suggestions"
-                      value={settings.asr_model ?? ""}
-                      placeholder={
-                        settings.asr_override === "faster-whisper"
-                          ? "medium, large-v3 oder eigener Modellname"
-                          : "mlx-community/parakeet-tdt-0.6b-v3"
-                      }
-                      onChange={(e) => setSettings({ ...settings, asr_model: e.target.value })}
-                      onBlur={(e) => saveAsrModel(e.target.value)}
-                      spellCheck={false}
-                    />
-                    <datalist id="asr-model-suggestions">
-                      {ASR_MODEL_SUGGESTIONS.map((suggestion) => (
-                        <option key={`${suggestion.engine}:${suggestion.model}`} value={suggestion.model} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div className="suggestion-chips">
-                    {ASR_MODEL_SUGGESTIONS.filter(
-                      (suggestion) => !settings.asr_override || suggestion.engine === settings.asr_override,
-                    ).map((suggestion) => (
-                      <button
-                        key={`${suggestion.engine}:${suggestion.model}`}
-                        type="button"
-                        className="suggestion-chip"
-                        onClick={() => applyAsrSuggestion(suggestion)}
-                      >
-                        <span>{suggestion.label}</span>
-                        <code>{suggestion.model}</code>
-                        <small>{suggestion.note}</small>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Die Leistungsstufe bleibt nur ein Vorschlag für Laufzeit und Speicher. Der Modellname
-                    ist frei wählbar und wird beim nächsten Transkriptionslauf verwendet.
-                  </div>
-                </div>
-
                 <div className="field">
                   <label>Diktat-Hotkey</label>
                   <input
@@ -567,6 +541,191 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     Die Aufnahme wird nur vorgeschlagen, wenn die App gerade das Mikrofon nutzt – im
                     Hintergrund laufende Apps lösen keinen Hinweis mehr aus. Für Browser-Meetings die
                     Browser-App ergänzen (z. B. <code>Google Chrome</code>).
+                  </div>
+                </div>
+
+                {statusEl}
+              </>
+            )}
+
+            {/* ── Modelle ─────────────────────────────────────────────────── */}
+            {tab === "models" && settings && (
+              <>
+                <div className="settings-section-title">
+                  <span>Laufzeitprofil</span>
+                  <small>Speicherverhalten und Rechenmodus, nicht deine Modellwahl.</small>
+                </div>
+                <div className="field">
+                  <label>Leistungsstufe</label>
+                  <div className="settings-info-box">
+                    Die Leistungsstufe ist ein Laufzeitprofil. Sie wählt nur dann Standardmodelle,
+                    wenn unten kein eigenes Modell eingetragen ist, und regelt sonst vor allem
+                    Chunk-Größe, Rechenpräzision und Speaker-Matching auf knappen Geräten.
+                  </div>
+                  <div className="performance-options">
+                    {PERFORMANCE_PROFILES.map((profile) => {
+                      const active = settings.performance_profile === profile.id;
+                      const recommended = hardware?.recommended_profile === profile.id;
+                      return (
+                        <button
+                          key={profile.id}
+                          type="button"
+                          className={active ? "performance-option active" : "performance-option"}
+                          onClick={() => savePerformanceProfile(profile.id)}
+                        >
+                          <span className="performance-option-head">
+                            <strong>{profile.label}</strong>
+                            {recommended && <span className="mini-badge">Empfohlen</span>}
+                          </span>
+                          <span>{profile.detail}</span>
+                          <span className="performance-option-meta">
+                            <span>{profile.asr}</span>
+                            <span>{profile.diarization}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    {hardware
+                      ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Hohe Qualität ist für moderne Laptops realistisch; 24 GB RAM sind komfortabel, 16 GB funktionieren bei vielen Workflows ebenfalls.`
+                      : "Prüfe RAM und GPU für die empfohlene Stufe…"}
+                  </div>
+                </div>
+
+                <div className="settings-section-title">
+                  <span>Transkription</span>
+                  <small>Engine auswählen, Modell frei eintragen.</small>
+                </div>
+                <div className="field">
+                  <label>Transkriptions-Modell</label>
+                  <div className="model-row">
+                    <select
+                      value={settings.asr_override ?? ""}
+                      aria-label="Transkriptions-Engine"
+                      onChange={(e) => saveAsrEngine(e.target.value as AsrEngine)}
+                    >
+                      <option value="">Automatisch nach System</option>
+                      <option value="parakeet-mlx">Parakeet MLX</option>
+                      <option value="faster-whisper">faster-whisper</option>
+                    </select>
+                    <input
+                      type="text"
+                      list="asr-model-suggestions"
+                      value={settings.asr_model ?? ""}
+                      placeholder={
+                        settings.asr_override === "faster-whisper"
+                          ? "medium, large-v3 oder eigener Modellname"
+                          : "mlx-community/parakeet-tdt-0.6b-v3"
+                      }
+                      onChange={(e) => setSettings({ ...settings, asr_model: e.target.value })}
+                      onBlur={(e) => saveAsrModel(e.target.value)}
+                      spellCheck={false}
+                    />
+                    <datalist id="asr-model-suggestions">
+                      {ASR_MODEL_SUGGESTIONS.map((suggestion) => (
+                        <option key={`${suggestion.engine}:${suggestion.model}`} value={suggestion.model} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="suggestion-chips">
+                    {ASR_MODEL_SUGGESTIONS.filter(
+                      (suggestion) => !settings.asr_override || suggestion.engine === settings.asr_override,
+                    ).map((suggestion) => (
+                      <button
+                        key={`${suggestion.engine}:${suggestion.model}`}
+                        type="button"
+                        className="suggestion-chip"
+                        onClick={() => applyAsrSuggestion(suggestion)}
+                      >
+                        <span>{suggestion.label}</span>
+                        <code>{suggestion.model}</code>
+                        <small>{suggestion.note}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+                    Die Vorschläge füllen das Feld nur aus. Du kannst jeden kompatiblen Modellnamen
+                    oder Modellpfad verwenden.
+                  </div>
+                </div>
+
+                <div className="settings-section-title">
+                  <span>Diarisierung</span>
+                  <small>Sprechertrennung und pyannote-Modell.</small>
+                </div>
+                <div className="field">
+                  <label>Hugging Face Token</label>
+                  {settings.hf_token_set ? (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span className="badge ready">✓ Token hinterlegt</span>
+                      <button className="btn ghost danger" onClick={removeToken} disabled={busy}>
+                        Entfernen
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="password"
+                        placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                        <button className="btn primary" onClick={saveToken} disabled={busy || !token.trim()}>
+                          {busy ? "Prüfe…" : "Speichern & prüfen"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
+                    Für viele pyannote-Modelle ist ein Token nötig. Er wird in der OS-Keychain
+                    gespeichert; die Modelllizenz akzeptierst du bei Hugging Face.
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Diarisierungs-Modell</label>
+                  <input
+                    type="text"
+                    list="diarization-model-suggestions"
+                    value={settings.diarization_model}
+                    placeholder="pyannote/speaker-diarization-community-1"
+                    onChange={(e) => setSettings({ ...settings, diarization_model: e.target.value })}
+                    onBlur={(e) => saveDiarizationModel(e.target.value)}
+                    spellCheck={false}
+                  />
+                  <datalist id="diarization-model-suggestions">
+                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
+                      <option key={suggestion.model} value={suggestion.model} />
+                    ))}
+                  </datalist>
+                  <div className="suggestion-chips">
+                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion.model}
+                        type="button"
+                        className="suggestion-chip"
+                        onClick={() => applyDiarizationSuggestion(suggestion)}
+                      >
+                        <span>{suggestion.label}</span>
+                        <code>{suggestion.model}</code>
+                        <small>{suggestion.note}</small>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
+                    Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder
+                    einen eigenen Modellpfad eintragen.
                   </div>
                 </div>
 
@@ -709,51 +868,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {/* ── Agenten (MCP) ───────────────────────────────────────────── */}
             {tab === "agents" && <McpSettings />}
 
-            {/* ── Sprecher & Diarisierung ─────────────────────────────────── */}
+            {/* ── Sprecher ────────────────────────────────────────────────── */}
             {tab === "speakers" && (
               <>
-                <div className="field">
-                  <label>HuggingFace-Token (für Speaker-Diarisierung)</label>
-                  {settings?.hf_token_set ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span className="badge ready">✓ Token hinterlegt</span>
-                      <button className="btn ghost danger" onClick={removeToken} disabled={busy}>
-                        Entfernen
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <input
-                        type="password"
-                        placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                        value={token}
-                        onChange={(e) => setToken(e.target.value)}
-                        spellCheck={false}
-                        autoComplete="off"
-                      />
-                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                        <button className="btn primary" onClick={saveToken} disabled={busy || !token.trim()}>
-                          {busy ? "Prüfe…" : "Speichern & prüfen"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  {statusEl}
-                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
-                    Token erstellen unter huggingface.co/settings/tokens und die Lizenz von
-                    <br />
-                    <code>pyannote/speaker-diarization-community-1</code> akzeptieren. Wird sicher in der
-                    OS-Keychain gespeichert.
-                  </div>
+                <div className="settings-section-title">
+                  <span>Stimmen</span>
+                  <small>Gespeicherte Stimmen und Aufgaben-Zuordnung.</small>
                 </div>
-
                 <KnownSpeakers />
 
                 {settings && (
@@ -813,43 +934,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                 )}
 
-                {settings && (
-                  <div className="field">
-                    <label>Diarisierungs-Modell</label>
-                    <input
-                      type="text"
-                      list="diarization-model-suggestions"
-                      value={settings.diarization_model}
-                      placeholder="pyannote/speaker-diarization-community-1"
-                      onChange={(e) => setSettings({ ...settings, diarization_model: e.target.value })}
-                      onBlur={(e) => saveDiarizationModel(e.target.value)}
-                      spellCheck={false}
-                    />
-                    <datalist id="diarization-model-suggestions">
-                      {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
-                        <option key={suggestion.model} value={suggestion.model} />
-                      ))}
-                    </datalist>
-                    <div className="suggestion-chips">
-                      {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
-                        <button
-                          key={suggestion.model}
-                          type="button"
-                          className="suggestion-chip"
-                          onClick={() => applyDiarizationSuggestion(suggestion)}
-                        >
-                          <span>{suggestion.label}</span>
-                          <code>{suggestion.model}</code>
-                          <small>{suggestion.note}</small>
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
-                      Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder
-                      einen lokalen Modellpfad eintragen.
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>

@@ -173,6 +173,37 @@ def test_topic_overview_counts_artifacts_and_exports(client):
     assert overview["exported_count"] == 1
 
 
+def test_recording_can_move_between_topics(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Topic
+
+    with Session(db.get_engine()) as s:
+        source = Topic(name="Meetings")
+        target = Topic(name="Projekt")
+        s.add(source)
+        s.add(target)
+        s.flush()
+        rec = Recording(topic_id=source.id, title="Weekly", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.commit()
+        source_id = source.id
+        target_id = target.id
+        recording_id = rec.id
+
+    r = client.patch(f"/api/recordings/{recording_id}", json={"topic_id": target_id})
+    assert r.status_code == 200
+    assert r.json()["topic_id"] == target_id
+
+    by_id = {topic["id"]: topic for topic in client.get("/api/topics").json()}
+    assert by_id[source_id]["recording_count"] == 0
+    assert by_id[target_id]["recording_count"] == 1
+
+    r = client.patch(f"/api/recordings/{recording_id}", json={"topic_id": 99999})
+    assert r.status_code == 404
+
+
 def test_empty_transcript_row_is_not_returned_as_transcript(client):
     from sqlmodel import Session
 

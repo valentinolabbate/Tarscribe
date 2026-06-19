@@ -1901,6 +1901,30 @@ select:focus {
   gap: 8px;
   flex-wrap: wrap;
 }
+.recording-topic-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  color: var(--text-dim);
+}
+.recording-topic-select select {
+  min-height: 30px;
+  max-width: 220px;
+  padding: 5px 26px 5px 6px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+}
+.recording-topic-select select:focus {
+  border-color: transparent;
+}
 .detail-progress {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 320px);

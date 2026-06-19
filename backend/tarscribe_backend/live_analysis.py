@@ -27,6 +27,22 @@ MIN_AUDIO_SEC: float = 1.0
 DIAR_MIN_AUDIO_SEC: float = 5.0  # from live_diarization.DIAR_MIN_AUDIO_SEC
 
 
+def _speaker_snapshot_from_words(
+    state: object,
+    words: list[dict],
+    revision: int,
+) -> dict:
+    active_speaker_ids = {word.get("speaker_id") for word in words if word.get("speaker_id")}
+    return {
+        "revision": revision,
+        "speakers": [
+            c.to_dict()
+            for c in getattr(state, "clusters", {}).values()
+            if c.id in active_speaker_ids
+        ],
+    }
+
+
 class LiveAnalysisService:
     """Manages rolling ASR + diarization for the active live session."""
 
@@ -190,10 +206,11 @@ class LiveAnalysisService:
             new_words = assign_speakers_to_words(new_words, self._diar_state.segments)
 
         if should_diarize and self._diar_state is not None:
-            speakers_snap = {
-                "revision": prev_spk_revision + 1,
-                "speakers": [c.to_dict() for c in self._diar_state.clusters.values()],
-            }
+            speakers_snap = _speaker_snapshot_from_words(
+                self._diar_state,
+                new_words,
+                prev_spk_revision + 1,
+            )
 
         # ── Persist ──────────────────────────────────────────────────────
         transcript_snap = {

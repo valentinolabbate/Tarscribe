@@ -191,6 +191,8 @@ def update_recording(
     if payload.title is not None:
         rec.title = payload.title
     if payload.topic_id is not None:
+        if not session.get(Topic, payload.topic_id):
+            raise HTTPException(404, "Themenbereich nicht gefunden")
         rec.topic_id = payload.topic_id
     session.add(rec)
     session.commit()

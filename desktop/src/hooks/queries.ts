@@ -79,7 +79,10 @@ export function useUpdateRecording() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: number; patch: { title?: string; topic_id?: number } }) =>
       api.updateRecording(id, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["recordings"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["recordings"] });
+      qc.invalidateQueries({ queryKey: ["topics"] });
+    },
   });
 }
 

@@ -320,6 +320,29 @@ def test_recording_source_defaults_to_microphone_and_accepts_native_modes(client
     assert r.json()["recording_source"] == "system_audio_and_microphone"
 
 
+def test_live_speaker_snapshot_only_lists_speakers_present_in_words():
+    from tarscribe_backend.live_analysis import _speaker_snapshot_from_words
+    from tarscribe_backend.ml.live_diarization import DiarizationState
+
+    state = DiarizationState()
+    valentino = state.new_cluster()
+    extra = state.new_cluster()
+    valentino.display_name = "Valentino"
+    extra.display_name = "Sprecher ohne Text"
+
+    snapshot = _speaker_snapshot_from_words(
+        state,
+        [
+            {"text": "Hallo", "speaker_id": valentino.id},
+            {"text": ".", "speaker_id": None},
+        ],
+        revision=7,
+    )
+
+    assert snapshot["revision"] == 7
+    assert [speaker["display_name"] for speaker in snapshot["speakers"]] == ["Valentino"]
+
+
 # ── PCM cleanup ───────────────────────────────────────────────────────────────
 
 def test_finish_schedules_pcm_cleanup(client, tmp_path, monkeypatch):

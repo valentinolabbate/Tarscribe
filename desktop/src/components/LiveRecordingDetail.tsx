@@ -202,6 +202,20 @@ export function LiveRecordingDetail({
 }: Props) {
   const isActive = state === "recording" || state === "paused";
   const bodyRef = useRef<HTMLDivElement>(null);
+  const transcriptSnapshot = handle?.transcriptSnapshot ?? null;
+  const speakerSnapshot = handle?.speakerSnapshot ?? null;
+  const activeSpeakerIds = new Set(
+    (transcriptSnapshot?.words ?? [])
+      .map((word) => word.speaker_id)
+      .filter((speakerId): speakerId is string => !!speakerId),
+  );
+  const visibleSpeakers = (speakerSnapshot?.speakers ?? []).filter((speaker) =>
+    activeSpeakerIds.has(speaker.id),
+  );
+  const visibleSpeakerSnapshot =
+    speakerSnapshot && visibleSpeakers.length > 0
+      ? { ...speakerSnapshot, speakers: visibleSpeakers }
+      : null;
 
   return (
     <div className="live-detail">
@@ -246,12 +260,12 @@ export function LiveRecordingDetail({
         </div>
       )}
 
-      <SpeakerChips snapshot={handle?.speakerSnapshot ?? null} />
+      <SpeakerChips snapshot={visibleSpeakerSnapshot} />
 
       <div className="live-detail-body" ref={bodyRef}>
         <LiveTranscript
-          snapshot={handle?.transcriptSnapshot ?? null}
-          speakers={handle?.speakerSnapshot?.speakers ?? []}
+          snapshot={transcriptSnapshot}
+          speakers={visibleSpeakers}
           bodyRef={bodyRef}
         />
       </div>

@@ -16,9 +16,9 @@ import {
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
 import { fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
-import type { DiarizationData, Recording, WordSeg } from "../lib/types";
+import type { DiarizationData, Recording, Topic, WordSeg } from "../lib/types";
 import { useToast } from "./Toast";
-import { ChatIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
+import { ChatIcon, FolderIcon, SpeakerIdIcon, SummaryIcon, WaveIcon } from "./icons";
 import { ActionItemsPanel } from "./ActionItemsPanel";
 import { ChaptersBar } from "./ChaptersBar";
 import { ChatPanel } from "./ChatPanel";
@@ -215,11 +215,15 @@ function DetailEmptyState({
 
 export function RecordingDetail({
   recording,
+  topics,
   onBack,
+  onMoved,
   onOpenSettings,
 }: {
   recording: Recording;
+  topics: Topic[];
   onBack: () => void;
+  onMoved?: (recording: Recording) => void;
   onOpenSettings?: () => void;
 }) {
   const job = useJobFor(recording.id);
@@ -320,6 +324,21 @@ export function RecordingDetail({
     }
   }
 
+  async function moveRecording(topicId: number) {
+    if (topicId === recording.topic_id) return;
+    const target = topics.find((topic) => topic.id === topicId);
+    try {
+      const updated = await updateRec.mutateAsync({
+        id: recording.id,
+        patch: { topic_id: topicId },
+      });
+      toast(`Verschoben nach ${target?.name ?? "neuen Bereich"}`, "success");
+      onMoved?.(updated);
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   return (
     <div className="detail">
       <header className="detail-hero">
@@ -345,6 +364,23 @@ export function RecordingDetail({
         </div>
 
         <div className="detail-actions">
+          {topics.length > 1 && (
+            <label className="recording-topic-select" title="Aufnahme in einen anderen Themenbereich verschieben">
+              <FolderIcon width={16} height={16} />
+              <select
+                value={recording.topic_id}
+                disabled={updateRec.isPending}
+                onChange={(e) => void moveRecording(Number(e.target.value))}
+                aria-label="Aufnahme verschieben"
+              >
+                {topics.map((topic) => (
+                  <option key={topic.id} value={topic.id}>
+                    {topic.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {isTranscribed && transcript && !diar && (
             <button
               className="btn"

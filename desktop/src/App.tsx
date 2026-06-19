@@ -733,7 +733,12 @@ export default function App() {
           ) : openRecording ? (
             <RecordingDetail
               recording={openRecording}
+              topics={topics ?? []}
               onBack={() => setOpenRecording(null)}
+              onMoved={(rec) => {
+                setActiveTopic(rec.topic_id);
+                setOpenRecording(rec);
+              }}
               onOpenSettings={() => setShowSettings(true)}
             />
           ) : current ? (

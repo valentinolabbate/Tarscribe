@@ -142,6 +142,49 @@ def test_topic_filter(env):
     assert all(h["topic_id"] == tid_a for h in hits)
 
 
+def test_recording_search_can_optionally_include_topic_context(env):
+    db, rag = env
+    rid_self, tid_a = _make_recording(
+        db,
+        title="Self",
+        topic_name="TopicA",
+        words_text="Lokaler Status Abstimmung Planung " * 4,
+    )
+    rid_peer = _add_recording_to_topic(
+        db,
+        tid_a,
+        "Peer-A",
+        words_text="Nebelfaktor Entscheidung Budget " * 4,
+    )
+    rid_other, _tid_b = _make_recording(
+        db,
+        title="Other",
+        topic_name="TopicB",
+        words_text="Nebelfaktor Entscheidung Budget " * 4,
+    )
+    with db.session_scope() as s:
+        rag.index_recording(s, rid_self)
+        rag.index_recording(s, rid_peer)
+        rag.index_recording(s, rid_other)
+
+    with db.session_scope() as s:
+        narrow = rag.search(s, "Nebelfaktor", top_k=10, recording_id=rid_self)
+        broad = rag.search(
+            s,
+            "Nebelfaktor",
+            top_k=10,
+            recording_id=rid_self,
+            include_topic_context=True,
+        )
+
+    assert narrow
+    assert all(h["recording_id"] == rid_self for h in narrow)
+    assert broad
+    assert any(h["recording_id"] == rid_peer for h in broad)
+    assert all(h["topic_id"] == tid_a for h in broad)
+    assert all(h["recording_id"] != rid_other for h in broad)
+
+
 def test_delete_summary_index_removes_summary_chunks(env):
     """Bug 1: deleting an indexed summary must not hit a FK constraint."""
     db, rag = env

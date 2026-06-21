@@ -607,6 +607,7 @@ export function RecordingDetail({
                 <DocumentsPanel topicId={recording.topic_id} recordingId={recording.id} />
                 <ChatPanel
                   embedded
+                  topics={topics}
                   scopeRecording={{ id: recording.id, title: recording.title }}
                   onOpenSource={(rec, start) => {
                     if (rec === recording.id) playerRef.current?.seek(start ?? 0);

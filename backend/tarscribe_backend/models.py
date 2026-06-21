@@ -272,6 +272,34 @@ class RagChunk(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class ChatSession(SQLModel, table=True):
+    """A persisted AI-chat thread, scoped globally or to one recording."""
+
+    __tablename__ = "chat_sessions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    scope: str = Field(index=True)  # global | recording
+    title: str = "Neuer Chat"
+    recording_id: Optional[int] = Field(default=None, foreign_key="recordings.id", index=True)
+    topic_id: Optional[int] = Field(default=None, foreign_key="topics.id", index=True)
+    archived: bool = False
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
+class ChatMessage(SQLModel, table=True):
+    """One stored chat turn. Assistant messages keep their source snapshot."""
+
+    __tablename__ = "chat_messages"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: int = Field(foreign_key="chat_sessions.id", index=True)
+    role: str
+    content: str = ""
+    sources_json: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
 class ActionItem(SQLModel, table=True):
     """An LLM-extracted task or decision from one recording, checkable by the user."""
 

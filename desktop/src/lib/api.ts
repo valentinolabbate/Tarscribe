@@ -3,6 +3,9 @@ import type {
   AppSettings,
   Chapter,
   ChatMessage,
+  ChatScope,
+  ChatSession,
+  ChatStoredMessage,
   DebugJob,
   DiarizationData,
   Digest,
@@ -33,10 +36,15 @@ import type {
 export interface SearchFilters {
   topicId?: number | null;
   recordingId?: number | null;
+  includeTopicContext?: boolean;
   topK?: number;
   speaker?: string | null;
   dateFrom?: string | null;
   dateTo?: string | null;
+}
+
+export interface RagChatOptions extends SearchFilters {
+  reasoningEffort?: string | null;
 }
 
 export interface DiarizeParams {
@@ -384,6 +392,42 @@ export const api = {
     request<{ saved: boolean; api_key_set: boolean }>("/api/rag/api-key", { method: "DELETE" }),
   getRagStatus: () => request<RagStatus>("/api/rag/status"),
   reindexRag: () => request<{ enqueued: number }>("/api/rag/reindex", { method: "POST" }),
+  listChatSessions: (opts: { scope?: ChatScope; recordingId?: number | null; topicId?: number | null } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.scope) qs.set("scope", opts.scope);
+    if (opts.recordingId != null) qs.set("recording_id", String(opts.recordingId));
+    if (opts.topicId != null) qs.set("topic_id", String(opts.topicId));
+    const suffix = qs.toString();
+    return request<ChatSession[]>(`/api/chats${suffix ? `?${suffix}` : ""}`);
+  },
+  createChatSession: (payload: {
+    scope: ChatScope;
+    title?: string;
+    recording_id?: number | null;
+    topic_id?: number | null;
+  }) =>
+    request<ChatSession>("/api/chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  getChatSession: (id: number) => request<ChatSession>(`/api/chats/${id}`),
+  updateChatSession: (id: number, patch: { title?: string; archived?: boolean }) =>
+    request<ChatSession>(`/api/chats/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteChatSession: (id: number) => request<void>(`/api/chats/${id}`, { method: "DELETE" }),
+  addChatMessage: (
+    chatId: number,
+    message: ChatMessage & { sources?: RagSource[] | null },
+  ) =>
+    request<ChatStoredMessage>(`/api/chats/${chatId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message),
+    }),
   ragSearch: (query: string, opts: SearchFilters = {}) =>
     request<{ hits: RagHit[] }>("/api/rag/search", {
       method: "POST",
@@ -392,6 +436,7 @@ export const api = {
         query,
         topic_id: opts.topicId ?? null,
         recording_id: opts.recordingId ?? null,
+        include_topic_context: opts.includeTopicContext ?? false,
         top_k: opts.topK ?? null,
         speaker: opts.speaker || null,
         date_from: opts.dateFrom || null,
@@ -402,7 +447,7 @@ export const api = {
   /** Stream a RAG chat answer (SSE): sources first, then content deltas. */
   async ragChat(
     messages: ChatMessage[],
-    opts: SearchFilters = {},
+    opts: RagChatOptions = {},
     handlers: {
       onSources?: (s: RagSource[]) => void;
       onDelta?: (text: string) => void;
@@ -421,6 +466,8 @@ export const api = {
         messages,
         topic_id: opts.topicId ?? null,
         recording_id: opts.recordingId ?? null,
+        include_topic_context: opts.includeTopicContext ?? false,
+        reasoning_effort: opts.reasoningEffort || null,
         top_k: opts.topK ?? null,
         speaker: opts.speaker || null,
         date_from: opts.dateFrom || null,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -42,10 +43,15 @@ class ChatMessage(BaseModel):
     content: str
 
 
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+
+
 class ChatIn(BaseModel):
     messages: list[ChatMessage]
     topic_id: int | None = None
     recording_id: int | None = None
+    include_topic_context: bool = False
+    reasoning_effort: ReasoningEffort | None = None
     top_k: int | None = None
     speaker: str | None = None
     date_from: str | None = None  # ISO date YYYY-MM-DD
@@ -56,6 +62,7 @@ class SearchIn(BaseModel):
     query: str
     topic_id: int | None = None
     recording_id: int | None = None
+    include_topic_context: bool = False
     top_k: int | None = None
     speaker: str | None = None
     date_from: str | None = None
@@ -184,6 +191,7 @@ def semantic_search(payload: SearchIn, session: Session = Depends(get_session)) 
             top_k=payload.top_k,
             topic_id=payload.topic_id,
             recording_id=payload.recording_id,
+            include_topic_context=payload.include_topic_context,
             speaker=payload.speaker,
             date_from=payload.date_from,
             date_to=payload.date_to,
@@ -212,6 +220,7 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
             top_k=payload.top_k,
             topic_id=payload.topic_id,
             recording_id=payload.recording_id,
+            include_topic_context=payload.include_topic_context,
             speaker=payload.speaker,
             date_from=payload.date_from,
             date_to=payload.date_to,
@@ -232,6 +241,7 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                 "index": i,
                 "recording_id": h["recording_id"],
                 "recording_title": h["recording_title"],
+                "topic_id": h.get("topic_id"),
                 "document_id": h.get("document_id"),
                 "source_type": h["source_type"],
                 "start_sec": h.get("start_sec"),
@@ -261,7 +271,9 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                 top_k=cfg.get("top_k"),
                 max_tokens=cfg.get("max_tokens"),
                 api_key=cfg.get("api_key"),
-                reasoning_effort=cfg.get("reasoning_effort"),
+                reasoning_effort=(
+                    payload.reasoning_effort or cfg.get("reasoning_effort")
+                ),
                 provider=cfg.get("provider"),
             ):
                 yield f"data: {json.dumps({'type': 'delta', 'content': delta})}\n\n"

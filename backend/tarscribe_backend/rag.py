@@ -545,6 +545,7 @@ def search(
     top_k: int | None = None,
     topic_id: int | None = None,
     recording_id: int | None = None,
+    include_topic_context: bool = False,
     speaker: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -560,14 +561,33 @@ def search(
     extra_filters = bool(speaker or date_from or date_to)
     fetch_k = k * (4 if extra_filters else 2)
     conn = session.connection()
+    effective_topic_id = topic_id
+    effective_recording_id = recording_id
+    if include_topic_context and recording_id is not None:
+        scoped_rec = session.get(Recording, recording_id)
+        if scoped_rec and scoped_rec.topic_id is not None:
+            effective_topic_id = scoped_rec.topic_id
+            effective_recording_id = None
 
     vec_err: Exception | None = None
     try:
-        vec_ranks, distances = _vector_ranks(conn, query, fetch_k, topic_id, recording_id)
+        vec_ranks, distances = _vector_ranks(
+            conn,
+            query,
+            fetch_k,
+            effective_topic_id,
+            effective_recording_id,
+        )
     except Exception as exc:  # noqa: BLE001 - embedding server down → keyword-only
         vec_ranks, distances = {}, {}
         vec_err = exc
-    fts_ranks = _fts_ranks(conn, query, fetch_k, topic_id, recording_id)
+    fts_ranks = _fts_ranks(
+        conn,
+        query,
+        fetch_k,
+        effective_topic_id,
+        effective_recording_id,
+    )
     if not vec_ranks and not fts_ranks and vec_err is not None:
         raise vec_err
 

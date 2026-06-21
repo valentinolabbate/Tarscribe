@@ -405,6 +405,7 @@ export interface RagSource {
   /** Null for topic-level document sources (no parent recording). */
   recording_id: number | null;
   recording_title: string;
+  topic_id?: number | null;
   /** Set when the source is an uploaded document. */
   document_id?: number | null;
   source_type: RagSourceType;
@@ -418,6 +419,28 @@ export interface RagSource {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+}
+
+export type ChatScope = "global" | "recording";
+
+export interface ChatStoredMessage extends ChatMessage {
+  id: number;
+  session_id: number;
+  sources: RagSource[] | null;
+  created_at: string;
+}
+
+export interface ChatSession {
+  id: number;
+  scope: ChatScope;
+  title: string;
+  recording_id: number | null;
+  topic_id: number | null;
+  archived: boolean;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+  messages?: ChatStoredMessage[];
 }
 
 export interface RagHit {

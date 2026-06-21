@@ -135,6 +135,120 @@ def test_topic_reorder_persists_arrangement(client):
     assert listed[1:] == [ids[2], ids[0]]
 
 
+def test_chat_sessions_persist_messages_and_scope(client):
+    global_chat = client.post("/api/chats", json={"scope": "global"}).json()
+    assert global_chat["title"] == "Neuer Chat"
+    assert global_chat["messages"] == []
+
+    r = client.post(
+        f"/api/chats/{global_chat['id']}/messages",
+        json={"role": "user", "content": "Was wurde beschlossen?"},
+    )
+    assert r.status_code == 201
+    client.post(
+        f"/api/chats/{global_chat['id']}/messages",
+        json={
+            "role": "assistant",
+            "content": "Es gab eine Entscheidung. [1]",
+            "sources": [
+                {
+                    "index": 1,
+                    "recording_id": None,
+                    "recording_title": "Handbuch",
+                    "topic_id": None,
+                    "source_type": "document",
+                    "text": "Entscheidung",
+                }
+            ],
+        },
+    )
+
+    loaded = client.get(f"/api/chats/{global_chat['id']}").json()
+    assert loaded["title"] == "Was wurde beschlossen?"
+    assert loaded["message_count"] == 2
+    assert loaded["messages"][1]["sources"][0]["recording_title"] == "Handbuch"
+
+    topic = client.post("/api/topics", json={"name": "Projekt"}).json()
+    from sqlmodel import Session
+
+    from tarscribe_backend.db import get_engine
+    from tarscribe_backend.models import Recording
+
+    with Session(get_engine()) as s:
+        rec = Recording(topic_id=topic["id"], title="Jour fixe", audio_path="/tmp/missing.wav")
+        s.add(rec)
+        s.commit()
+        s.refresh(rec)
+        recording_id = rec.id
+
+    recording_chat = client.post(
+        "/api/chats",
+        json={"scope": "recording", "recording_id": recording_id},
+    ).json()
+    assert recording_chat["topic_id"] == topic["id"]
+
+    global_list = client.get("/api/chats?scope=global").json()
+    recording_list = client.get(f"/api/chats?scope=recording&recording_id={recording_id}").json()
+    assert [c["id"] for c in global_list] == [global_chat["id"]]
+    assert [c["id"] for c in recording_list] == [recording_chat["id"]]
+
+    r = client.delete(f"/api/chats/{global_chat['id']}")
+    assert r.status_code == 204
+    assert client.get(f"/api/chats/{global_chat['id']}").status_code == 404
+
+
+def test_rag_chat_uses_per_request_reasoning_effort(client, monkeypatch):
+    import tarscribe_backend.routers.rag as rag_router
+
+    captured: dict = {}
+
+    monkeypatch.setattr(rag_router.R, "rag_enabled", lambda: True)
+    monkeypatch.setattr(
+        rag_router.R,
+        "search",
+        lambda *_args, **_kwargs: [
+            {
+                "recording_id": None,
+                "recording_title": "Handbuch",
+                "topic_id": None,
+                "document_id": None,
+                "source_type": "document",
+                "start_sec": None,
+                "end_sec": None,
+                "speaker": None,
+                "text": "Die Antwort steht im Handbuch.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        rag_router.L,
+        "get_llm_config",
+        lambda: {
+            "model": "local-test",
+            "base_url": "http://llm",
+            "reasoning_effort": "low",
+        },
+    )
+
+    def fake_stream_chat(*_args, **kwargs):
+        captured.update(kwargs)
+        yield "Antwort"
+
+    monkeypatch.setattr(rag_router.L, "stream_chat", fake_stream_chat)
+
+    r = client.post(
+        "/api/rag/chat",
+        json={
+            "messages": [{"role": "user", "content": "Was gilt?"}],
+            "reasoning_effort": "high",
+        },
+    )
+
+    assert r.status_code == 200
+    assert "Antwort" in r.text
+    assert captured["reasoning_effort"] == "high"
+
+
 def test_topic_overview_counts_artifacts_and_exports(client):
     from sqlmodel import Session
 

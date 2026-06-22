@@ -39,6 +39,12 @@ def build_backend(override: str | None = None, selection: dict | None = None) ->
             overlap_seconds=float(selection.get("overlap_seconds") or 15.0),
         )
 
+    if engine == "mlx-whisper":
+        from ...performance_profiles import DEFAULT_MLX_WHISPER_MODEL
+        from .mlx_whisper_backend import MlxWhisperBackend
+
+        return MlxWhisperBackend(model_id=selection.get("model_id") or DEFAULT_MLX_WHISPER_MODEL)
+
     # faster-whisper for CUDA / CPU.
     from .faster_whisper_backend import FasterWhisperBackend
 

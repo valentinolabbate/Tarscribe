@@ -42,7 +42,7 @@ function KnownSpeakers() {
   );
 }
 
-type AsrEngine = "" | "parakeet-mlx" | "faster-whisper";
+type AsrEngine = "" | "parakeet-mlx" | "mlx-whisper" | "faster-whisper";
 
 const ASR_MODEL_SUGGESTIONS: Array<{
   engine: Exclude<AsrEngine, "">;
@@ -57,30 +57,93 @@ const ASR_MODEL_SUGGESTIONS: Array<{
     note: "empfohlen auf Apple Silicon",
   },
   {
+    engine: "mlx-whisper",
+    label: "MLX Whisper Large v3 Turbo",
+    model: "mlx-community/whisper-large-v3-turbo",
+    note: "Apple-GPU, schneller als volle Large v3",
+  },
+  {
+    engine: "mlx-whisper",
+    label: "MLX Whisper Large v3",
+    model: "mlx-community/whisper-large-v3-mlx",
+    note: "Apple-GPU, volle Large-v3-Qualität",
+  },
+  {
+    engine: "mlx-whisper",
+    label: "MLX Distil Large v3",
+    model: "mlx-community/distil-whisper-large-v3",
+    note: "Apple-GPU, schneller Large-v3-Ableger",
+  },
+  {
     engine: "faster-whisper",
     label: "Whisper Small",
     model: "small",
-    note: "schnell und sparsam",
+    note: "CPU auf Mac, CUDA auf NVIDIA",
   },
   {
     engine: "faster-whisper",
     label: "Whisper Medium",
     model: "medium",
-    note: "ausgewogen",
+    note: "CPU auf Mac, CUDA auf NVIDIA",
   },
   {
     engine: "faster-whisper",
     label: "Whisper Large v3",
     model: "large-v3",
-    note: "hohe Qualität",
+    note: "CPU auf Mac, CUDA auf NVIDIA",
   },
   {
     engine: "faster-whisper",
     label: "Distil Large v3",
     model: "distil-large-v3",
-    note: "schneller large-v3-Ableger",
+    note: "CPU auf Mac, CUDA auf NVIDIA",
   },
 ];
+
+const FASTER_WHISPER_ALIASES = new Set([
+  "tiny",
+  "tiny.en",
+  "base",
+  "base.en",
+  "small",
+  "small.en",
+  "medium",
+  "medium.en",
+  "large",
+  "large-v1",
+  "large-v2",
+  "large-v3",
+  "distil-small.en",
+  "distil-medium.en",
+  "distil-large-v2",
+  "distil-large-v3",
+]);
+
+function asrModelPlaceholder(engine: AsrEngine): string {
+  if (engine === "faster-whisper") return "medium, large-v3 oder eigener Modellname";
+  if (engine === "mlx-whisper") return "mlx-community/whisper-large-v3-mlx";
+  return "mlx-community/parakeet-tdt-0.6b-v3";
+}
+
+function asrEngineValue(value: string | null | undefined): AsrEngine {
+  if (value === "parakeet-mlx" || value === "mlx-whisper" || value === "faster-whisper") {
+    return value;
+  }
+  return "";
+}
+
+function normalizeAsrModelForEngine(engine: AsrEngine, model: string | null | undefined): string {
+  const value = (model ?? "").trim();
+  if (!value) return "";
+  const knownSuggestion = ASR_MODEL_SUGGESTIONS.find((suggestion) => suggestion.model === value);
+  if (knownSuggestion && knownSuggestion.engine !== engine) return "";
+  if (!engine && knownSuggestion) return "";
+  if (engine !== "faster-whisper" && FASTER_WHISPER_ALIASES.has(value)) return "";
+  if (engine === "faster-whisper" && value.startsWith("mlx-community/")) return "";
+  if (engine === "parakeet-mlx" && value.startsWith("mlx-community/whisper")) return "";
+  if (engine === "mlx-whisper" && value.startsWith("mlx-community/parakeet")) return "";
+  return value;
+}
 
 const DIARIZATION_MODEL_SUGGESTIONS = [
   {
@@ -250,9 +313,10 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
   async function saveAsrEngine(asr_override: AsrEngine) {
     if (!settings) return;
-    setSettings({ ...settings, asr_override });
+    const asr_model = normalizeAsrModelForEngine(asr_override, settings.asr_model);
+    setSettings({ ...settings, asr_override, asr_model });
     try {
-      await api.updateSettings({ asr_override });
+      await api.updateSettings({ asr_override, asr_model });
       void refreshModelStatus();
       setStatus({ ok: true, msg: "Transkriptions-Engine gespeichert." });
     } catch (e) {
@@ -444,6 +508,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const activeAsr = activeModelStatus(modelItems, "asr");
   const activeDiarization = activeModelStatus(modelItems, "diarization");
   const embeddingModel = findModelStatus(modelItems, "embedding", "speechbrain/spkrec-ecapa-voxceleb");
+  const selectedAsrEngine = asrEngineValue(settings?.asr_override);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -697,23 +762,20 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   <label>Transkriptions-Modell</label>
                   <div className="model-row">
                     <select
-                      value={settings.asr_override ?? ""}
+                      value={selectedAsrEngine}
                       aria-label="Transkriptions-Engine"
                       onChange={(e) => saveAsrEngine(e.target.value as AsrEngine)}
                     >
                       <option value="">Automatisch nach System</option>
                       <option value="parakeet-mlx">Parakeet MLX</option>
+                      <option value="mlx-whisper">MLX Whisper</option>
                       <option value="faster-whisper">faster-whisper</option>
                     </select>
                     <input
                       type="text"
                       list="asr-model-suggestions"
                       value={settings.asr_model ?? ""}
-                      placeholder={
-                        settings.asr_override === "faster-whisper"
-                          ? "medium, large-v3 oder eigener Modellname"
-                          : "mlx-community/parakeet-tdt-0.6b-v3"
-                      }
+                      placeholder={asrModelPlaceholder(selectedAsrEngine)}
                       onChange={(e) => setSettings({ ...settings, asr_model: e.target.value })}
                       onBlur={(e) => saveAsrModel(e.target.value)}
                       spellCheck={false}
@@ -726,7 +788,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="suggestion-chips">
                     {ASR_MODEL_SUGGESTIONS.filter(
-                      (suggestion) => !settings.asr_override || suggestion.engine === settings.asr_override,
+                      (suggestion) => !selectedAsrEngine || suggestion.engine === selectedAsrEngine,
                     ).map((suggestion) => (
                       <button
                         key={`${suggestion.engine}:${suggestion.model}`}
@@ -746,9 +808,15 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                       </button>
                     ))}
                   </div>
+                  {selectedAsrEngine === "faster-whisper" && hardware?.is_apple_silicon && (
+                    <div className="settings-info-box" style={{ marginTop: 8 }}>
+                      faster-whisper läuft auf diesem Mac über CPU. Für Whisper Large v3 auf Apple-GPU
+                      wähle MLX Whisper und den Vorschlag MLX Whisper Large v3.
+                    </div>
+                  )}
                   <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Die Vorschläge füllen das Feld nur aus. Du kannst jeden kompatiblen Modellnamen
-                    oder Modellpfad verwenden.
+                    Die Vorschläge füllen das Feld nur aus. MLX Whisper nutzt Apple-GPU/Metal;
+                    die volle Large-v3-Variante braucht mehr RAM als Turbo oder Parakeet.
                   </div>
                 </div>
 

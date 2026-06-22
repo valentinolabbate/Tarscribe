@@ -22,7 +22,7 @@ class HardwareInfo:
     cuda_device: str | None
     vram_gb: float | None
     memory_gb: float | None
-    recommended_asr: str  # "parakeet-mlx" | "faster-whisper"
+    recommended_asr: str  # "parakeet-mlx" | "mlx-whisper" | "faster-whisper"
     recommended_device: str  # "mps" | "cuda" | "cpu"
     recommended_precision: str  # "float16" | "int8" | "float32"
     recommended_profile: str

@@ -12,6 +12,8 @@ DEFAULT_PROFILE = "balanced"
 PROFILE_IDS = ("m1_8gb", "balanced", "quality")
 
 DEFAULT_DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+DEFAULT_MLX_WHISPER_MODEL = "mlx-community/whisper-large-v3-turbo"
+QUALITY_MLX_WHISPER_MODEL = "mlx-community/whisper-large-v3-mlx"
 
 
 def normalize_profile(value: Any) -> str:
@@ -74,6 +76,14 @@ def _faster_whisper_asr(profile: str, hw: Any) -> dict[str, Any]:
     }
 
 
+def _mlx_whisper_asr(profile: str) -> dict[str, Any]:
+    model_id = QUALITY_MLX_WHISPER_MODEL if profile == "quality" else DEFAULT_MLX_WHISPER_MODEL
+    return {
+        "engine": "mlx-whisper",
+        "model_id": model_id,
+    }
+
+
 def _clean_model_name(value: Any) -> str | None:
     if isinstance(value, str):
         value = value.strip()
@@ -93,6 +103,8 @@ def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None =
 
     if engine_override == "parakeet-mlx":
         selection = _apple_asr(profile)
+    elif engine_override == "mlx-whisper":
+        selection = _mlx_whisper_asr(profile)
     elif getattr(hw, "is_apple_silicon", False) and engine_override is None:
         selection = _apple_asr(profile)
     else:
@@ -102,7 +114,7 @@ def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None =
 
     model_name = _clean_model_name(prefs.get("asr_model"))
     if model_name:
-        if selection["engine"] == "parakeet-mlx":
+        if selection["engine"] in ("parakeet-mlx", "mlx-whisper"):
             selection["model_id"] = model_name
         elif selection["engine"] == "faster-whisper":
             selection["model_size"] = model_name

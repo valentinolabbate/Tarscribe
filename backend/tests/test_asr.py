@@ -1,7 +1,7 @@
 """ASR robustness tests — timestamp coercion, empty handling, VAD fallback, duration.
 
 These exercise the pure/stub-able parts of the backends without loading the
-multi-GB ASR models (faster-whisper / parakeet-mlx are not installed in CI).
+multi-GB ASR models (faster-whisper / parakeet-mlx / mlx-whisper are not installed in CI).
 """
 
 from __future__ import annotations
@@ -100,6 +100,57 @@ def test_parakeet_extract_words_falls_back_to_sentence_without_tokens():
     assert len(words) == 1
     assert words[0].text == "Ganzer Satz"
     assert words[0].start == 1.0 and words[0].end == 2.0
+
+
+# ── mlx-whisper dict/object extraction ──────────────────────────────────────
+
+def test_mlx_whisper_extract_words_from_dict_segments():
+    from tarscribe_backend.ml.asr.mlx_whisper_backend import _extract_words
+
+    result = {
+        "segments": [
+            {
+                "words": [
+                    {"word": "Hallo", "start": 0.0, "end": 0.4, "probability": 0.95},
+                    {"word": " ", "start": 0.4, "end": 0.4},
+                    {"word": " Welt", "start": None, "end": None, "score": 0.8},
+                ]
+            }
+        ]
+    }
+
+    words = _extract_words(result)
+
+    assert [w.text for w in words] == ["Hallo", " Welt"]
+    assert words[0].confidence == 0.95
+    assert words[1].confidence == 0.8
+    assert words[1].start == 0.4 and words[1].end == 0.4
+
+
+def test_mlx_whisper_extract_words_falls_back_to_segment_text():
+    from tarscribe_backend.ml.asr.mlx_whisper_backend import _extract_words
+
+    result = types.SimpleNamespace(
+        segments=[types.SimpleNamespace(words=None, text="Ganzer Satz", start=1.0, end=2.5)]
+    )
+
+    words = _extract_words(result)
+
+    assert len(words) == 1
+    assert words[0].text == "Ganzer Satz"
+    assert words[0].start == 1.0 and words[0].end == 2.5
+
+
+def test_factory_builds_mlx_whisper_backend_without_heavy_import():
+    from tarscribe_backend.ml.asr.factory import build_backend
+    from tarscribe_backend.ml.asr.mlx_whisper_backend import MlxWhisperBackend
+
+    backend = build_backend(
+        selection={"engine": "mlx-whisper", "model_id": "mlx-community/whisper-large-v3-mlx"}
+    )
+
+    assert isinstance(backend, MlxWhisperBackend)
+    assert backend.model_id == "mlx-community/whisper-large-v3-mlx"
 
 
 # ── faster-whisper segment collection + VAD fallback ─────────────────────────

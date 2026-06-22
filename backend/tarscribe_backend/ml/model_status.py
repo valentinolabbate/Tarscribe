@@ -10,6 +10,8 @@ from ..config import get_settings
 from ..hardware import detect_hardware
 from ..performance_profiles import (
     DEFAULT_DIARIZATION_MODEL,
+    DEFAULT_MLX_WHISPER_MODEL,
+    QUALITY_MLX_WHISPER_MODEL,
     resolve_asr_selection,
     resolve_diarization_selection,
 )
@@ -17,6 +19,11 @@ from ..settings_store import load_prefs
 from .embedding import EMBEDDING_MODEL
 
 PARAKEET_DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
+MLX_WHISPER_REQUIRED_FILES = {
+    DEFAULT_MLX_WHISPER_MODEL: ("config.json", "weights.safetensors"),
+    QUALITY_MLX_WHISPER_MODEL: ("config.json", "weights.npz"),
+    "mlx-community/distil-whisper-large-v3": ("config.json", "weights.npz"),
+}
 
 ASR_CANDIDATES = (
     {
@@ -25,6 +32,27 @@ ASR_CANDIDATES = (
         "label": "Parakeet MLX",
         "repo_id": PARAKEET_DEFAULT_MODEL,
         "required_files": ("config.json", "model.safetensors"),
+    },
+    {
+        "engine": "mlx-whisper",
+        "model": DEFAULT_MLX_WHISPER_MODEL,
+        "label": "MLX Whisper Large v3 Turbo",
+        "repo_id": DEFAULT_MLX_WHISPER_MODEL,
+        "required_files": MLX_WHISPER_REQUIRED_FILES[DEFAULT_MLX_WHISPER_MODEL],
+    },
+    {
+        "engine": "mlx-whisper",
+        "model": QUALITY_MLX_WHISPER_MODEL,
+        "label": "MLX Whisper Large v3",
+        "repo_id": QUALITY_MLX_WHISPER_MODEL,
+        "required_files": MLX_WHISPER_REQUIRED_FILES[QUALITY_MLX_WHISPER_MODEL],
+    },
+    {
+        "engine": "mlx-whisper",
+        "model": "mlx-community/distil-whisper-large-v3",
+        "label": "MLX Distil Large v3",
+        "repo_id": "mlx-community/distil-whisper-large-v3",
+        "required_files": MLX_WHISPER_REQUIRED_FILES["mlx-community/distil-whisper-large-v3"],
     },
     {
         "engine": "faster-whisper",
@@ -143,6 +171,18 @@ def _asr_candidates(selection: dict[str, Any]) -> list[dict[str, Any]]:
                 "required_files": ("config.json", "model.safetensors"),
             },
         )
+    elif engine == "mlx-whisper":
+        model = str(selection.get("model_id") or DEFAULT_MLX_WHISPER_MODEL)
+        candidates.insert(
+            0,
+            {
+                "engine": engine,
+                "model": model,
+                "label": "Aktives Transkriptionsmodell",
+                "repo_id": model,
+                "required_files": _mlx_whisper_required_files(model),
+            },
+        )
     elif engine == "faster-whisper":
         model = str(selection.get("model_size") or "medium")
         candidates.insert(
@@ -253,11 +293,15 @@ def _is_active_asr(candidate: dict[str, Any], selection: dict[str, Any]) -> bool
     engine = str(selection.get("engine") or "")
     if candidate.get("engine") != engine:
         return False
-    if engine == "parakeet-mlx":
+    if engine in ("parakeet-mlx", "mlx-whisper"):
         return candidate.get("model") == selection.get("model_id")
     if engine == "faster-whisper":
         return candidate.get("model") == selection.get("model_size")
     return False
+
+
+def _mlx_whisper_required_files(model: str) -> tuple[str, ...]:
+    return MLX_WHISPER_REQUIRED_FILES.get(model, ("config.json", "weights.npz"))
 
 
 def _faster_whisper_repo(model: str) -> str:

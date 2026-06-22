@@ -79,6 +79,22 @@ def test_faster_whisper_override_accepts_arbitrary_model_name():
     assert asr["model_size"] == "distil-large-v3"
 
 
+def test_mlx_whisper_override_accepts_hf_model_id():
+    hw = _apple_m1_8gb()
+
+    asr = resolve_asr_selection(
+        {
+            "asr_override": "mlx-whisper",
+            "asr_model": "mlx-community/whisper-large-v3-mlx",
+        },
+        hw,
+    )
+
+    assert asr["engine"] == "mlx-whisper"
+    assert asr["model_id"] == "mlx-community/whisper-large-v3-mlx"
+    assert asr["profile"] == "balanced"
+
+
 def test_diarization_model_override_is_trimmed_and_free_form():
     hw = _apple_m1_8gb()
 

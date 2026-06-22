@@ -130,6 +130,95 @@ def test_wait_for_job_times_out():
             c.wait_for_job(1, 5, timeout=0, sleep=lambda _: None)
 
 
+def test_wait_for_jobs_waits_until_matching_phase_done():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        status = "done" if calls["n"] >= 2 else "running"
+        return httpx.Response(
+            200,
+            json=[
+                {"job_id": 5, "phase": "asr", "status": status},
+                {"job_id": 6, "phase": "summarize", "status": "done"},
+            ],
+        )
+
+    with _client(handler) as c:
+        result = c.wait_for_jobs(1, phases=["asr"], timeout=10, poll=0, sleep=lambda _: None)
+    assert result["status"] == "done"
+    assert result["jobs"][0]["phase"] == "asr"
+
+
+def test_search_action_items_and_context_helpers():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path, method = request.url.path, request.method
+        if path == "/api/rag/search" and method == "POST":
+            seen["search"] = json.loads(request.content)
+            return httpx.Response(200, json={"hits": [{"recording_id": 1, "text": "Treffer"}]})
+        if path == "/api/action-items" and method == "GET":
+            seen["done"] = request.url.params.get("done")
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 2,
+                        "recording_id": 1,
+                        "kind": "task",
+                        "text": "Plan schreiben",
+                        "done": False,
+                    }
+                ],
+            )
+        if path == "/api/action-items/2" and method == "PATCH":
+            seen["patch"] = json.loads(request.content)
+            return httpx.Response(
+                200,
+                json={
+                    "id": 2,
+                    "recording_id": 1,
+                    "kind": "task",
+                    "text": "Plan schreiben",
+                    "done": True,
+                },
+            )
+        if path == "/api/recordings/1":
+            return httpx.Response(200, json={"id": 1, "title": "Meeting"})
+        if path == "/api/recordings/1/jobs":
+            return httpx.Response(200, json=[])
+        if path == "/api/recordings/1/transcript":
+            return httpx.Response(200, json={"text": "Hallo Welt"})
+        if path == "/api/recordings/1/diarization":
+            return httpx.Response(200, json={"speakers": [], "utterances": []})
+        if path == "/api/recordings/1/chapters":
+            return httpx.Response(200, json=[])
+        if path == "/api/recordings/1/summaries":
+            return httpx.Response(200, json=[{"id": 3, "content": "Kurz"}])
+        if path == "/api/recordings/1/action-items":
+            return httpx.Response(200, json=[{"id": 2, "text": "Plan schreiben"}])
+        if path == "/api/recordings/1/threads":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, text=f"unexpected {method} {path}")
+
+    with _client(handler) as c:
+        hits = c.semantic_search("Plan", topic_id=4, top_k=3)
+        items = c.list_action_items(done=False)
+        updated = c.update_action_item(2, done=True)
+        context = C.get_recording_context(c, 1)
+
+    assert hits["hits"][0]["text"] == "Treffer"
+    assert seen["search"]["topic_id"] == 4
+    assert seen["search"]["top_k"] == 3
+    assert seen["done"] == "false"
+    assert items[0]["text"] == "Plan schreiben"
+    assert seen["patch"] == {"done": True}
+    assert updated["done"] is True
+    assert context["recording"]["title"] == "Meeting"
+    assert context["summaries"][0]["content"] == "Kurz"
+
+
 # ── orchestrator ─────────────────────────────────────────────────────────────
 def test_process_recording_end_to_end(tmp_path):
     audio = tmp_path / "a.wav"
@@ -444,7 +533,13 @@ def test_server_exposes_expected_tools():
 
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
     assert {
+        "analyze_recording",
+        "get_recording_context",
         "process_recording_pipeline",
+        "search_recordings",
+        "list_action_items",
+        "update_action_item",
+        "wait_for_jobs",
         "upload_recording",
         "start_transcription",
         "start_chapter_detection",

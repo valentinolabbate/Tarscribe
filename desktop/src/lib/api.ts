@@ -16,6 +16,7 @@ import type {
   LlmConfig,
   LiveEvent,
   LiveSession,
+  McpDiagnostics,
   McpInfo,
   ModelStatusPayload,
   RagConfig,
@@ -778,6 +779,7 @@ export const api = {
 
   // MCP (agent integration)
   getMcpInfo: () => request<McpInfo>("/api/mcp/info"),
+  getMcpDiagnostics: () => request<McpDiagnostics>("/api/mcp/diagnostics"),
   registerMcp: (targetId: string) =>
     request<{ registered: boolean; path: string; id: string }>(
       `/api/mcp/register/${targetId}`,

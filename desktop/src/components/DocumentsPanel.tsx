@@ -86,8 +86,16 @@ export function DocumentsPanel({
       {isLoading ? (
         <div className="documents-empty">Lade…</div>
       ) : items.length === 0 ? (
-        <div className="documents-empty">
-          Noch keine Dokumente. Lade Referenzmaterial hoch, um es durchsuchbar zu machen.
+        <div className="documents-empty empty-next">
+          <strong>Nächster Schritt</strong>
+          <span>Lade Referenzmaterial hoch, um es durchsuchbar und im Chat nutzbar zu machen.</span>
+          <button
+            className="btn ghost"
+            onClick={() => fileInput.current?.click()}
+            disabled={busy || upload.isPending}
+          >
+            <UploadIcon width={16} height={16} /> Dokument hochladen
+          </button>
         </div>
       ) : (
         <ul className="documents-list">

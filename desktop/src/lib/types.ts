@@ -195,6 +195,35 @@ export interface McpInfo {
   targets: McpHostTarget[];
 }
 
+export interface McpCapability {
+  id: string;
+  label: string;
+  ready: boolean;
+  tools: string[];
+}
+
+export interface McpDiagnostics {
+  ok: boolean;
+  connection_file: {
+    ok: boolean;
+    path: string;
+    exists: boolean;
+    base_url: string | null;
+    version: string | null;
+    started_at: string | null;
+    token_present: boolean;
+    error: string | null;
+  };
+  backend: { ok: boolean; status: string };
+  tools: {
+    ok: boolean;
+    count: number;
+    names: string[];
+    error: string | null;
+  };
+  capabilities: McpCapability[];
+}
+
 export interface SummaryEvent {
   type: "summary";
   recording_id: number;
@@ -276,6 +305,8 @@ export interface LocalModelStatus {
   path: string | null;
   active: boolean;
   note?: string;
+  runtime_memory_min_gb?: number;
+  runtime_memory_max_gb?: number;
 }
 
 export interface ModelStatusPayload {

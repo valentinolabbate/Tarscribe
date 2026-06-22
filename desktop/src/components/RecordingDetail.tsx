@@ -213,6 +213,60 @@ function DetailEmptyState({
   );
 }
 
+type FlowStepState = "done" | "active" | "next" | "waiting" | "optional" | "error";
+
+interface FlowStep {
+  key: string;
+  label: string;
+  eyebrow: string;
+  detail: string;
+  state: FlowStepState;
+  progress?: number | null;
+  action?: {
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  };
+}
+
+function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
+  return (
+    <section className="recording-flow" aria-label="Aufnahme-Workflow">
+      {steps.map((step, index) => (
+        <article
+          className={`recording-flow-step ${step.state}`}
+          key={step.key}
+          aria-current={step.state === "active" ? "step" : undefined}
+        >
+          <div className="recording-flow-marker" aria-hidden="true">
+            <span>{index + 1}</span>
+          </div>
+          <div className="recording-flow-copy">
+            <span className="recording-flow-kicker">{step.eyebrow}</span>
+            <strong>{step.label}</strong>
+            <small>{step.detail}</small>
+            {step.progress != null && (
+              <div className="recording-flow-progress" aria-hidden="true">
+                <span style={{ width: `${step.progress}%` }} />
+              </div>
+            )}
+          </div>
+          {step.action && (
+            <button
+              className={step.state === "next" || step.state === "error" ? "btn primary" : "btn ghost"}
+              disabled={step.action.disabled}
+              onClick={step.action.onClick}
+              type="button"
+            >
+              {step.action.label}
+            </button>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
 export function RecordingDetail({
   recording,
   topics,
@@ -356,6 +410,109 @@ export function RecordingDetail({
     }
   }
 
+  const currentPhase = startingPhase
+    ? transcribe.isPending
+      ? "asr"
+      : "diarization"
+    : running
+      ? activeJob?.phase ?? (recording.status === "diarizing" ? "diarization" : "asr")
+      : null;
+  const activeProgress = startingPhase ? 0 : pct;
+  const asrActive = currentPhase === "asr" && (running || !!startingPhase);
+  const diarActive = currentPhase === "diarization" && (running || !!startingPhase);
+  const analysisActive =
+    !!currentPhase && ["summarize", "action_items", "chapters", "embedding"].includes(currentPhase);
+  const currentPhaseLabel =
+    currentPhase === "asr"
+      ? jobPhaseLabel("asr")
+      : currentPhase === "diarization"
+        ? jobPhaseLabel("diarization")
+        : activeJob
+          ? jobPhaseLabel(activeJob.phase)
+          : phaseLabel;
+  const asrFailed = activeJob?.status === "failed" && activeJob.phase === "asr";
+  const diarFailed = activeJob?.status === "failed" && activeJob.phase === "diarization";
+
+  const flowSteps: FlowStep[] = [
+    {
+      key: "audio",
+      eyebrow: "Audio",
+      label: "Aufnahme gespeichert",
+      detail: `${fmtDuration(recording.duration_sec)} Audio im lokalen Archiv.`,
+      state: "done",
+    },
+    {
+      key: "transcript",
+      eyebrow: "Transkript",
+      label: asrFailed ? "Transkription prüfen" : asrActive ? "Transkription läuft" : "Text erstellen",
+      detail: asrFailed
+        ? activeJob.error ?? "Der letzte Transkriptionslauf ist fehlgeschlagen."
+        : asrActive
+          ? `${currentPhaseLabel}... ${activeProgress}%`
+          : transcript
+            ? `${transcript.words.length} Wörter · ${transcript.asr_model}`
+            : "Noch kein Transkript vorhanden.",
+      state: asrFailed ? "error" : asrActive ? "active" : transcript ? "done" : "next",
+      progress: asrActive ? activeProgress : null,
+      action:
+        !transcript || asrFailed
+          ? {
+              label: asrFailed ? "Nochmal" : "Starten",
+              onClick: () => void startTranscription(!!transcript),
+              disabled: transcribe.isPending || !!running,
+            }
+          : undefined,
+    },
+    {
+      key: "speakers",
+      eyebrow: "Sprecher",
+      label: diarFailed ? "Sprecherlauf prüfen" : diarActive ? "Sprechererkennung läuft" : "Stimmen zuordnen",
+      detail: diarFailed
+        ? activeJob.error ?? "Die Diarisierung ist fehlgeschlagen."
+        : diarActive
+          ? `${currentPhaseLabel}... ${activeProgress}%`
+          : diar
+            ? `${diar.speakers.length} Sprecher · ${diar.utterances.length} Abschnitte`
+            : transcript
+              ? "Optional, wenn mehrere Stimmen enthalten sind."
+              : "Nach der Transkription verfügbar.",
+      state: diarFailed ? "error" : diarActive ? "active" : diar ? "done" : transcript ? "optional" : "waiting",
+      progress: diarActive ? activeProgress : null,
+      action:
+        transcript && !diar
+          ? {
+              label: diarFailed ? "Nochmal" : "Erkennen",
+              onClick: () => {
+                setActiveTab("speakers");
+                diarizeFirst.mutate({ id: recording.id });
+              },
+              disabled: diarizeFirst.isPending || !!running,
+            }
+          : undefined,
+    },
+    {
+      key: "analysis",
+      eyebrow: "Auswertung",
+      label: analysisActive ? "Auswertung läuft" : "Zusammenfassen",
+      detail: analysisActive
+        ? `${currentPhaseLabel}... ${activeProgress}%`
+        : summaryCount > 0
+          ? `${summaryCount} gespeicherte Zusammenfassung${summaryCount === 1 ? "" : "en"}`
+          : transcript
+            ? "Zusammenfassung und Aufgaben sind bereit zum Erstellen."
+            : "Nach dem Transkript verfügbar.",
+      state: analysisActive ? "active" : summaryCount > 0 ? "done" : transcript ? "next" : "waiting",
+      progress: analysisActive ? activeProgress : null,
+      action:
+        transcript && !analysisActive
+          ? {
+              label: summaryCount > 0 ? "Öffnen" : "Erstellen",
+              onClick: () => setActiveTab("summary"),
+            }
+          : undefined,
+    },
+  ];
+
   return (
     <div className="detail">
       <header className="detail-hero">
@@ -460,15 +617,7 @@ export function RecordingDetail({
         </div>
       </header>
 
-      {(running || startingPhase) && (
-        <div className="detail-progress">
-          <div>
-            <strong>{startingPhase ? `${startingPhase}...` : `${phaseLabel}... ${pct}%`}</strong>
-            <span>{running ? "Die Ansicht aktualisiert sich automatisch." : "Der Auftrag wird vorbereitet."}</span>
-          </div>
-          <div className="progress"><div className="progress-bar" style={{ width: `${pct}%` }} /></div>
-        </div>
-      )}
+      <RecordingFlowTimeline steps={flowSteps} />
 
       {activeJob?.status === "failed" && activeJob.phase === "diarization" && (
         <div className="detail-error detail-error-box detail-error-row">

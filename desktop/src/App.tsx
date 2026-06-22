@@ -681,7 +681,7 @@ export default function App() {
               {showJobs
                 ? "Jobs"
                 : showTasks
-                ? "Action-Items"
+                ? "Aufgaben-Zentrale"
                 : showHome
                   ? "Tarscribe"
                   : openRecording

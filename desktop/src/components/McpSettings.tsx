@@ -1,10 +1,20 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { api } from "../lib/api";
-import type { McpHostTarget, McpInfo } from "../lib/types";
+import type { McpCapability, McpDiagnostics, McpHostTarget, McpInfo } from "../lib/types";
 import { toast } from "./Toast";
+
+const fallbackCapabilities: McpCapability[] = [
+  { id: "upload", label: "Upload & Pipeline", ready: true, tools: [] },
+  { id: "context", label: "Kontext", ready: true, tools: [] },
+  { id: "search", label: "Suche", ready: true, tools: [] },
+  { id: "tasks", label: "Aufgaben", ready: true, tools: [] },
+  { id: "analysis", label: "Analyse", ready: true, tools: [] },
+  { id: "export", label: "Export", ready: true, tools: [] },
+];
 
 export function McpSettings() {
   const [info, setInfo] = useState<McpInfo | null>(null);
+  const [diagnostics, setDiagnostics] = useState<McpDiagnostics | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
 
@@ -46,10 +56,34 @@ export function McpSettings() {
     );
   }
 
+  async function testConnection() {
+    setBusy("__mcp_test");
+    try {
+      const result = await api.getMcpDiagnostics();
+      setDiagnostics(result);
+      toast(result.ok ? "MCP-Verbindung ist bereit." : "MCP braucht noch Aufmerksamkeit.", result.ok ? "success" : "error");
+    } catch (e) {
+      toast(`MCP-Test fehlgeschlagen: ${(e as Error).message}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // Detected hosts first, then the rest.
   const targets = info
     ? [...info.targets].sort((a, b) => Number(b.present) - Number(a.present))
     : [];
+  const capabilities = diagnostics?.capabilities ?? fallbackCapabilities;
+  const connectionLabel = diagnostics
+    ? diagnostics.ok
+      ? "Bereit für Agenten"
+      : "Prüfung unvollständig"
+    : "Noch nicht getestet";
+  const connectionHint = diagnostics
+    ? diagnostics.ok
+      ? `${diagnostics.tools.count} Tools verfügbar`
+      : diagnostics.connection_file.error || diagnostics.tools.error || "Details unten prüfen"
+    : "Teste Verbindung, Tool-Liste und lokale Verbindungsdatei.";
 
   return (
     <div className="field">
@@ -61,6 +95,46 @@ export function McpSettings() {
       </div>
 
       {!info && <div className="rec-sub" style={{ fontSize: 12 }}>Wird geladen…</div>}
+
+      <div className="mcp-health-card">
+        <span className={`mcp-status-dot ${diagnostics?.ok ? "ok" : diagnostics ? "warn" : ""}`} />
+        <div className="mcp-health-copy">
+          <strong>{connectionLabel}</strong>
+          <span>{connectionHint}</span>
+        </div>
+        <button className="btn" disabled={busy === "__mcp_test"} onClick={testConnection}>
+          {busy === "__mcp_test" ? "Teste…" : "Verbindung testen"}
+        </button>
+      </div>
+
+      {diagnostics && (
+        <div className="mcp-diagnostics-grid">
+          <div>
+            <span>Datei</span>
+            <strong>{diagnostics.connection_file.ok ? "ok" : "fehlt"}</strong>
+          </div>
+          <div>
+            <span>Backend</span>
+            <strong>{diagnostics.backend.ok ? "läuft" : "offline"}</strong>
+          </div>
+          <div>
+            <span>Tools</span>
+            <strong>{diagnostics.tools.count}</strong>
+          </div>
+        </div>
+      )}
+
+      <div className="mcp-capability-strip" aria-label="MCP-Funktionen">
+        {capabilities.map((capability) => (
+          <span
+            key={capability.id}
+            className={`mcp-capability ${capability.ready ? "ready" : "missing"}`}
+            title={capability.tools.length ? capability.tools.join(", ") : undefined}
+          >
+            {capability.label}
+          </span>
+        ))}
+      </div>
 
       {targets.map((t) => (
         <div

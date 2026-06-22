@@ -24,6 +24,7 @@ MLX_WHISPER_REQUIRED_FILES = {
     QUALITY_MLX_WHISPER_MODEL: ("config.json", "weights.npz"),
     "mlx-community/distil-whisper-large-v3": ("config.json", "weights.npz"),
 }
+EMBEDDING_RUNTIME_MEMORY_GB = (0.3, 0.7)
 
 ASR_CANDIDATES = (
     {
@@ -137,18 +138,21 @@ def model_status_payload() -> dict[str, Any]:
     for candidate in _asr_candidates(asr_selection):
         items.append(_asr_status(candidate, active=_is_active_asr(candidate, asr_selection)))
     for candidate in _diarization_candidates(diarization_selection):
-        items.append(
-            _repo_model_status(
-                kind="diarization",
-                label=str(candidate["label"]),
-                model=str(candidate["model"]),
-                repo_id=str(candidate["repo_id"]),
-                required_files=tuple(candidate["required_files"]),
-                cache_dirs=[settings.models_dir / "pyannote", None],
-                active=str(candidate["model"]) == diarization_selection["model_id"],
-            )
+        model = str(candidate["model"])
+        item = _repo_model_status(
+            kind="diarization",
+            label=str(candidate["label"]),
+            model=model,
+            repo_id=str(candidate["repo_id"]),
+            required_files=tuple(candidate["required_files"]),
+            cache_dirs=[settings.models_dir / "pyannote", None],
+            active=model == diarization_selection["model_id"],
         )
-    items.append(_embedding_status())
+        item.update(_memory_fields(_diarization_memory_estimate(model)))
+        items.append(item)
+    items.append(
+        _embedding_status(active=bool(diarization_selection.get("speaker_matching_enabled", True)))
+    )
 
     return {
         "models_dir": str(settings.models_dir),
@@ -229,13 +233,14 @@ def _asr_status(candidate: dict[str, Any], *, active: bool) -> dict[str, Any]:
         active=active,
     )
     item["engine"] = engine
+    item.update(_memory_fields(_asr_memory_estimate(engine, str(candidate["model"]))))
     return item
 
 
-def _embedding_status() -> dict[str, Any]:
+def _embedding_status(*, active: bool) -> dict[str, Any]:
     path = get_settings().models_dir / "ecapa"
     downloaded = _dir_has_any(path, ("hyperparams.yaml", "embedding_model.ckpt", "*.ckpt"))
-    return {
+    item = {
         "key": f"embedding:::{EMBEDDING_MODEL}",
         "kind": "embedding",
         "label": "Sprecher-Matching",
@@ -244,9 +249,11 @@ def _embedding_status() -> dict[str, Any]:
         "downloaded": downloaded,
         "status": "downloaded" if downloaded else "missing",
         "path": str(path) if downloaded else None,
-        "active": False,
+        "active": active,
         "note": "Wird für bekannte Sprecher und automatische Zuordnung genutzt.",
     }
+    item.update(_memory_fields(EMBEDDING_RUNTIME_MEMORY_GB))
+    return item
 
 
 def _repo_model_status(
@@ -298,6 +305,45 @@ def _is_active_asr(candidate: dict[str, Any], selection: dict[str, Any]) -> bool
     if engine == "faster-whisper":
         return candidate.get("model") == selection.get("model_size")
     return False
+
+
+def _memory_fields(estimate: tuple[float, float]) -> dict[str, float]:
+    return {
+        "runtime_memory_min_gb": estimate[0],
+        "runtime_memory_max_gb": estimate[1],
+    }
+
+
+def _asr_memory_estimate(engine: str, model: str) -> tuple[float, float]:
+    normalized = model.lower()
+    if engine == "parakeet-mlx":
+        return (3.0, 4.5)
+    if engine == "mlx-whisper":
+        if "large-v3-mlx" in normalized and "turbo" not in normalized:
+            return (7.0, 10.0)
+        if "turbo" in normalized:
+            return (4.5, 6.5)
+        if "distil" in normalized:
+            return (3.5, 5.5)
+        return (5.0, 8.0)
+    if "tiny" in normalized or "base" in normalized:
+        return (0.5, 1.2)
+    if "small" in normalized:
+        return (1.0, 2.0)
+    if "medium" in normalized:
+        return (2.0, 3.5)
+    if "distil" in normalized:
+        return (3.0, 4.5)
+    if "large" in normalized:
+        return (4.0, 6.5)
+    return (2.0, 4.0)
+
+
+def _diarization_memory_estimate(model: str) -> tuple[float, float]:
+    normalized = model.lower()
+    if "community-1" in normalized:
+        return (1.5, 2.5)
+    return (1.8, 3.0)
 
 
 def _mlx_whisper_required_files(model: str) -> tuple[str, ...]:

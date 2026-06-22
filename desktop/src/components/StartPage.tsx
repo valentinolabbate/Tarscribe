@@ -43,28 +43,28 @@ function DigestPanel() {
           <h3>Wochen-Digest</h3>
           <p>Themen, Entscheidungen und offene Aufgaben deiner Woche.</p>
         </div>
-      </div>
-      <div className="start-card-actions">
-        {latest && (
+        <div className="start-card-actions">
+          {latest && (
+            <button
+              className="btn ghost"
+              onClick={() => navigator.clipboard.writeText(latest.content_markdown)}
+            >
+              Kopieren
+            </button>
+          )}
+          {latest && (
+            <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
+              {sendDigest.isPending ? "Exportiere..." : "Exportieren"}
+            </button>
+          )}
           <button
-            className="btn ghost"
-            onClick={() => navigator.clipboard.writeText(latest.content_markdown)}
+            className="btn primary"
+            disabled={createDigest.isPending}
+            onClick={() => createDigest.mutate(7)}
           >
-            Kopieren
+            {createDigest.isPending ? "Erstelle..." : latest ? "Neu erstellen" : "Digest erstellen"}
           </button>
-        )}
-        {latest && (
-          <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
-            {sendDigest.isPending ? "Exportiere..." : "Exportieren"}
-          </button>
-        )}
-        <button
-          className="btn primary"
-          disabled={createDigest.isPending}
-          onClick={() => createDigest.mutate(7)}
-        >
-          {createDigest.isPending ? "Erstelle..." : latest ? "Neu erstellen" : "Digest erstellen"}
-        </button>
+        </div>
       </div>
 
       {isLoading && <div className="digest-empty">Digests werden geladen...</div>}
@@ -80,9 +80,16 @@ function DigestPanel() {
         </div>
       )}
       {!isLoading && !createDigest.isPending && !latest && (
-        <div className="digest-empty">
-          Noch kein Digest vorhanden. Erstelle einen 7-Tage-Rückblick, sobald Aufnahmen
-          transkribiert sind.
+        <div className="digest-empty empty-next">
+          <strong>Nächster Schritt</strong>
+          <span>Erstelle einen 7-Tage-Rückblick, sobald Aufnahmen transkribiert sind.</span>
+          <button
+            className="btn ghost"
+            disabled={createDigest.isPending}
+            onClick={() => createDigest.mutate(7)}
+          >
+            Rückblick erstellen
+          </button>
         </div>
       )}
       {latest && !createDigest.isPending && (
@@ -134,8 +141,12 @@ function ThreadsPanel({
       </div>
       {isLoading && <div className="digest-empty">Threads werden geladen...</div>}
       {!isLoading && visible.length === 0 && (
-        <div className="digest-empty">
-          Noch keine Threads erkannt. Erzeuge Kapitel in mehreren Aufnahmen und aktualisiere dann.
+        <div className="digest-empty empty-next">
+          <strong>Nächster Schritt</strong>
+          <span>Erzeuge Kapitel in mehreren Aufnahmen und aktualisiere dann das Projektgedächtnis.</span>
+          <button className="btn ghost" onClick={rebuildThreads} disabled={rebuild.isPending}>
+            {rebuild.isPending ? "Aktualisiere..." : "Threads suchen"}
+          </button>
         </div>
       )}
       {visible.length > 0 && (
@@ -195,8 +206,8 @@ export function StartPage({
       <header className="start-header">
         <div className="start-header-text">
           <span className="page-kicker">Start</span>
-          <h2>Willkommen zurück</h2>
-          <p>Durchsuche deine Aufnahmen, stelle Fragen oder halte einen Gedanken fest.</p>
+          <h2>Arbeitsbereich</h2>
+          <p>Suche in Aufnahmen, frage dein Archiv oder sprich ein Diktat ein.</p>
         </div>
         <div className="start-stats">
           <div className="stat">
@@ -209,7 +220,7 @@ export function StartPage({
           </div>
           <div className="stat">
             <strong>{diarizedCount}</strong>
-            <span>Sprecher</span>
+            <span>Diarisiert</span>
           </div>
         </div>
       </header>

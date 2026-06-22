@@ -40,6 +40,16 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
+def test_mcp_diagnostics(client):
+    r = client.get("/api/mcp/diagnostics")
+    assert r.status_code == 200
+    body = r.json()
+    assert "connection_file" in body
+    assert body["tools"]["count"] > 0
+    capability_ids = {item["id"] for item in body["capabilities"]}
+    assert {"context", "search", "tasks", "analysis"} <= capability_ids
+
+
 def test_hardware(client):
     r = client.get("/api/system/hardware")
     assert r.status_code == 200
@@ -56,6 +66,21 @@ def test_model_status_lists_local_cache_state(client):
     assert "models_dir" in body
     assert any(item["kind"] == "asr" for item in body["items"])
     assert any(item["kind"] == "diarization" for item in body["items"])
+    active = [item for item in body["items"] if item["active"]]
+    assert all("runtime_memory_min_gb" in item for item in active)
+    assert any(item["kind"] == "embedding" and item["active"] for item in body["items"])
+
+
+def test_model_status_disables_speaker_matching_memory_for_small_profile(client):
+    client.put("/api/settings", json={"performance_profile": "m1_8gb"})
+
+    r = client.get("/api/system/models")
+    assert r.status_code == 200
+    body = r.json()
+    client.put("/api/settings", json={"performance_profile": "balanced"})
+    embedding = next(item for item in body["items"] if item["kind"] == "embedding")
+    assert embedding["active"] is False
+    assert "runtime_memory_min_gb" in embedding
 
 
 def test_model_status_marks_custom_local_asr_model_downloaded(client):

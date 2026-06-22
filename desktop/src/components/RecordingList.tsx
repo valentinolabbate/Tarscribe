@@ -178,7 +178,13 @@ export function RecordingList({
               />
             ))}
             {visibleRecordings!.length === 0 && (
-              <div className="list-empty">Keine Aufnahme passt zu deiner Suche.</div>
+              <div className="list-empty empty-next">
+                <strong>Keine Aufnahme passt zu deiner Suche.</strong>
+                <span>Setze den Suchfilter zurück oder importiere eine neue Aufnahme in diesen Bereich.</span>
+                <button className="btn ghost" onClick={() => setQuery("")}>
+                  Suche zurücksetzen
+                </button>
+              </div>
             )}
             {upload.isPending && (
               <div className="rec-card" style={{ opacity: 0.6 }}>

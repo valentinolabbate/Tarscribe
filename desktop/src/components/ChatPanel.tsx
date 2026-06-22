@@ -673,6 +673,12 @@ export function ChatPanel({
   }
 
   const ragOff = status && !status.vec_available;
+  const searchEmptyPrompts = scoped
+    ? ["Welche Entscheidungen wurden getroffen?", "Zeig offene Aufgaben", "Finde Stellen zu Risiken"]
+    : ["Welche offenen Punkte gibt es?", "Zeig Entscheidungen der Woche", "Finde Stellen zu Budget"];
+  const chatEmptyPrompts = scoped
+    ? ["Fasse diese Aufnahme kurz zusammen", "Welche Aufgaben entstanden hier?", "Welche Fragen bleiben offen?"]
+    : ["Was waren die wichtigsten Entscheidungen?", "Welche Aufgaben sind offen?", "Was hat sich letzte Woche geändert?"];
 
   function SourceAction({ s }: { s: RagSource | RagHit }) {
     if (s.source_type === "document" && s.document_id != null) {
@@ -953,6 +959,13 @@ export function ChatPanel({
                   . Findet passende Stellen auch ohne exakte Wortgleichheit —
                   kein LLM nötig.
                 </div>
+                <div className="empty-action-row" aria-label="Suchbeispiele">
+                  {searchEmptyPrompts.map((prompt) => (
+                    <button className="btn ghost" key={prompt} onClick={() => setInput(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {searching && (
@@ -1035,6 +1048,13 @@ export function ChatPanel({
                   {scoped ? "dieser Aufnahme" : "deinen Aufnahmen"} mit Quellen
                   belegt. Klicke auf eine [n]-Zitat-Marke, um die Belegstelle zu
                   sehen.
+                </div>
+                <div className="empty-action-row" aria-label="Chat-Beispiele">
+                  {chatEmptyPrompts.map((prompt) => (
+                    <button className="btn ghost" key={prompt} onClick={() => setInput(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

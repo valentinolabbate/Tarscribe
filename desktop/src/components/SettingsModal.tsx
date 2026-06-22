@@ -188,6 +188,53 @@ function activeModelStatus(
   return items?.find((item) => item.kind === kind && item.active) ?? null;
 }
 
+function formatGb(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)).replace(".", ",");
+}
+
+function runtimeMemoryLabel(item: LocalModelStatus | null): string | null {
+  if (item?.runtime_memory_min_gb === undefined || item.runtime_memory_max_gb === undefined) {
+    return null;
+  }
+  const min = item.runtime_memory_min_gb;
+  const max = item.runtime_memory_max_gb;
+  if (Math.abs(max - min) < 0.1) return `ca. ${formatGb(max)} GB RAM`;
+  return `ca. ${formatGb(min)}-${formatGb(max)} GB RAM`;
+}
+
+function modelRuntimeTitle(item: LocalModelStatus): string {
+  if (item.kind === "asr") return "Trans.";
+  if (item.kind === "diarization") return "Diar.";
+  return "Speaker";
+}
+
+function activeRuntimeSummary(
+  items: LocalModelStatus[],
+  memoryGb?: number | null,
+): { total: string; parts: string; budgetLabel?: string; budgetPercent?: number } | null {
+  const activeItems = items.filter(
+    (item) =>
+      item.active &&
+      item.runtime_memory_min_gb !== undefined &&
+      item.runtime_memory_max_gb !== undefined,
+  );
+  if (!activeItems.length) return null;
+
+  const min = activeItems.reduce((sum, item) => sum + (item.runtime_memory_min_gb ?? 0), 0);
+  const max = activeItems.reduce((sum, item) => sum + (item.runtime_memory_max_gb ?? 0), 0);
+  const total =
+    Math.abs(max - min) < 0.1
+      ? `ca. ${formatGb(max)} GB RAM`
+      : `ca. ${formatGb(min)}-${formatGb(max)} GB RAM`;
+  const parts = activeItems
+    .map((item) => `${modelRuntimeTitle(item)} ${runtimeMemoryLabel(item)?.replace("ca. ", "")}`)
+    .join(" · ");
+  const budgetPercent = memoryGb ? Math.min(100, Math.round((max / memoryGb) * 100)) : undefined;
+  const budgetLabel = memoryGb ? `gegen ${formatGb(memoryGb)} GB RAM: ${budgetPercent}%` : undefined;
+  return { total, parts, budgetLabel, budgetPercent };
+}
+
 function ModelStatusBadge({ item, loading }: { item: LocalModelStatus | null; loading?: boolean }) {
   if (loading && !item) return <span className="model-status-badge neutral">Prüfe…</span>;
   if (!item) return <span className="model-status-badge neutral">Unbekannt</span>;
@@ -214,6 +261,12 @@ function ModelStatusCard({
         <ModelStatusBadge item={item} loading={loading} />
       </div>
       <code>{item?.model ?? "Wird ermittelt…"}</code>
+      {runtimeMemoryLabel(item) && (
+        <small className="model-runtime-line">Laufzeit: {runtimeMemoryLabel(item)}</small>
+      )}
+      {item && !item.active && item.kind === "embedding" && (
+        <small className="model-runtime-line">Nicht im aktuellen Profil aktiv.</small>
+      )}
       {item?.note && <small>{item.note}</small>}
     </div>
   );
@@ -509,6 +562,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const activeDiarization = activeModelStatus(modelItems, "diarization");
   const embeddingModel = findModelStatus(modelItems, "embedding", "speechbrain/spkrec-ecapa-voxceleb");
   const selectedAsrEngine = asrEngineValue(settings?.asr_override);
+  const runtimeSummary = activeRuntimeSummary(modelItems, hardware?.memory_gb);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -703,6 +757,24 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     {modelStatusLoading ? "Prüfe…" : "Aktualisieren"}
                   </button>
                 </div>
+                {runtimeSummary && (
+                  <div className="model-runtime-summary">
+                    <div className="model-runtime-copy">
+                      <strong>Aktive Modelle: {runtimeSummary.total}</strong>
+                      <span>{runtimeSummary.parts}</span>
+                    </div>
+                    {runtimeSummary.budgetPercent !== undefined && (
+                      <div
+                        className="model-runtime-budget"
+                        aria-label={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
+                        title={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
+                      >
+                        <span style={{ width: `${runtimeSummary.budgetPercent}%` }} />
+                      </div>
+                    )}
+                    {runtimeSummary.budgetLabel && <small>{runtimeSummary.budgetLabel}</small>}
+                  </div>
+                )}
                 <div className="model-status-grid">
                   <ModelStatusCard title="Transkription" item={activeAsr} loading={modelStatusLoading} />
                   <ModelStatusCard title="Diarisierung" item={activeDiarization} loading={modelStatusLoading} />
@@ -789,24 +861,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                   <div className="suggestion-chips">
                     {ASR_MODEL_SUGGESTIONS.filter(
                       (suggestion) => !selectedAsrEngine || suggestion.engine === selectedAsrEngine,
-                    ).map((suggestion) => (
-                      <button
-                        key={`${suggestion.engine}:${suggestion.model}`}
-                        type="button"
-                        className="suggestion-chip"
-                        onClick={() => applyAsrSuggestion(suggestion)}
-                      >
-                        <span>{suggestion.label}</span>
-                        <code>{suggestion.model}</code>
-                        <span className="suggestion-chip-foot">
-                          <small>{suggestion.note}</small>
-                          <ModelStatusBadge
-                            item={findModelStatus(modelItems, "asr", suggestion.model, suggestion.engine)}
-                            loading={modelStatusLoading}
-                          />
-                        </span>
-                      </button>
-                    ))}
+                    ).map((suggestion) => {
+                      const item = findModelStatus(modelItems, "asr", suggestion.model, suggestion.engine);
+                      const runtime = runtimeMemoryLabel(item);
+                      return (
+                        <button
+                          key={`${suggestion.engine}:${suggestion.model}`}
+                          type="button"
+                          className="suggestion-chip"
+                          onClick={() => applyAsrSuggestion(suggestion)}
+                        >
+                          <span>{suggestion.label}</span>
+                          <code>{suggestion.model}</code>
+                          <span className="suggestion-chip-foot">
+                            <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
+                            <ModelStatusBadge item={item} loading={modelStatusLoading} />
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                   {selectedAsrEngine === "faster-whisper" && hardware?.is_apple_silicon && (
                     <div className="settings-info-box" style={{ marginTop: 8 }}>
@@ -880,24 +953,25 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                     ))}
                   </datalist>
                   <div className="suggestion-chips">
-                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
-                      <button
-                        key={suggestion.model}
-                        type="button"
-                        className="suggestion-chip"
-                        onClick={() => applyDiarizationSuggestion(suggestion)}
-                      >
-                        <span>{suggestion.label}</span>
-                        <code>{suggestion.model}</code>
-                        <span className="suggestion-chip-foot">
-                          <small>{suggestion.note}</small>
-                          <ModelStatusBadge
-                            item={findModelStatus(modelItems, "diarization", suggestion.model)}
-                            loading={modelStatusLoading}
-                          />
-                        </span>
-                      </button>
-                    ))}
+                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => {
+                      const item = findModelStatus(modelItems, "diarization", suggestion.model);
+                      const runtime = runtimeMemoryLabel(item);
+                      return (
+                        <button
+                          key={suggestion.model}
+                          type="button"
+                          className="suggestion-chip"
+                          onClick={() => applyDiarizationSuggestion(suggestion)}
+                        >
+                          <span>{suggestion.label}</span>
+                          <code>{suggestion.model}</code>
+                          <span className="suggestion-chip-foot">
+                            <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
+                            <ModelStatusBadge item={item} loading={modelStatusLoading} />
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
                     Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder

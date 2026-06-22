@@ -3067,6 +3067,39 @@ button.utt-time:hover {
   min-height: 18px;
 }
 
+.live-final-transcription {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 280px);
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+  flex-shrink: 0;
+}
+
+.live-final-transcription strong,
+.live-final-transcription span {
+  display: block;
+}
+
+.live-final-transcription strong {
+  font-size: 13px;
+}
+
+.live-final-transcription span {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .live-final-transcription {
+    grid-template-columns: 1fr;
+  }
+}
+
 .live-upload-status {
   color: var(--text-faint);
 }

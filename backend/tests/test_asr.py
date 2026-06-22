@@ -280,6 +280,46 @@ def test_run_asr_marks_failed_when_no_speech(jobs_env, tmp_path, monkeypatch):
         assert s.get(Recording, rec_id).status == RecordingStatus.failed
 
 
+def test_run_asr_failure_keeps_existing_transcript_ready(jobs_env, tmp_path, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+
+    from tarscribe_backend.ml.asr import factory
+    from tarscribe_backend.ml.asr.base import TranscriptResult
+    from tarscribe_backend.models import (
+        Job,
+        JobStatus,
+        Recording,
+        RecordingStatus,
+        Transcript,
+        Word,
+    )
+
+    db, jobs = jobs_env
+    wav = tmp_path / "silent-with-existing.wav"
+    sf.write(str(wav), np.zeros(16000, dtype="float32"), 16000)
+    rec_id, job_id = _seed_asr_job(db, str(wav))
+    with db.session_scope() as s:
+        transcript = Transcript(recording_id=rec_id, asr_model="live")
+        s.add(transcript)
+        s.flush()
+        s.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Alt"))
+
+    class _Empty:
+        name = "stub"
+
+        def transcribe(self, *_a, **_k):
+            return TranscriptResult(language=None, words=[])
+
+    monkeypatch.setattr(factory, "get_backend", lambda *_a, **_k: _Empty())
+
+    jobs._run_asr(rec_id, job_id, None)
+
+    with db.session_scope() as s:
+        assert s.get(Job, job_id).status == JobStatus.failed
+        assert s.get(Recording, rec_id).status == RecordingStatus.ready
+
+
 def test_run_asr_marks_failed_when_audio_missing(jobs_env):
     from tarscribe_backend.models import Job, JobStatus, Recording, RecordingStatus
 

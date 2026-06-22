@@ -668,7 +668,7 @@ export const api = {
   resumeLiveSession: (sessionId: string) =>
     request<{ status: string }>(`/api/live-recordings/${sessionId}/resume`, { method: "POST" }),
   finishLiveSession: (sessionId: string, recordingId: number | null) =>
-    request<{ status: string; recording_id: number | null }>(
+    request<{ status: string; recording_id: number | null; transcription_job_id: number | null }>(
       `/api/live-recordings/${sessionId}/finish`,
       {
         method: "POST",

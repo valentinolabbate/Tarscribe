@@ -339,6 +339,23 @@ export function RecordingDetail({
     }
   }
 
+  async function startTranscription(replaceExisting: boolean) {
+    if (
+      replaceExisting &&
+      transcript &&
+      !window.confirm("Transkript nochmal neu erstellen? Das aktuelle Transkript wird ersetzt.")
+    ) {
+      return;
+    }
+    setActiveTab("transcript");
+    try {
+      await transcribe.mutateAsync({ id: recording.id });
+      toast(replaceExisting ? "Transkription neu gestartet" : "Transkription gestartet", "info");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   return (
     <div className="detail">
       <header className="detail-hero">
@@ -391,6 +408,16 @@ export function RecordingDetail({
               }}
             >
               <SpeakerIdIcon width={16} height={16} /> Sprecher erkennen
+            </button>
+          )}
+          {transcript && (
+            <button
+              className="btn ghost"
+              disabled={transcribe.isPending || running}
+              onClick={() => void startTranscription(true)}
+              title="Transkript mit der fertigen Audiodatei neu erstellen"
+            >
+              Neu transkribieren
             </button>
           )}
           {isTranscribed && transcript && (
@@ -456,13 +483,26 @@ export function RecordingDetail({
         </div>
       )}
 
+      {activeJob?.status === "failed" && activeJob.phase === "asr" && transcript && (
+        <div className="detail-error detail-error-box detail-error-row">
+          <span>Transkription fehlgeschlagen: {activeJob.error}</span>
+          <button
+            className="btn"
+            disabled={transcribe.isPending || running}
+            onClick={() => void startTranscription(true)}
+          >
+            {transcribe.isPending ? "Starte…" : "Nochmal transkribieren"}
+          </button>
+        </div>
+      )}
+
       {!transcript && !transcriptPending && (
         <DetailEmptyState
           running={!!running}
           startingPhase={startingPhase}
           transcribePending={transcribe.isPending}
-          error={job?.status === "failed" ? job.error : null}
-          onTranscribe={() => transcribe.mutate({ id: recording.id })}
+          error={activeJob?.status === "failed" ? activeJob.error : null}
+          onTranscribe={() => void startTranscription(false)}
         />
       )}
 

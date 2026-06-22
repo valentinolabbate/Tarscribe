@@ -33,7 +33,13 @@ export async function getSystemAudioCapability(): Promise<SystemAudioCapability>
   return invoke<SystemAudioCapability>("system_audio_capability");
 }
 
-export type TrayRecordingState = "idle" | "starting" | "recording" | "paused" | "saving";
+export type TrayRecordingState =
+  | "idle"
+  | "starting"
+  | "recording"
+  | "paused"
+  | "saving"
+  | "transcribing";
 
 export async function setTrayRecordingState(payload: {
   state: TrayRecordingState;

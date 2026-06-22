@@ -715,6 +715,7 @@ export default function App() {
               elapsed={recording.elapsed}
               state={recording.state}
               handle={recording.liveHandle}
+              finalTranscriptionJob={recording.finalTranscriptionJob}
               onPause={recording.pause}
               onResume={recording.resume}
               onStop={recording.stop}

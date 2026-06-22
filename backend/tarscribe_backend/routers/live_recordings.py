@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from sqlmodel import Session, select
 
 from ..config import get_settings
 from ..db import get_session
+from .. import jobs
 from ..live_analysis import get_service
 from ..live_audio import cleanup_session_dir, validate_and_append_chunk
 from ..models import (
@@ -341,13 +343,27 @@ def finish_session(
 
     pcm_path = live_session.pcm_path
     get_service().detach(session_id)
+
+    transcription_job_id: int | None = None
+    if recording is not None and recording.id is not None:
+        try:
+            transcription_job_id = jobs.enqueue_asr(recording.id)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+
     hub.broadcast({
         "type": "live_finalized",
         "session_id": session_id,
         "recording_id": payload.recording_id,
+        "transcription_job_id": transcription_job_id,
     })
     threading.Thread(target=cleanup_session_dir, args=(pcm_path,), daemon=True).start()
-    return {"status": "completed", "recording_id": payload.recording_id}
+
+    return {
+        "status": "completed",
+        "recording_id": payload.recording_id,
+        "transcription_job_id": transcription_job_id,
+    }
 
 
 @router.delete("/{session_id}", status_code=204)

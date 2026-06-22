@@ -362,6 +362,7 @@ export interface LiveFinalizedEvent {
   type: "live_finalized";
   session_id: string;
   recording_id: number | null;
+  transcription_job_id?: number | null;
 }
 
 export interface LiveDegradedEvent {

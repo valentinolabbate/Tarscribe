@@ -332,12 +332,13 @@ fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Men
                 .item(&quit)
                 .build()?
         }
-        "starting" | "saving" => {
-            let label = if recording.state == "starting" {
-                "Aufnahme startet…".to_string()
-            } else {
-                "Aufnahme wird gespeichert…".to_string()
-            };
+        "starting" | "saving" | "transcribing" => {
+            let label = match recording.state.as_str() {
+                "starting" => "Aufnahme startet…",
+                "transcribing" => "Finale Transkription läuft…",
+                _ => "Aufnahme wird gespeichert…",
+            }
+            .to_string();
             let status = MenuItemBuilder::new(label)
                 .id("record-status")
                 .enabled(false)
@@ -383,6 +384,7 @@ fn tray_title(meta: &TrayMeta) -> Option<String> {
         "paused" => Some(format!("II {}", format_elapsed(recording.elapsed))),
         "starting" => Some("●".to_string()),
         "saving" => Some("…".to_string()),
+        "transcribing" => Some("TXT".to_string()),
         _ if meta.update_available => Some("●".to_string()),
         _ => None,
     }
@@ -403,6 +405,7 @@ fn tray_tooltip(meta: &TrayMeta) -> String {
         ),
         "starting" => "Tarscribe — Aufnahme startet".to_string(),
         "saving" => "Tarscribe — Aufnahme wird gespeichert".to_string(),
+        "transcribing" => "Tarscribe — finale Transkription läuft".to_string(),
         _ if meta.update_available => match &meta.update_version {
             Some(v) => format!("Tarscribe — Update verfügbar ({v})"),
             None => "Tarscribe — Update verfügbar".to_string(),

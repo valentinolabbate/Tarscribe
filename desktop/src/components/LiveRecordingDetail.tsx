@@ -184,8 +184,14 @@ function LiveTranscript({
 interface Props {
   topicName: string;
   elapsed: number;
-  state: "starting" | "recording" | "paused" | "saving";
+  state: "starting" | "recording" | "paused" | "saving" | "transcribing";
   handle: LiveRecordingHandle | null;
+  finalTranscriptionJob: {
+    jobId: number;
+    progress: number;
+    status: "pending" | "running" | "done" | "failed" | "canceled";
+    error: string | null;
+  } | null;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -196,6 +202,7 @@ export function LiveRecordingDetail({
   elapsed,
   state,
   handle,
+  finalTranscriptionJob,
   onPause,
   onResume,
   onStop,
@@ -216,6 +223,7 @@ export function LiveRecordingDetail({
     speakerSnapshot && visibleSpeakers.length > 0
       ? { ...speakerSnapshot, speakers: visibleSpeakers }
       : null;
+  const finalPct = Math.round((finalTranscriptionJob?.progress ?? 0) * 100);
 
   return (
     <div className="live-detail">
@@ -225,6 +233,7 @@ export function LiveRecordingDetail({
           <span>{topicName}</span>
           {state === "starting" && <span className="live-state-badge">Startet…</span>}
           {state === "saving" && <span className="live-state-badge">Speichert…</span>}
+          {state === "transcribing" && <span className="live-state-badge">Transkribiert final…</span>}
           {state === "paused" && <span className="live-state-badge paused">Pausiert</span>}
         </div>
 
@@ -257,6 +266,22 @@ export function LiveRecordingDetail({
                 : "Live-Diarisierung nicht verfügbar"}
             </span>
           )}
+        </div>
+      )}
+
+      {state === "transcribing" && finalTranscriptionJob && (
+        <div className="live-final-transcription" role="status" aria-live="polite">
+          <div>
+            <strong>
+              {finalTranscriptionJob.status === "pending"
+                ? "Finale Transkription wartet…"
+                : `Finale Transkription läuft… ${finalPct}%`}
+            </strong>
+            <span>Die Aufnahme öffnet sich automatisch, sobald das saubere Transkript fertig ist.</span>
+          </div>
+          <div className="progress">
+            <div className="progress-bar" style={{ width: `${finalPct}%` }} />
+          </div>
         </div>
       )}
 

@@ -32,7 +32,11 @@ export interface LiveRecordingHandle {
   speakerSnapshot: LiveSpeakerSnapshot | null;
 
   /** Call after the archive recording has been uploaded and we have a Recording ID. */
-  finish: (recordingId: number | null) => Promise<void>;
+  finish: (recordingId: number | null) => Promise<{
+    status: string;
+    recording_id: number | null;
+    transcription_job_id: number | null;
+  } | null>;
   /** Notify backend the session is paused (optional — backend is resilient to missing pause signals). */
   notifyPause: () => Promise<void>;
   /** Notify backend the session resumed. */
@@ -156,12 +160,13 @@ export function useLiveRecording(): {
 
   const finish = useCallback(async (recordingId: number | null) => {
     const session = sessionRef.current;
-    if (!session) return;
+    if (!session) return null;
     try {
       await waitForQueueIdle();
-      await api.finishLiveSession(session.id, recordingId);
+      return await api.finishLiveSession(session.id, recordingId);
     } catch (e) {
       console.warn("[live] finish failed:", e);
+      return null;
     } finally {
       sessionRef.current = null;
       queueRef.current = [];

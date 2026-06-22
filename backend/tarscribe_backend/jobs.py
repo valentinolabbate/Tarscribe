@@ -118,6 +118,28 @@ def _set_recording_status_after_cancel(recording_id: int) -> None:
         s.add(rec)
 
 
+def _set_recording_status_after_asr_failure(recording_id: int) -> None:
+    with session_scope() as s:
+        rec = s.get(Recording, recording_id)
+        if not rec:
+            return
+        transcripts = s.exec(
+            select(Transcript).where(Transcript.recording_id == recording_id)
+        ).all()
+        has_transcript_words = False
+        for transcript in transcripts:
+            if transcript.id is None:
+                continue
+            first_word = s.exec(
+                select(Word.id).where(Word.transcript_id == transcript.id).limit(1)
+            ).first()
+            if first_word is not None:
+                has_transcript_words = True
+                break
+        rec.status = RecordingStatus.ready if has_transcript_words else RecordingStatus.failed
+        s.add(rec)
+
+
 def cancel_job(job_id: int) -> dict | None:
     """Mark a pending/running job as canceled and broadcast the update."""
     reset_recording_id: int | None = None
@@ -273,7 +295,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
             _set_recording_status_after_cancel(recording_id)
         else:
             _update_job(job_id, status=JobStatus.failed, error=str(exc))
-            _set_recording_status(recording_id, RecordingStatus.failed)
+            _set_recording_status_after_asr_failure(recording_id)
     finally:
         # Free the ASR model so the app doesn't keep it resident while idle.
         from .ml.lifecycle import unload_all

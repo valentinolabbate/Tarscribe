@@ -16,7 +16,9 @@ export function GlobalRecordingIndicator() {
           ? "Startet..."
           : recording.state === "saving"
             ? "Speichert..."
-            : fmtDuration(recording.elapsed)}
+            : recording.state === "transcribing"
+              ? "Transkribiert..."
+              : fmtDuration(recording.elapsed)}
       </span>
       {active && (
         <>

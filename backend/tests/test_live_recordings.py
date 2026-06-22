@@ -32,12 +32,24 @@ def client(monkeypatch):
     monkeypatch.setattr(la.LiveAnalysisService, "_diarization_tick", lambda *a, **kw: None)
     la._service = None
 
+    import tarscribe_backend.jobs as jobs
+
+    queued_asr_jobs: list[tuple[int, str | None]] = []
+
+    def fake_enqueue_asr(recording_id: int, override: str | None = None) -> int:
+        queued_asr_jobs.append((recording_id, override))
+        return 1000 + len(queued_asr_jobs) - 1
+
+    monkeypatch.setattr(jobs, "enqueue_asr", fake_enqueue_asr)
+
     from fastapi.testclient import TestClient
 
     import tarscribe_backend.main as main
 
     importlib.reload(main)
-    return TestClient(main.create_app())
+    test_client = TestClient(main.create_app())
+    test_client.queued_asr_jobs = queued_asr_jobs
+    return test_client
 
 
 # ── Helper to create a topic ────────────────────────────────────────────────
@@ -145,6 +157,7 @@ def test_finish_session(client):
     r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": None})
     assert r.status_code == 200
     assert r.json()["status"] == "completed"
+    assert r.json()["transcription_job_id"] is None
 
     r2 = client.get(f"/api/live-recordings/{sid}")
     assert r2.json()["status"] == "completed"
@@ -169,6 +182,8 @@ def test_finish_persists_live_transcript_snapshot(client):
 
     r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": recording_id})
     assert r.status_code == 200
+    assert r.json()["transcription_job_id"] == 1000
+    assert client.queued_asr_jobs == [(recording_id, None)]
 
     tr = client.get(f"/api/recordings/{recording_id}/transcript")
     assert tr.status_code == 200

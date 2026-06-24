@@ -652,22 +652,43 @@ def retrieve_topic_knowledge(
     """Passages from the *same topic* used to enrich a recording's summary.
 
     Reuses the hybrid :func:`search`, restricted to ``topic_id`` and with the
-    recording being summarized removed (its own transcript/summary is not "extra"
-    knowledge). Returns at most ``top_k`` hits, capped to ``max_chars`` total text
-    so the summary prompt stays within budget. Generous by design: no relevance
-    floor — the LLM is told to use the context only where it fits.
+    recording being summarized removed, except for documents attached directly
+    to that recording. Its own transcript/summary is not "extra" knowledge; its
+    own uploaded documents are intentional context. Returns at most ``top_k``
+    hits, capped to ``max_chars`` total text so the summary prompt stays within
+    budget. Generous by design: no relevance floor — the LLM is told to use the
+    context only where it fits.
     """
     if not query.strip():
         return []
     # Embedding endpoints truncate or error on very long inputs; a representative
     # slice is enough to surface the dominant themes of the recording.
     q = query[:4000]
-    # Over-fetch so dropping the current recording still leaves enough material.
+    # Over-fetch so dropping the current recording's transcript/summary still
+    # leaves enough material.
     hits = search(session, q, top_k=top_k * 3, topic_id=topic_id)
+    if exclude_recording_id is not None:
+        own_document_hits = [
+            h
+            for h in search(session, q, top_k=top_k * 2, recording_id=exclude_recording_id)
+            if h.get("source_type") == "document"
+        ]
+        hits = _dedupe_hits([*own_document_hits, *hits])
+        hits = sorted(
+            hits,
+            key=lambda h: (
+                -_summary_context_priority(h, exclude_recording_id),
+                -float(h.get("score") or 0),
+            ),
+        )
     out: list[dict] = []
     used = 0
     for h in hits:
-        if exclude_recording_id is not None and h.get("recording_id") == exclude_recording_id:
+        is_own_recording = (
+            exclude_recording_id is not None and h.get("recording_id") == exclude_recording_id
+        )
+        is_own_document = is_own_recording and h.get("source_type") == "document"
+        if is_own_recording and not is_own_document:
             continue
         text = (h.get("text") or "").strip()
         if not text:
@@ -679,6 +700,29 @@ def retrieve_topic_knowledge(
         if len(out) >= top_k:
             break
     return out
+
+
+def _dedupe_hits(hits: list[dict]) -> list[dict]:
+    seen: set[int] = set()
+    out: list[dict] = []
+    for hit in hits:
+        chunk_id = hit.get("chunk_id")
+        if chunk_id is None or chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        out.append(hit)
+    return out
+
+
+def _summary_context_priority(hit: dict, recording_id: int) -> int:
+    """Small ordering boost for documents that are closest to the recording."""
+    if hit.get("source_type") != "document":
+        return 0
+    if hit.get("recording_id") == recording_id:
+        return 2
+    if hit.get("recording_id") is None:
+        return 1
+    return 0
 
 
 def index_stats(session: Session) -> dict:

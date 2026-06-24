@@ -372,14 +372,25 @@ BUILTIN_TEMPLATES = [
             "Du bist ein präziser Protokollant. Erstelle Meeting-Protokolle als vollständige "
             "Obsidian-Markdown-Notizen mit YAML-Frontmatter, klaren Abschnittsüberschriften und "
             "Obsidian-Callouts (> [!important]) für Entscheidungen. "
-            "Halte dich strikt ans Transkript — keine Erfindungen."
+            "Halte dich strikt ans Transkript — keine Erfindungen. "
+            "Der Themenbereich ist nur Ablage- oder Projektkontext, nicht das zwingende Thema "
+            "des Meetings. Lehne das Protokoll nicht ab, wenn Transkript und Themenbereich "
+            "unterschiedlich wirken."
         ),
         user_prompt_template=(
-            "Erstelle ein Meeting-Protokoll für das Thema «{{topic}}» vom {{date}} als Obsidian-Notiz.\n\n"
+            "Erstelle ein Meeting-Protokoll für die Aufnahme «{{recording_title}}» vom {{date}} "
+            "als Obsidian-Notiz.\n\n"
+            "Kontext:\n"
+            "- Themenbereich/Ablage: «{{topic}}»\n"
+            "- Das folgende Transkript ist die verbindliche Quelle für das Protokoll.\n"
+            "- Der Themenbereich ist kein Suchauftrag und kein Grund, das Protokoll abzulehnen.\n"
+            "- Wenn das Transkript ein konkreteres Thema erkennen lässt, verwende dieses Thema "
+            "in Überschriften und Inhalt.\n\n"
             "Beginne zwingend mit diesem YAML-Frontmatter (Werte unverändert übernehmen):\n"
             "---\n"
-            'title: "Meeting – {{topic}}"\n'
+            'title: "Meeting – {{recording_title}}"\n'
             "date: {{date_iso}}\n"
+            'topic_area: "{{topic}}"\n'
             "participants: [{{speakers}}]\n"
             "duration: {{duration}}\n"
             "tags:\n"

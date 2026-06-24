@@ -178,6 +178,43 @@ def test_recording_document_included_in_recording_scope(env):
     assert hits[0]["recording_id"] == rid
 
 
+def test_summary_knowledge_prefers_recording_document_over_topic_document(env):
+    db, rag = env
+    tid = _make_topic(db)
+    rid = _make_recording(db, tid, title="IGA Strategie")
+    rec_doc = _make_document(
+        db,
+        tid,
+        recording_id=rid,
+        title="Aufnahme-Agenda",
+        text="IGA Strategie Zielbild Leitung Vorbereitung Aufgaben " * 8,
+    )
+    topic_doc = _make_document(
+        db,
+        tid,
+        title="Themenbereich-Handbuch",
+        text="IGA Strategie Zielbild Hintergrund Themenbereich Hinweise " * 8,
+    )
+    with db.session_scope() as s:
+        rag.index_document(s, rec_doc)
+        rag.index_document(s, topic_doc)
+
+    with db.session_scope() as s:
+        hits = rag.retrieve_topic_knowledge(
+            s,
+            "IGA Strategie Zielbild",
+            tid,
+            exclude_recording_id=rid,
+            top_k=2,
+        )
+
+    assert len(hits) == 2
+    assert hits[0]["document_id"] == rec_doc
+    assert hits[0]["recording_id"] == rid
+    assert hits[1]["document_id"] == topic_doc
+    assert hits[1]["recording_id"] is None
+
+
 def test_delete_document_index_removes_chunks_and_vecs(env):
     db, rag = env
     from sqlmodel import func, select

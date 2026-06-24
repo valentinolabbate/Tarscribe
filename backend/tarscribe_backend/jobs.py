@@ -503,6 +503,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
             topic = s.get(Topic, rec.topic_id)
             topic_name = topic.name if topic else ""
             topic_id = rec.topic_id
+            rec_title = rec.title
             rec_duration = rec.duration_sec
             rec_created = rec.created_at
             tpl_system = tpl.system_prompt
@@ -549,7 +550,14 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
                 _raise_if_canceled(job_id)
             text = "\n".join(notes)
 
-        ctx = L.build_context(rec_duration, rec_created, topic_name, text, speakers)
+        ctx = L.build_context(
+            rec_duration,
+            rec_created,
+            topic_name,
+            text,
+            speakers,
+            recording_title=rec_title,
+        )
         user_prompt = L.render_template(tpl_user, ctx)
         system_prompt = tpl_system or "Du bist ein hilfreicher Assistent."
 
@@ -571,12 +579,15 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
                         system_prompt += (
                             "\n\nDir steht zusätzlicher Kontext aus demselben Themenbereich "
                             "zur Verfügung (Dateien, andere Transkripte und Zusammenfassungen). "
-                            "Nutze ihn, wo er inhaltlich zur Aufnahme passt, um die "
-                            "Zusammenfassung präziser und vollständiger zu machen. Erfinde "
-                            "nichts und übernimm nichts Unpassendes."
+                            "Das aktuelle Transkript bleibt immer die Primärquelle. Nutze den "
+                            "Zusatzkontext nur, wo er inhaltlich eindeutig zur Aufnahme passt, um "
+                            "die Zusammenfassung präziser und vollständiger zu machen. Erfinde "
+                            "nichts, übernimm nichts Unpassendes und lehne die Aufgabe nie wegen "
+                            "abweichendem Zusatzkontext ab."
                         )
                         user_prompt += (
-                            "\n\n--- Zusätzlicher Kontext aus dem Themenbereich ---\n" + block
+                            "\n\n--- Optionaler, nachrangiger Kontext aus dem Themenbereich ---\n"
+                            + block
                         )
                 except Exception:  # noqa: BLE001 - never fail a summary over enrichment
                     traceback.print_exc()

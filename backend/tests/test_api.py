@@ -778,6 +778,73 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
         assert s.get(Job, job_id).status == JobStatus.done
 
 
+def test_meeting_protocol_prompt_treats_topic_as_context(client, monkeypatch):
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.llm as llm
+    from tarscribe_backend.models import (
+        Job,
+        JobPhase,
+        JobStatus,
+        Recording,
+        Summary,
+        SummaryTemplate,
+        Topic,
+        Transcript,
+        Word,
+    )
+    from tarscribe_backend.settings_store import save_prefs
+
+    save_prefs({"summary_use_topic_knowledge": False})
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Euripides")
+        s.add(topic)
+        s.flush()
+        recording = Recording(topic_id=topic.id, title="IGA Strategie", audio_path="/tmp/iga.wav")
+        s.add(recording)
+        s.flush()
+        transcript = Transcript(recording_id=recording.id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        for idx, text in enumerate(
+            "Strategie und Taktik fuer das Treffen mit der IGA Leitung".split()
+        ):
+            s.add(Word(transcript_id=transcript.id, idx=idx, start=idx, end=idx + 0.5, text=text + " "))
+        template = s.exec(
+            select(SummaryTemplate).where(SummaryTemplate.name == "Meeting-Protokoll")
+        ).one()
+        summary = Summary(recording_id=recording.id, template_id=template.id, model="")
+        s.add(summary)
+        job = Job(recording_id=recording.id, phase=JobPhase.summarize, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        recording_id = recording.id
+        template_id = template.id
+        summary_id = summary.id
+        job_id = job.id
+
+    seen: dict[str, list[dict]] = {}
+
+    def fake_stream_chat(messages, *_args, **_kwargs):
+        seen["messages"] = messages
+        return iter(("ok",))
+
+    monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
+    monkeypatch.setattr(llm, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
+
+    jobs._run_summary(recording_id, job_id, template_id, summary_id)
+
+    user_prompt = seen["messages"][1]["content"]
+    assert "Aufnahme «IGA Strategie»" in user_prompt
+    assert "Themenbereich/Ablage: «Euripides»" in user_prompt
+    assert "kein Suchauftrag" in user_prompt
+    assert "für das Thema «Euripides»" not in user_prompt
+
+
 def test_stale_jobs_failed_on_startup(client):
     """Jobs left pending/running by a crashed backend are failed on init."""
     from sqlmodel import Session

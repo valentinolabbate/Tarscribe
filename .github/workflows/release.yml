@@ -17,6 +17,8 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -34,6 +36,54 @@ jobs:
         working-directory: desktop
         run: ./scripts/stage-resources.sh
 
+      - name: Prepare release notes
+        id: release_notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          OBJECT_TYPE="$(git cat-file -t "refs/tags/$TAG" 2>/dev/null || true)"
+
+          if [[ "$OBJECT_TYPE" == "tag" ]]; then
+            git for-each-ref "refs/tags/$TAG" --format='%(contents)' > "$NOTES_FILE"
+          else
+            PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+            {
+              echo "## Änderungen"
+              echo
+              if [[ -n "$PREVIOUS_TAG" ]]; then
+                git log -n 12 --no-merges --pretty=format:'- %s' "${PREVIOUS_TAG}..${TAG}"
+              else
+                git log -n 12 --no-merges --pretty=format:'- %s' "${TAG}"
+              fi
+              echo
+              echo
+              echo "_Automatisch aus den Commits erzeugt. Für präzisere Release Notes einen annotierten Tag verwenden._"
+            } > "$NOTES_FILE"
+          fi
+
+          if ! grep -q '[^[:space:]]' "$NOTES_FILE"; then
+            {
+              echo "## Änderungen"
+              echo
+              echo "- Wartungsrelease mit Stabilitäts- und Detailverbesserungen."
+            } > "$NOTES_FILE"
+          fi
+
+          {
+            echo
+            echo "---"
+            echo "Die App aktualisiert sich selbst über den signierten macOS-Updater."
+          } >> "$NOTES_FILE"
+
+          {
+            echo "body<<__TARSCRIBE_RELEASE_NOTES__"
+            cat "$NOTES_FILE"
+            echo "__TARSCRIBE_RELEASE_NOTES__"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build & publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -44,7 +94,7 @@ jobs:
           projectPath: desktop
           tagName: ${{ github.ref_name }}
           releaseName: "Tarscribe ${{ github.ref_name }}"
-          releaseBody: "Automatisch erstellter Release. Die App aktualisiert sich selbst."
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           args: --target aarch64-apple-darwin

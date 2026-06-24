@@ -122,11 +122,18 @@ def render_template(template_str: str, context: dict[str, str]) -> str:
 
 
 def build_context(
-    duration_sec: float, created_at, topic_name: str, transcript_text: str, speakers: list[str]
+    duration_sec: float,
+    created_at,
+    topic_name: str,
+    transcript_text: str,
+    speakers: list[str],
+    recording_title: str = "",
 ) -> dict:
     dt = created_at or datetime.utcnow()
+    title = (recording_title or "").strip() or "Aufnahme"
     return {
         "transcript": transcript_text,
+        "recording_title": title,
         "speakers": ", ".join(speakers) if speakers else "unbekannt",
         "topic": topic_name or "",
         "duration": _fmt_dur(duration_sec),

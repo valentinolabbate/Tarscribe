@@ -788,12 +788,11 @@ export function RecordingDetail({
               <section className="detail-panel ask-workspace">
                 <div className="detail-panel-head">
                   <div>
-                    <h2>Fragen & Suchen</h2>
-                    <p>Durchsuche nur diese Aufnahme oder frage den konfigurierten Wissens-Chat.</p>
+                    <h2>Chat & Suche</h2>
+                    <p>Stelle Fragen direkt an diese Aufnahme oder finde Belegstellen im Transkript.</p>
                   </div>
                   <ChatIcon width={20} height={20} />
                 </div>
-                <DocumentsPanel topicId={recording.topic_id} recordingId={recording.id} />
                 <ChatPanel
                   embedded
                   topics={topics}
@@ -802,6 +801,7 @@ export function RecordingDetail({
                     if (rec === recording.id) playerRef.current?.seek(start ?? 0);
                   }}
                 />
+                <DocumentsPanel compact topicId={recording.topic_id} recordingId={recording.id} />
               </section>
             )}
 

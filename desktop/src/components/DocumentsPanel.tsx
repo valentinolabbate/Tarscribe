@@ -22,10 +22,13 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
 export function DocumentsPanel({
   topicId,
   recordingId,
+  compact = false,
 }: {
   topicId: number;
   /** When set, documents are attached to this recording instead of the topic. */
   recordingId?: number;
+  /** Compact footer variant for secondary document context inside another workflow. */
+  compact?: boolean;
 }) {
   const { data: docs, isLoading } = useDocuments({ topicId, recordingId });
   const upload = useUploadDocument();
@@ -51,10 +54,10 @@ export function DocumentsPanel({
   const items = docs ?? [];
 
   return (
-    <section className="documents-panel">
+    <section className={`documents-panel${compact ? " compact" : ""}`}>
       <div className="documents-head">
         <div className="documents-title">
-          <DocIcon width={18} height={18} />
+          <DocIcon width={compact ? 16 : 18} height={compact ? 16 : 18} />
           <h3>Dokumente</h3>
           {items.length > 0 && <span className="documents-count">{items.length}</span>}
         </div>
@@ -63,11 +66,13 @@ export function DocumentsPanel({
           onClick={() => fileInput.current?.click()}
           disabled={busy || upload.isPending}
         >
-          <UploadIcon width={16} height={16} /> Hochladen
+          <UploadIcon width={compact ? 14 : 16} height={compact ? 14 : 16} /> Hochladen
         </button>
       </div>
       <p className="documents-hint">
-        PDF, Word, Text oder Markdown – wird durchsuchbar und im Wissens-Chat genutzt.
+        {compact
+          ? "Optionaler Kontext für Suche und Chat in dieser Aufnahme."
+          : "PDF, Word, Text oder Markdown – wird durchsuchbar und im Wissens-Chat genutzt."}
       </p>
 
       <input
@@ -85,6 +90,10 @@ export function DocumentsPanel({
 
       {isLoading ? (
         <div className="documents-empty">Lade…</div>
+      ) : items.length === 0 && compact ? (
+        <div className="documents-empty documents-empty-inline">
+          <span>Noch keine Dokumente angehängt.</span>
+        </div>
       ) : items.length === 0 ? (
         <div className="documents-empty empty-next">
           <strong>Nächster Schritt</strong>

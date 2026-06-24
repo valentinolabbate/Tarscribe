@@ -32,12 +32,18 @@ und das **Status-Item in der Menüleiste** zeigt einen Punkt (●) mit Tooltip
 1. Version erhöhen in **beiden** Dateien:
    - `desktop/src-tauri/tauri.conf.json` → `"version"`
    - `desktop/package.json` → `"version"`
-2. Commit + Tag pushen:
+2. Commit + annotierten Tag mit kurzen Release Notes pushen:
    ```bash
    git commit -am "Release v0.2.0"
-   git tag v0.2.0
-   git push origin main --tags
+   git tag -a v0.2.0 \
+     -m "Kurze Zusammenfassung der wichtigsten Änderungen." \
+     -m "- Verbesserung 1" \
+     -m "- Bugfix 2"
+   git push origin main v0.2.0
    ```
+   Die Tag-Beschreibung wird als GitHub Release Notes übernommen. Falls doch ein
+   Lightweight-Tag ohne Beschreibung gepusht wird, erzeugt der Workflow
+   automatisch eine kurze Commit-Liste als Fallback.
 3. GitHub Actions (`.github/workflows/release.yml`) baut die App auf einem
    Apple-Silicon-Runner, signiert die Update-Artefakte und erstellt automatisch
    einen Release mit `Tarscribe.app.tar.gz`, `.sig`, der `.dmg` **und** `latest.json`.

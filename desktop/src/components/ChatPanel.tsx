@@ -361,10 +361,9 @@ export function ChatPanel({
       .then((c) => {
         const ok = !!c.model;
         setChatAvailable(ok);
-        // Chat needs a model; otherwise force Search. When a model exists, respect
-        // a restored preference and default to Chat only if none was stored.
-        if (!ok) setMode("search");
-        else if (restored.current.mode == null) setMode("chat");
+        // Chat needs a model to send, but the mode itself should stay reachable
+        // so the UI can explain what is missing instead of looking broken.
+        if (ok && restored.current.mode == null) setMode("chat");
       })
       .catch(() => {});
   }, []);
@@ -679,6 +678,12 @@ export function ChatPanel({
   const chatEmptyPrompts = scoped
     ? ["Fasse diese Aufnahme kurz zusammen", "Welche Aufgaben entstanden hier?", "Welche Fragen bleiben offen?"]
     : ["Was waren die wichtigsten Entscheidungen?", "Welche Aufgaben sind offen?", "Was hat sich letzte Woche geändert?"];
+  const panelTitle = scoped ? "Fragen zur Aufnahme" : "Wissens-Chat";
+  const scopeLabel = scoped
+    ? scopeRecording!.title
+    : status
+      ? `${status.chunks} Passagen · ${status.recordings_indexed} Aufnahmen`
+      : "Index wird geladen...";
 
   function SourceAction({ s }: { s: RagSource | RagHit }) {
     if (s.source_type === "document" && s.document_id != null) {
@@ -713,26 +718,18 @@ export function ChatPanel({
 
   return (
     <div
-      className={`chat-panel ${embedded ? "embedded" : ""}`}
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: embedded ? "min(520px, calc(100vh - 405px))" : "100%",
-        gap: 12,
-      }}
+      className={`chat-panel ${embedded ? "embedded" : ""} ${scoped ? "scoped" : "global"}`}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flexWrap: "wrap",
-        }}
-      >
-        {!embedded && <ChatIcon width={18} height={18} />}
-        {!embedded && <strong>Wissens-Chat</strong>}
+      <div className="chat-panel-toolbar">
+        <div className="chat-panel-title">
+          <ChatIcon width={18} height={18} />
+          <div>
+            <strong>{panelTitle}</strong>
+            <span>{scopeLabel}</span>
+          </div>
+        </div>
         {/* Mode toggle */}
-        <div className="seg">
+        <div className="seg chat-mode-toggle">
           <button
             className={mode === "search" ? "seg-btn active" : "seg-btn"}
             onClick={() => setMode("search")}
@@ -740,9 +737,10 @@ export function ChatPanel({
             Suche
           </button>
           <button
-            className={mode === "chat" ? "seg-btn active" : "seg-btn"}
-            onClick={() => chatAvailable && setMode("chat")}
-            disabled={!chatAvailable}
+            className={`${mode === "chat" ? "seg-btn active" : "seg-btn"} ${
+              !chatAvailable ? "unavailable" : ""
+            }`}
+            onClick={() => setMode("chat")}
             title={
               chatAvailable
                 ? ""
@@ -752,13 +750,6 @@ export function ChatPanel({
             Chat
           </button>
         </div>
-        <span style={{ fontSize: 12, color: "var(--text-faint)" }}>
-          {scoped
-            ? "Diese Aufnahme"
-            : status
-              ? `${status.chunks} Passagen · ${status.recordings_indexed} Aufnahmen`
-              : "…"}
-        </span>
         {mode === "chat" && (
           <select
             className="chat-session-select"
@@ -783,7 +774,7 @@ export function ChatPanel({
             ))}
           </select>
         )}
-        <div style={{ flex: 1 }} />
+        <div className="chat-toolbar-spacer" />
         {mode === "chat" && (
           <select
             className="chat-thinking-select"
@@ -930,14 +921,7 @@ export function ChatPanel({
 
       <div
         ref={scrollRef}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: mode === "search" ? 8 : 14,
-          paddingRight: 4,
-        }}
+        className={`chat-scroll ${mode === "search" ? "search-mode" : "chat-mode"}`}
       >
         {/* ── Search mode ─────────────────────────────────────────────── */}
         {mode === "search" && (
@@ -979,25 +963,8 @@ export function ChatPanel({
               </div>
             )}
             {hits?.map((h, idx) => (
-              <div
-                key={h.chunk_id}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  background: "var(--bg-elevated)",
-                  border: "1px solid var(--border)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 6,
-                    fontSize: 11.5,
-                    color: "var(--text-faint)",
-                  }}
-                >
+              <div key={h.chunk_id} className="chat-result-card">
+                <div className="chat-result-meta">
                   <span
                     style={{
                       fontWeight: 600,
@@ -1011,16 +978,7 @@ export function ChatPanel({
                   <div style={{ flex: 1 }} />
                   <SourceAction s={h} />
                 </div>
-                <div
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    color: "var(--text)",
-                    lineHeight: 1.5,
-                    fontSize: 13,
-                  }}
-                >
-                  {h.text}
-                </div>
+                <div className="chat-result-text">{h.text}</div>
               </div>
             ))}
           </>
@@ -1034,7 +992,19 @@ export function ChatPanel({
                 Chat wird geladen...
               </div>
             )}
-            {messages.length === 0 && !sessionLoading && !ragOff && (
+            {!chatAvailable && !sessionLoading && !ragOff && (
+              <div className="chat-config-callout">
+                <ChatIcon width={20} height={20} />
+                <div>
+                  <strong>Kein Chat-Modell konfiguriert</strong>
+                  <span>
+                    Wähle in den Einstellungen unter Zusammenfassung ein
+                    Chat-Modell. Die Suche bleibt ohne LLM nutzbar.
+                  </span>
+                </div>
+              </div>
+            )}
+            {messages.length === 0 && !sessionLoading && !ragOff && chatAvailable && (
               <div
                 className="empty"
                 style={{ margin: "auto", textAlign: "center" }}
@@ -1061,27 +1031,10 @@ export function ChatPanel({
             {messages.map((m, i) => (
               <div
                 key={i}
-                style={{
-                  alignSelf: m.role === "user" ? "flex-end" : "flex-start",
-                  maxWidth: "82%",
-                }}
+                className={`chat-message-row ${m.role}`}
               >
                 <div
-                  className={m.role === "assistant" ? "markdown" : undefined}
-                  style={{
-                    padding: "10px 14px",
-                    borderRadius: 12,
-                    background:
-                      m.role === "user"
-                        ? "var(--accent)"
-                        : "var(--bg-elevated)",
-                    color:
-                      m.role === "user" ? "var(--accent-ink)" : "var(--text)",
-                    border:
-                      m.role === "user" ? "none" : "1px solid var(--border)",
-                    whiteSpace: m.role === "user" ? "pre-wrap" : undefined,
-                    lineHeight: 1.55,
-                  }}
+                  className={`chat-bubble ${m.role === "assistant" ? "markdown" : ""}`}
                 >
                   {m.role === "assistant" ? (
                     m.content ? (
@@ -1111,14 +1064,7 @@ export function ChatPanel({
                   />
                 )}
                 {m.sources && m.sources.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      marginTop: 6,
-                    }}
-                  >
+                  <div className="chat-source-row">
                     {m.sources.map((s) => {
                       const open =
                         openSnippet?.m === i && openSnippet?.s === s.index;
@@ -1153,41 +1099,15 @@ export function ChatPanel({
                   );
                   if (!s) return null;
                   return (
-                    <div
-                      style={{
-                        marginTop: 6,
-                        padding: "10px 12px",
-                        borderRadius: 10,
-                        background: "var(--bg-input)",
-                        border: "1px solid var(--border)",
-                        fontSize: 12.5,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          marginBottom: 6,
-                          color: "var(--text-faint)",
-                          fontSize: 11.5,
-                        }}
-                      >
+                    <div className="chat-source-snippet">
+                      <div className="chat-source-snippet-head">
                         <span>
                           [{s.index}] {sourceMeta(s, !scoped)}
                         </span>
-                        <div style={{ flex: 1 }} />
+                        <div className="chat-toolbar-spacer" />
                         <SourceAction s={s} />
                       </div>
-                      <div
-                        style={{
-                          whiteSpace: "pre-wrap",
-                          color: "var(--text)",
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        {s.text}
-                      </div>
+                      <div className="chat-source-snippet-text">{s.text}</div>
                     </div>
                   );
                 })()}
@@ -1201,7 +1121,7 @@ export function ChatPanel({
         <div style={{ fontSize: 12, color: "var(--danger)" }}>{error}</div>
       )}
 
-      <div style={{ display: "flex", gap: 8 }}>
+      <div className="chat-composer">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -1214,11 +1134,12 @@ export function ChatPanel({
           placeholder={
             mode === "search"
               ? "Suchbegriff oder Frage… (Enter zum Suchen)"
-              : "Frage stellen… (Enter zum Senden, Shift+Enter = Zeilenumbruch)"
+              : chatAvailable
+                ? "Frage stellen… (Enter zum Senden, Shift+Enter = Zeilenumbruch)"
+                : "Erst ein Chat-Modell in den Einstellungen wählen"
           }
           rows={2}
-          disabled={!!ragOff || sessionLoading}
-          style={{ flex: 1, resize: "none", fontFamily: "inherit" }}
+          disabled={!!ragOff || sessionLoading || (mode === "chat" && !chatAvailable)}
         />
         {mode === "chat" && streaming ? (
           <button className="btn" onClick={() => abortRef.current?.abort()}>
@@ -1228,7 +1149,13 @@ export function ChatPanel({
           <button
             className="btn primary"
             onClick={submit}
-            disabled={!input.trim() || !!ragOff || searching || sessionLoading}
+            disabled={
+              !input.trim() ||
+              !!ragOff ||
+              searching ||
+              sessionLoading ||
+              (mode === "chat" && !chatAvailable)
+            }
           >
             {mode === "search" ? "Suchen" : "Senden"}
           </button>

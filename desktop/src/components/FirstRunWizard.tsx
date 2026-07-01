@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { validateHfToken } from "../lib/formValidation";
 import { PERFORMANCE_PROFILES, performanceProfileLabel } from "../lib/performanceProfiles";
-import type { HardwareInfo, PerformanceProfile } from "../lib/types";
+import type { HardwareInfo, PerformanceProfile, SecretStorageStatus } from "../lib/types";
 import { LlmSettings } from "./LlmSettings";
 import { LogoIcon, SpeakerIdIcon } from "./icons";
 
@@ -10,8 +11,10 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
   const [hw, setHw] = useState<HardwareInfo | null>(null);
   const [ffmpeg, setFfmpeg] = useState(true);
   const [token, setToken] = useState("");
+  const [tokenTouched, setTokenTouched] = useState(false);
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState(false);
+  const [secretStorage, setSecretStorage] = useState<SecretStorageStatus | null>(null);
   const [profile, setProfile] = useState<PerformanceProfile>("balanced");
   const [warming, setWarming] = useState(false);
   const [warmDone, setWarmDone] = useState(false);
@@ -22,16 +25,26 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
       setHw(s.hardware);
       setFfmpeg(s.ffmpeg_available);
       setHasToken(s.hf_token_set);
+      setSecretStorage(s.secret_storage);
     });
     api.getSettings().then((s) => setProfile(s.performance_profile)).catch(() => {});
   }, []);
 
-  async function saveToken() {
-    if (!token.trim()) return;
-    const res = await api.setHfToken(token.trim());
-    setHasToken(true);
-    setTokenStatus(res.valid ? `Gültig${res.name ? ` (${res.name})` : ""}` : `Gespeichert (${res.error ?? "nicht verifiziert"})`);
-    setToken("");
+  const tokenError = token.trim() ? validateHfToken(token) : null;
+
+  async function saveToken(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    setTokenTouched(true);
+    if (!token.trim() || tokenError) return;
+    try {
+      const res = await api.setHfToken(token.trim());
+      setHasToken(true);
+      setTokenStatus(`Gültig${res.name ? ` (${res.name})` : ""}`);
+      setToken("");
+    } catch (e) {
+      setHasToken(false);
+      setTokenStatus(`Nicht gespeichert: ${(e as Error).message}`);
+    }
   }
 
   async function warmup() {
@@ -118,6 +131,14 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                 <span className={ffmpeg ? "ok" : "warn"}>●</span>
                 {ffmpeg ? "ffmpeg verfügbar" : "ffmpeg fehlt — bitte installieren (brew install ffmpeg)"}
               </div>
+              <div className="check-row">
+                <span className={secretStorage == null ? "muted" : secretStorage.secure ? "ok" : "warn"}>●</span>
+                {secretStorage == null
+                  ? "Keychain wird geprüft"
+                  : secretStorage.secure
+                    ? "Keychain für Tokens verfügbar"
+                    : "Keychain nicht verfügbar — Tokens können nicht sicher gespeichert werden"}
+              </div>
             </div>
           )}
 
@@ -131,22 +152,38 @@ export function FirstRunWizard({ onDone }: { onDone: () => void }) {
                 Erstelle ihn unter huggingface.co/settings/tokens und akzeptiere die Lizenz von
                 pyannote/speaker-diarization-community-1.
               </p>
+              {secretStorage && !secretStorage.secure && (
+                <div style={{ color: "var(--danger)", fontSize: 12, lineHeight: 1.5, marginBottom: 10 }}>
+                  Die macOS-Keychain ist nicht verfügbar. Tarscribe speichert Tokens deshalb nicht,
+                  bis ein sicherer Secret-Speicher erreichbar ist.
+                </div>
+              )}
               {hasToken ? (
                 <div className="badge ready">✓ Token hinterlegt</div>
               ) : (
-                <div style={{ display: "flex", gap: 6 }}>
-                  <input
-                    type="password"
-                    placeholder="hf_…"
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                    style={{ flex: 1 }}
-                    spellCheck={false}
-                  />
-                  <button className="btn primary" onClick={saveToken} disabled={!token.trim()}>
-                    Speichern
-                  </button>
-                </div>
+                <form onSubmit={saveToken}>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      type="password"
+                      placeholder="hf_…"
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                      onBlur={() => setTokenTouched(true)}
+                      style={{ flex: 1 }}
+                      spellCheck={false}
+                      aria-invalid={tokenTouched && !!tokenError}
+                      aria-describedby={tokenTouched && tokenError ? "first-run-token-error" : undefined}
+                    />
+                    <button className="btn primary" type="submit" disabled={!token.trim() || !!tokenError}>
+                      Speichern
+                    </button>
+                  </div>
+                  {tokenTouched && tokenError && (
+                    <div id="first-run-token-error" className="field-error">
+                      {tokenError}
+                    </div>
+                  )}
+                </form>
               )}
               {tokenStatus && <div className="muted" style={{ marginTop: 8 }}>{tokenStatus}</div>}
             </div>

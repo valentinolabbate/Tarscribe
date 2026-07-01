@@ -18,12 +18,14 @@ import type {
   LiveSession,
   McpDiagnostics,
   McpInfo,
+  McpRegistrationResult,
   ModelStatusPayload,
   RagConfig,
   RagHit,
   RagSource,
   RagStatus,
   Recording,
+  SecretStorageStatus,
   SpeakerStats,
   Summary,
   SummaryEvent,
@@ -33,6 +35,7 @@ import type {
   TopicDocument,
   TopicThread,
 } from "./types";
+import { invoke as tauriInvoke, isTauri as isTauriRuntime, listen as tauriListen } from "./tauri";
 
 export interface SearchFilters {
   topicId?: number | null;
@@ -58,23 +61,32 @@ export interface DiarizeParams {
 
 interface BackendConfig {
   base_url: string;
-  token: string;
+  token?: string;
+}
+
+const WS_SUBPROTOCOL = "tarscribe";
+const WS_AUTH_SUBPROTOCOL_PREFIX = "tarscribe-auth-";
+
+interface ProxyHeader {
+  name: string;
+  value: string;
+}
+
+interface ProxyResponse {
+  status: number;
+  headers: ProxyHeader[];
+  body: number[];
 }
 
 let configPromise: Promise<BackendConfig> | null = null;
 
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 async function resolveConfig(): Promise<BackendConfig> {
-  if (isTauri()) {
-    const { invoke } = await import("@tauri-apps/api/core");
+  if (isTauriRuntime()) {
     // The Rust shell may still be spawning the sidecar; retry briefly.
     let lastErr: unknown;
     for (let i = 0; i < 50; i++) {
       try {
-        return await invoke<BackendConfig>("backend_config");
+        return await tauriInvoke<BackendConfig>("backend_config");
       } catch (e) {
         lastErr = e;
         await new Promise((r) => setTimeout(r, 200));
@@ -92,15 +104,86 @@ export function getConfig(): Promise<BackendConfig> {
   return configPromise;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+function proxyHeaders(headers: Headers): ProxyHeader[] {
+  return [...headers.entries()].map(([name, value]) => ({ name, value }));
+}
+
+function bytesFromBuffer(buffer: ArrayBuffer): number[] {
+  return Array.from(new Uint8Array(buffer));
+}
+
+async function proxyBody(body: BodyInit | null | undefined, headers: Headers): Promise<number[] | null> {
+  if (body == null) return null;
+  if (body instanceof FormData) {
+    const req = new Request("http://tarscribe.local/proxy-body", { method: "POST", body });
+    const contentType = req.headers.get("Content-Type");
+    if (contentType && !headers.has("Content-Type")) headers.set("Content-Type", contentType);
+    return bytesFromBuffer(await req.arrayBuffer());
+  }
+  if (body instanceof URLSearchParams) {
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+    }
+    return bytesFromBuffer(new TextEncoder().encode(body.toString()).buffer);
+  }
+  if (typeof body === "string") {
+    return bytesFromBuffer(new TextEncoder().encode(body).buffer);
+  }
+  if (body instanceof Blob) {
+    if (body.type && !headers.has("Content-Type")) headers.set("Content-Type", body.type);
+    return bytesFromBuffer(await body.arrayBuffer());
+  }
+  if (body instanceof ArrayBuffer) {
+    return bytesFromBuffer(body);
+  }
+  if (ArrayBuffer.isView(body)) {
+    const view = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    return Array.from(view);
+  }
+  throw new Error("Dieser Request-Body kann nicht über den Tauri-Proxy gesendet werden");
+}
+
+async function proxyFetch(path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const body = await proxyBody(init?.body, headers);
+  const res = await tauriInvoke<ProxyResponse>("proxy_request", {
+    method: init?.method ?? "GET",
+    path,
+    headers: proxyHeaders(headers),
+    body,
+  });
+  const responseHeaders = new Headers();
+  for (const header of res.headers) responseHeaders.set(header.name, header.value);
+  const responseBody =
+    res.body.length > 0 && ![204, 205, 304].includes(res.status)
+      ? new Uint8Array(res.body)
+      : null;
+  return new Response(responseBody, { status: res.status, headers: responseHeaders });
+}
+
+async function directFetch(path: string, init?: RequestInit): Promise<Response> {
   const cfg = await getConfig();
   const headers = new Headers(init?.headers);
   if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-  const res = await fetch(`${cfg.base_url}${path}`, { ...init, headers });
+  return fetch(`${cfg.base_url}${path}`, { ...init, headers });
+}
+
+async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
+  return isTauriRuntime() ? proxyFetch(path, init) : directFetch(path, init);
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await backendFetch(path, init);
   if (!res.ok) {
     let detail = res.statusText;
     try {
-      detail = (await res.json()).detail ?? detail;
+      const rawDetail = (await res.json()).detail ?? detail;
+      detail =
+        typeof rawDetail === "string"
+          ? rawDetail
+          : rawDetail?.error
+            ? String(rawDetail.error)
+            : JSON.stringify(rawDetail);
     } catch {
       /* ignore */
     }
@@ -110,12 +193,50 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export function downloadFilenameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].replace(/^"|"$/g, ""));
+    } catch {
+      return encoded[1].replace(/^"|"$/g, "");
+    }
+  }
+  const quoted = /filename="([^"]+)"/i.exec(value);
+  if (quoted) return quoted[1];
+  const plain = /filename=([^;]+)/i.exec(value);
+  return plain ? plain[1].trim().replace(/^"|"$/g, "") : null;
+}
+
+export async function downloadBlob(path: string, filename: string, options?: RequestInit): Promise<void> {
+  const res = await backendFetch(path, options);
+  if (!res.ok) {
+    let detail = res.statusText || "Download fehlgeschlagen";
+    try {
+      const rawDetail = (await res.json()).detail ?? detail;
+      detail = typeof rawDetail === "string" ? rawDetail : JSON.stringify(rawDetail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+  const objectUrl = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = downloadFilenameFromContentDisposition(res.headers.get("Content-Disposition")) ?? filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+}
+
 /** Wait until the backend answers /health, so the UI can show a splash. */
 export async function waitForBackend(timeoutMs = 30000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      await request("/api/system/health");
+      await request("/api/health");
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 300));
@@ -125,7 +246,7 @@ export async function waitForBackend(timeoutMs = 30000): Promise<void> {
 }
 
 export const api = {
-  health: () => request<{ status: string; version: string }>("/api/system/health"),
+  health: () => request<{ status: string }>("/api/health"),
   hardware: () => request<HardwareInfo>("/api/system/hardware"),
   modelStatus: () => request<ModelStatusPayload>("/api/system/models"),
   setupStatus: () =>
@@ -134,6 +255,7 @@ export const api = {
       ffmpeg_available: boolean;
       hf_token_set: boolean;
       llm_configured: boolean;
+      secret_storage: SecretStorageStatus;
       hardware: HardwareInfo;
     }>("/api/system/setup-status"),
   completeSetup: () =>
@@ -235,23 +357,7 @@ export const api = {
   deleteDocument: (id: number) =>
     request<void>(`/api/documents/${id}`, { method: "DELETE" }),
   async openDocument(id: number): Promise<void> {
-    // Fetch with the auth header, then trigger a download (works in Tauri and
-    // the browser dev shell where opening a remote URL directly would 401).
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(`${cfg.base_url}/api/documents/${id}/file`, { headers });
-    if (!res.ok) throw new Error("Dokument konnte nicht geladen werden");
-    const cd = res.headers.get("Content-Disposition");
-    const match = cd ? /filename="?([^"]+)"?/.exec(cd) : null;
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = match ? match[1] : "dokument";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    await downloadBlob(`/api/documents/${id}/file`, "dokument");
   },
 
   transcribe: (id: number, asr?: string) =>
@@ -455,11 +561,9 @@ export const api = {
       signal?: AbortSignal;
     } = {},
   ): Promise<void> {
-    const cfg = await getConfig();
     const headers = new Headers();
     headers.set("Content-Type", "application/json");
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(`${cfg.base_url}/api/rag/chat`, {
+    const res = await backendFetch("/api/rag/chat", {
       method: "POST",
       headers,
       signal: handlers.signal,
@@ -534,27 +638,8 @@ export const api = {
   syncActionItemCalendar: (id: number) =>
     request<ActionItem>(`/api/action-items/${id}/calendar-sync`, { method: "POST" }),
   async downloadActionItemsIcs(topicId?: number | null): Promise<void> {
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
     const qs = topicId != null ? `?topic_id=${topicId}` : "";
-    const res = await fetch(`${cfg.base_url}/api/action-items/export.ics${qs}`, { headers });
-    if (!res.ok) {
-      let detail = "Kalender-Export fehlgeschlagen";
-      try {
-        detail = (await res.json()).detail ?? detail;
-      } catch {
-        /* ignore */
-      }
-      throw new Error(detail);
-    }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "Tarscribe Aufgaben.ics";
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadBlob(`/api/action-items/export.ics${qs}`, "Tarscribe Aufgaben.ics");
   },
 
   generateChapters: (recordingId: number) =>
@@ -567,21 +652,10 @@ export const api = {
   deleteChapters: (recordingId: number) =>
     request<void>(`/api/recordings/${recordingId}/chapters`, { method: "DELETE" }),
   async downloadChapters(id: number, format: "youtube" | "srt", title: string): Promise<void> {
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(
-      `${cfg.base_url}/api/recordings/${id}/chapters/export?format=${format}`,
-      { headers },
+    await downloadBlob(
+      `/api/recordings/${id}/chapters/export?format=${format}`,
+      `${title} Kapitel.${format === "srt" ? "srt" : "txt"}`,
     );
-    if (!res.ok) throw new Error("Kapitel-Export fehlgeschlagen");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title} Kapitel.${format === "srt" ? "srt" : "txt"}`;
-    a.click();
-    URL.revokeObjectURL(url);
   },
 
   getSpeakerStats: (recordingId: number) =>
@@ -617,20 +691,7 @@ export const api = {
   getSummary: (id: number) => request<Summary>(`/api/summaries/${id}`),
   deleteSummary: (id: number) => request<void>(`/api/summaries/${id}`, { method: "DELETE" }),
   async downloadExport(id: number, format: string, title: string): Promise<void> {
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(`${cfg.base_url}/api/recordings/${id}/export?format=${format}`, {
-      headers,
-    });
-    if (!res.ok) throw new Error("Export fehlgeschlagen");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadBlob(`/api/recordings/${id}/export?format=${format}`, `${title}.${format}`);
   },
   getSettings: () => request<AppSettings>("/api/settings"),
   updateSettings: (patch: Partial<Omit<AppSettings, "hf_token_set" | "caldav_password_set">>) =>
@@ -686,14 +747,12 @@ export const api = {
     sampleRate = 16000,
     channels = 1,
   ): Promise<{ accepted: boolean; last_sequence_number: number; received_duration_sec: number }> {
-    const cfg = await getConfig();
     const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
     headers.set("Content-Type", "application/octet-stream");
     headers.set("X-Sequence-Number", String(sequenceNumber));
     headers.set("X-Sample-Rate", String(sampleRate));
     headers.set("X-Channels", String(channels));
-    const res = await fetch(`${cfg.base_url}/api/live-recordings/${sessionId}/chunks`, {
+    const res = await backendFetch(`/api/live-recordings/${sessionId}/chunks`, {
       method: "POST",
       headers,
       body: chunk,
@@ -712,31 +771,42 @@ export const api = {
     onSummary?: (e: SummaryEvent) => void,
     onLive?: (e: LiveEvent) => void,
   ): Promise<() => void> {
+    const LIVE_TYPES = new Set(["live_session", "live_transcript", "live_speakers", "live_finalized", "live_degraded", "live_error"]);
+    const handleMessage = (raw: string) => {
+      try {
+        const data = JSON.parse(raw);
+        if (data?.type === "job") onEvent(data as JobEvent);
+        else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
+        else if (LIVE_TYPES.has(data?.type)) onLive?.(data as LiveEvent);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    if (isTauriRuntime()) {
+      const connectionId = crypto.randomUUID().replace(/-/g, "");
+      const unlisten = await tauriListen<string>(`backend-ws-event-${connectionId}`, handleMessage);
+      await tauriInvoke<string>("backend_ws_connect", { connectionId });
+      return () => {
+        unlisten();
+        void tauriInvoke<void>("backend_ws_disconnect", { connectionId });
+      };
+    }
+
     const cfg = await getConfig();
-    const url =
-      cfg.base_url.replace(/^http/, "ws") +
-      "/ws" +
-      (cfg.token ? `?token=${encodeURIComponent(cfg.token)}` : "");
+    const url = cfg.base_url.replace(/^http/, "ws") + "/ws";
+    const protocols = cfg.token
+      ? [WS_SUBPROTOCOL, `${WS_AUTH_SUBPROTOCOL_PREFIX}${cfg.token}`]
+      : undefined;
     let ws: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
 
-    const LIVE_TYPES = new Set(["live_session", "live_transcript", "live_speakers", "live_finalized", "live_degraded", "live_error"]);
-
     const connect = () => {
       if (closed) return;
-      const socket = new WebSocket(url);
+      const socket = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
       ws = socket;
-      socket.onmessage = (m) => {
-        try {
-          const data = JSON.parse(m.data);
-          if (data?.type === "job") onEvent(data as JobEvent);
-          else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
-          else if (LIVE_TYPES.has(data?.type)) onLive?.(data as LiveEvent);
-        } catch {
-          /* ignore */
-        }
-      };
+      socket.onmessage = (m) => handleMessage(m.data);
       socket.onclose = () => {
         if (ws === socket) ws = null;
         if (!closed) reconnect = setTimeout(connect, 1000);
@@ -754,25 +824,10 @@ export const api = {
     };
   },
   async downloadAudio(id: number, title: string): Promise<void> {
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(`${cfg.base_url}/api/recordings/${id}/audio`, { headers });
-    if (!res.ok) throw new Error("Audio-Export fehlgeschlagen");
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title}.wav`;
-    a.click();
-    URL.revokeObjectURL(url);
+    await downloadBlob(`/api/recordings/${id}/audio`, `${title}.wav`);
   },
   async audioUrl(id: number): Promise<string> {
-    // Fetch with auth header, return an object URL for <audio>/wavesurfer.
-    const cfg = await getConfig();
-    const headers = new Headers();
-    if (cfg.token) headers.set("X-Tarscribe-Token", cfg.token);
-    const res = await fetch(`${cfg.base_url}/api/recordings/${id}/audio`, { headers });
+    const res = await backendFetch(`/api/recordings/${id}/audio`);
     if (!res.ok) throw new Error("Audio konnte nicht geladen werden");
     return URL.createObjectURL(await res.blob());
   },
@@ -780,14 +835,32 @@ export const api = {
   // MCP (agent integration)
   getMcpInfo: () => request<McpInfo>("/api/mcp/info"),
   getMcpDiagnostics: () => request<McpDiagnostics>("/api/mcp/diagnostics"),
-  registerMcp: (targetId: string) =>
-    request<{ registered: boolean; path: string; id: string }>(
-      `/api/mcp/register/${targetId}`,
-      { method: "POST" },
-    ),
-  unregisterMcp: (targetId: string) =>
-    request<{ registered: boolean; removed: boolean; path: string; id: string }>(
-      `/api/mcp/register/${targetId}`,
-      { method: "DELETE" },
-    ),
+  registerMcp: async (targetId: string) => {
+    if (!isTauriRuntime()) {
+      throw new Error("Automatische MCP-Einrichtung ist nur in der Desktop-App verfügbar.");
+    }
+    const result = await tauriInvoke<McpRegistrationResult>("mcp_register_host", { targetId });
+    try {
+      await request<void>("/api/mcp/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "register", target_id: targetId }),
+      });
+    } catch {}
+    return result;
+  },
+  unregisterMcp: async (targetId: string) => {
+    if (!isTauriRuntime()) {
+      throw new Error("MCP-Einträge können nur in der Desktop-App automatisch entfernt werden.");
+    }
+    const result = await tauriInvoke<McpRegistrationResult>("mcp_unregister_host", { targetId });
+    try {
+      await request<void>("/api/mcp/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unregister", target_id: targetId }),
+      });
+    } catch {}
+    return result;
+  },
 };

@@ -16,26 +16,25 @@ from ..audio import AudioError, mix_to_wav, normalize_to_wav, probe_duration
 from ..config import get_settings
 from ..db import get_session
 from ..models import (
-    DiarizationRun,
+    Document,
     Job,
     JobStatus,
-    LiveRecordingSession,
-    ManualEdit,
     Recording,
     RecordingStatus,
-    Segment,
-    SpeakerLabel,
-    Summary,
     Topic,
-    Transcript,
-    Word,
 )
 from ..schemas import RecordingUpdate
-from ..security import require_token
-
-router = APIRouter(
-    prefix="/api/recordings", tags=["recordings"], dependencies=[Depends(require_token)]
+from ..upload_security import (
+    AUDIO_UPLOAD_SUFFIXES,
+    LOCAL_AUDIO_SUFFIXES,
+    UploadPathForbidden,
+    UploadValidationError,
+    display_filename,
+    require_suffix,
+    resolve_allowed_file,
 )
+
+router = APIRouter(prefix="/api/recordings", tags=["recordings"])
 
 
 class LocalRecordingImport(BaseModel):
@@ -113,8 +112,11 @@ async def upload_recording(
     if not session.get(Topic, topic_id):
         raise HTTPException(404, "Themenbereich nicht gefunden")
 
-    # Persist the upload to a temp file, then normalize into the audio dir.
-    suffix = Path(file.filename or "audio").suffix or ".bin"
+    original_filename = display_filename(file.filename, "Aufnahme.wav")
+    try:
+        suffix = require_suffix(original_filename, AUDIO_UPLOAD_SUFFIXES, "Audio")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
@@ -123,7 +125,7 @@ async def upload_recording(
         tmp_path,
         topic_id,
         title,
-        file.filename or "Aufnahme",
+        original_filename,
         session,
     )
 
@@ -137,13 +139,15 @@ def import_local_recording(
         raise HTTPException(404, "Themenbereich nicht gefunden")
 
     settings = get_settings()
-    source = Path(payload.path).resolve()
     try:
-        source.relative_to(settings.native_recordings_dir.resolve())
-    except ValueError as exc:
-        raise HTTPException(403, "Lokale Aufnahmedatei liegt außerhalb des erlaubten Ordners") from exc
-    if not source.is_file():
-        raise HTTPException(404, "Lokale Aufnahmedatei nicht gefunden")
+        source = resolve_allowed_file(payload.path, [settings.native_recordings_dir])
+        require_suffix(source.name, LOCAL_AUDIO_SUFFIXES, "Audio")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except UploadPathForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Lokale Aufnahmedatei nicht gefunden") from exc
     return _persist_recording(source, payload.topic_id, payload.title, source.name, session)
 
 
@@ -159,15 +163,21 @@ async def import_local_mixed_recording(
         raise HTTPException(404, "Themenbereich nicht gefunden")
 
     settings = get_settings()
-    source = Path(path).resolve()
     try:
-        source.relative_to(settings.native_recordings_dir.resolve())
-    except ValueError as exc:
-        raise HTTPException(403, "Lokale Aufnahmedatei liegt außerhalb des erlaubten Ordners") from exc
-    if not source.is_file():
-        raise HTTPException(404, "Lokale Aufnahmedatei nicht gefunden")
+        source = resolve_allowed_file(path, [settings.native_recordings_dir])
+        require_suffix(source.name, LOCAL_AUDIO_SUFFIXES, "Audio")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except UploadPathForbidden as exc:
+        raise HTTPException(403, str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Lokale Aufnahmedatei nicht gefunden") from exc
 
-    suffix = Path(microphone.filename or "microphone").suffix or ".bin"
+    microphone_filename = display_filename(microphone.filename, "microphone.webm")
+    try:
+        suffix = require_suffix(microphone_filename, AUDIO_UPLOAD_SUFFIXES, "Audio")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(microphone.file, tmp)
         microphone_path = Path(tmp.name)
@@ -211,30 +221,6 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         raise HTTPException(409, "Aufnahme wird noch verarbeitet und kann nicht gelöscht werden.")
 
     audio_path = Path(rec.audio_path)
-    transcripts = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).all()
-    for transcript in transcripts:
-        for word in session.exec(select(Word).where(Word.transcript_id == transcript.id)).all():
-            session.delete(word)
-    session.flush()
-    for transcript in transcripts:
-        session.delete(transcript)
-    session.flush()
-
-    runs = session.exec(
-        select(DiarizationRun).where(DiarizationRun.recording_id == recording_id)
-    ).all()
-    for run in runs:
-        for segment in session.exec(select(Segment).where(Segment.run_id == run.id)).all():
-            session.delete(segment)
-    session.flush()
-    for run in runs:
-        session.delete(run)
-    session.flush()
-
-    # RAG chunks reference both summaries and the recording (FKs) — clear them
-    # (incl. the sqlite-vec rows) before deleting those rows.
     from ..db import vec_available
 
     if vec_available():
@@ -242,34 +228,14 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
 
         rag._delete_recording_chunks(session, recording_id)
 
-    from ..models import ActionItem, Chapter, Document
+    from .documents import _stored_paths_for_delete
 
-    for model in (SpeakerLabel, ManualEdit, Summary, ActionItem, Chapter):
-        for row in session.exec(select(model).where(model.recording_id == recording_id)).all():
-            session.delete(row)
-
-    # Documents attached to this recording: their RAG chunks were removed above
-    # with the recording's chunks; now drop the rows and (after commit) the files.
     doc_files: list[Path] = []
     for doc in session.exec(
         select(Document).where(Document.recording_id == recording_id)
     ).all():
-        doc_files.append(Path(doc.file_path))
-        session.delete(doc)
+        doc_files.extend(_stored_paths_for_delete(doc))
 
-    for job in jobs:
-        session.delete(job)
-
-    # Remove any live session that references this recording; without this the
-    # LiveRecordingSession.finalized_recording_id FK (NO ACTION) would block the delete.
-    for live in session.exec(
-        select(LiveRecordingSession).where(
-            LiveRecordingSession.finalized_recording_id == recording_id
-        )
-    ).all():
-        session.delete(live)
-
-    session.flush()
     session.delete(rec)
     session.commit()
     try:

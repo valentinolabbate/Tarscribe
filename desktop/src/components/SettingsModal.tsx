@@ -1,514 +1,65 @@
-import { useEffect, useState } from "react";
-import { useDeleteKnownSpeaker, useKnownSpeakers } from "../hooks/queries";
-import { api } from "../lib/api";
-import { PERFORMANCE_PROFILES } from "../lib/performanceProfiles";
-import { errorMessage, listRecordingDevices, type RecordingDevice } from "../lib/recorder";
-import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../lib/tauri";
-import { CalendarIcon, ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon, TrashIcon } from "./icons";
-import { LlmSettings } from "./LlmSettings";
+import { useState } from "react";
+import { CalendarIcon, ChatIcon, SettingsIcon, SpeakerIdIcon, SummaryIcon } from "./icons";
 import { McpSettings } from "./McpSettings";
 import { RagSettings } from "./RagSettings";
 import { TemplatesModal } from "./TemplatesModal";
-import type { AppSettings, HardwareInfo, LocalModelStatus, ModelStatusPayload, PerformanceProfile } from "../lib/types";
-
-function KnownSpeakers() {
-  const { data: speakers } = useKnownSpeakers();
-  const del = useDeleteKnownSpeaker();
-  return (
-    <div className="field">
-      <label>Bekannte Sprecher (Stimmproben)</label>
-      {speakers && speakers.length > 0 ? (
-        <div className="known-list">
-          {speakers.map((s) => (
-            <div className="known-item" key={s.id}>
-              <span className="topic-dot" style={{ background: s.color }} />
-              <SpeakerIdIcon width={15} height={15} />
-              <span style={{ fontWeight: 550 }}>{s.name}</span>
-              <span className="rec-sub">{s.sample_count} Probe(n)</span>
-              <div style={{ flex: 1 }} />
-              <button className="btn ghost danger" style={{ padding: 4 }} onClick={() => del.mutate(s.id)}>
-                <TrashIcon width={15} height={15} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="rec-sub" style={{ fontSize: 12 }}>
-          Noch keine. In einer Aufnahme bei einem Sprecher auf das Stimmen-Symbol klicken, um eine
-          Stimmprobe zu speichern.
-        </div>
-      )}
-    </div>
-  );
-}
-
-type AsrEngine = "" | "parakeet-mlx" | "mlx-whisper" | "faster-whisper";
-
-const ASR_MODEL_SUGGESTIONS: Array<{
-  engine: Exclude<AsrEngine, "">;
-  label: string;
-  model: string;
-  note: string;
-}> = [
-  {
-    engine: "parakeet-mlx",
-    label: "Parakeet MLX",
-    model: "mlx-community/parakeet-tdt-0.6b-v3",
-    note: "empfohlen auf Apple Silicon",
-  },
-  {
-    engine: "mlx-whisper",
-    label: "MLX Whisper Large v3 Turbo",
-    model: "mlx-community/whisper-large-v3-turbo",
-    note: "Apple-GPU, schneller als volle Large v3",
-  },
-  {
-    engine: "mlx-whisper",
-    label: "MLX Whisper Large v3",
-    model: "mlx-community/whisper-large-v3-mlx",
-    note: "Apple-GPU, volle Large-v3-Qualität",
-  },
-  {
-    engine: "mlx-whisper",
-    label: "MLX Distil Large v3",
-    model: "mlx-community/distil-whisper-large-v3",
-    note: "Apple-GPU, schneller Large-v3-Ableger",
-  },
-  {
-    engine: "faster-whisper",
-    label: "Whisper Small",
-    model: "small",
-    note: "CPU auf Mac, CUDA auf NVIDIA",
-  },
-  {
-    engine: "faster-whisper",
-    label: "Whisper Medium",
-    model: "medium",
-    note: "CPU auf Mac, CUDA auf NVIDIA",
-  },
-  {
-    engine: "faster-whisper",
-    label: "Whisper Large v3",
-    model: "large-v3",
-    note: "CPU auf Mac, CUDA auf NVIDIA",
-  },
-  {
-    engine: "faster-whisper",
-    label: "Distil Large v3",
-    model: "distil-large-v3",
-    note: "CPU auf Mac, CUDA auf NVIDIA",
-  },
-];
-
-const FASTER_WHISPER_ALIASES = new Set([
-  "tiny",
-  "tiny.en",
-  "base",
-  "base.en",
-  "small",
-  "small.en",
-  "medium",
-  "medium.en",
-  "large",
-  "large-v1",
-  "large-v2",
-  "large-v3",
-  "distil-small.en",
-  "distil-medium.en",
-  "distil-large-v2",
-  "distil-large-v3",
-]);
-
-function asrModelPlaceholder(engine: AsrEngine): string {
-  if (engine === "faster-whisper") return "medium, large-v3 oder eigener Modellname";
-  if (engine === "mlx-whisper") return "mlx-community/whisper-large-v3-mlx";
-  return "mlx-community/parakeet-tdt-0.6b-v3";
-}
-
-function asrEngineValue(value: string | null | undefined): AsrEngine {
-  if (value === "parakeet-mlx" || value === "mlx-whisper" || value === "faster-whisper") {
-    return value;
-  }
-  return "";
-}
-
-function normalizeAsrModelForEngine(engine: AsrEngine, model: string | null | undefined): string {
-  const value = (model ?? "").trim();
-  if (!value) return "";
-  const knownSuggestion = ASR_MODEL_SUGGESTIONS.find((suggestion) => suggestion.model === value);
-  if (knownSuggestion && knownSuggestion.engine !== engine) return "";
-  if (!engine && knownSuggestion) return "";
-  if (engine !== "faster-whisper" && FASTER_WHISPER_ALIASES.has(value)) return "";
-  if (engine === "faster-whisper" && value.startsWith("mlx-community/")) return "";
-  if (engine === "parakeet-mlx" && value.startsWith("mlx-community/whisper")) return "";
-  if (engine === "mlx-whisper" && value.startsWith("mlx-community/parakeet")) return "";
-  return value;
-}
-
-const DIARIZATION_MODEL_SUGGESTIONS = [
-  {
-    label: "Community 1",
-    model: "pyannote/speaker-diarization-community-1",
-    note: "aktueller Standard",
-  },
-  {
-    label: "Pyannote 3.1",
-    model: "pyannote/speaker-diarization-3.1",
-    note: "Alternative mit HF-Lizenz",
-  },
-  {
-    label: "Pyannote 3.0",
-    model: "pyannote/speaker-diarization-3.0",
-    note: "ältere Alternative",
-  },
-];
+import { CalendarSettingsTab } from "./settings/CalendarSettingsTab";
+import { GeneralSettingsTab } from "./settings/GeneralSettingsTab";
+import { ModelsSettingsTab } from "./settings/ModelsSettingsTab";
+import { SpeakersSettingsTab } from "./settings/SpeakersSettingsTab";
+import { SummarySettingsTab } from "./settings/SummarySettingsTab";
+import { useSettingsModalState } from "./settings/useSettingsModalState";
 
 type SettingsTab = "general" | "models" | "summaries" | "rag" | "calendar" | "speakers" | "agents";
 
-function findModelStatus(
-  items: LocalModelStatus[] | undefined,
-  kind: LocalModelStatus["kind"],
-  model: string,
-  engine?: string,
-): LocalModelStatus | null {
-  return (
-    items?.find(
-      (item) =>
-        item.kind === kind &&
-        item.model === model &&
-        (engine === undefined || item.engine === engine),
-    ) ?? null
-  );
-}
-
-function activeModelStatus(
-  items: LocalModelStatus[] | undefined,
-  kind: LocalModelStatus["kind"],
-): LocalModelStatus | null {
-  return items?.find((item) => item.kind === kind && item.active) ?? null;
-}
-
-function formatGb(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)).replace(".", ",");
-}
-
-function runtimeMemoryLabel(item: LocalModelStatus | null): string | null {
-  if (item?.runtime_memory_min_gb === undefined || item.runtime_memory_max_gb === undefined) {
-    return null;
-  }
-  const min = item.runtime_memory_min_gb;
-  const max = item.runtime_memory_max_gb;
-  if (Math.abs(max - min) < 0.1) return `ca. ${formatGb(max)} GB RAM`;
-  return `ca. ${formatGb(min)}-${formatGb(max)} GB RAM`;
-}
-
-function modelRuntimeTitle(item: LocalModelStatus): string {
-  if (item.kind === "asr") return "Trans.";
-  if (item.kind === "diarization") return "Diar.";
-  return "Speaker";
-}
-
-function activeRuntimeSummary(
-  items: LocalModelStatus[],
-  memoryGb?: number | null,
-): { total: string; parts: string; budgetLabel?: string; budgetPercent?: number } | null {
-  const activeItems = items.filter(
-    (item) =>
-      item.active &&
-      item.runtime_memory_min_gb !== undefined &&
-      item.runtime_memory_max_gb !== undefined,
-  );
-  if (!activeItems.length) return null;
-
-  const min = activeItems.reduce((sum, item) => sum + (item.runtime_memory_min_gb ?? 0), 0);
-  const max = activeItems.reduce((sum, item) => sum + (item.runtime_memory_max_gb ?? 0), 0);
-  const total =
-    Math.abs(max - min) < 0.1
-      ? `ca. ${formatGb(max)} GB RAM`
-      : `ca. ${formatGb(min)}-${formatGb(max)} GB RAM`;
-  const parts = activeItems
-    .map((item) => `${modelRuntimeTitle(item)} ${runtimeMemoryLabel(item)?.replace("ca. ", "")}`)
-    .join(" · ");
-  const budgetPercent = memoryGb ? Math.min(100, Math.round((max / memoryGb) * 100)) : undefined;
-  const budgetLabel = memoryGb ? `gegen ${formatGb(memoryGb)} GB RAM: ${budgetPercent}%` : undefined;
-  return { total, parts, budgetLabel, budgetPercent };
-}
-
-function ModelStatusBadge({ item, loading }: { item: LocalModelStatus | null; loading?: boolean }) {
-  if (loading && !item) return <span className="model-status-badge neutral">Prüfe…</span>;
-  if (!item) return <span className="model-status-badge neutral">Unbekannt</span>;
-  return (
-    <span className={item.downloaded ? "model-status-badge ready" : "model-status-badge missing"}>
-      {item.downloaded ? "Geladen" : "Fehlt"}
-    </span>
-  );
-}
-
-function ModelStatusCard({
-  title,
-  item,
-  loading,
-}: {
-  title: string;
-  item: LocalModelStatus | null;
-  loading?: boolean;
-}) {
-  return (
-    <div className="model-status-card">
-      <div className="model-status-card-head">
-        <span>{title}</span>
-        <ModelStatusBadge item={item} loading={loading} />
-      </div>
-      <code>{item?.model ?? "Wird ermittelt…"}</code>
-      {runtimeMemoryLabel(item) && (
-        <small className="model-runtime-line">Laufzeit: {runtimeMemoryLabel(item)}</small>
-      )}
-      {item && !item.active && item.kind === "embedding" && (
-        <small className="model-runtime-line">Nicht im aktuellen Profil aktiv.</small>
-      )}
-      {item?.note && <small>{item.note}</small>}
-    </div>
-  );
-}
-
 export function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [token, setToken] = useState("");
-  const [caldavPassword, setCaldavPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
-  const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
-  const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [modelStatus, setModelStatus] = useState<ModelStatusPayload | null>(null);
-  const [modelStatusLoading, setModelStatusLoading] = useState(false);
   const [tab, setTab] = useState<SettingsTab>("general");
-  const { data: knownSpeakers } = useKnownSpeakers();
-
-  async function refreshModelStatus() {
-    setModelStatusLoading(true);
-    try {
-      setModelStatus(await api.modelStatus());
-    } catch {
-      setModelStatus(null);
-    } finally {
-      setModelStatusLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    api.getSettings().then(setSettings);
-    api.hardware().then(setHardware).catch(() => {});
-    refreshModelStatus();
-    listRecordingDevices().then(setRecordingDevices).catch(() => {});
-    getSystemAudioCapability().then(setSystemAudioCapability).catch(() => {});
-  }, []);
-
-  async function refreshRecordingDevices() {
-    try {
-      setRecordingDevices(await listRecordingDevices(true));
-    } catch (e) {
-      setStatus({ ok: false, msg: `Mikrofone konnten nicht geladen werden: ${errorMessage(e)}` });
-    }
-  }
-
-  async function chooseDigestFolder() {
-    if (!settings) return;
-    const dir = await pickFolder();
-    if (!dir) return;
-    setSettings({ ...settings, digest_export_path: dir });
-    api.updateSettings({ digest_export_path: dir });
-  }
-
-  async function saveDictationShortcut(value: string) {
-    const dictation_shortcut = value.trim() || "Alt+Meta+D";
-    setSettings((s) => (s ? { ...s, dictation_shortcut } : s));
-    try {
-      await api.updateSettings({ dictation_shortcut });
-      if (isTauri()) await invoke<string>("set_dictation_shortcut", { accelerator: dictation_shortcut });
-      setStatus({ ok: true, msg: "Diktat-Hotkey gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Diktat-Hotkey ungültig: ${(e as Error).message}` });
-    }
-  }
-
-  async function saveMeetingDetection(next: Pick<AppSettings, "meeting_detection_enabled" | "meeting_detection_apps">) {
-    setSettings((s) => (s ? { ...s, ...next } : s));
-    try {
-      await api.updateSettings(next);
-      if (isTauri()) {
-        await invoke<void>("configure_meeting_detection", {
-          enabled: next.meeting_detection_enabled,
-          apps: next.meeting_detection_apps,
-        });
-      }
-      setStatus({ ok: true, msg: "Meeting-Erkennung gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Meeting-Erkennung konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function savePerformanceProfile(performance_profile: PerformanceProfile) {
-    if (!settings || settings.performance_profile === performance_profile) return;
-    const previous = settings;
-    setSettings({ ...settings, performance_profile });
-    try {
-      await api.updateSettings({ performance_profile });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: "Leistungsstufe gespeichert." });
-    } catch (e) {
-      setSettings(previous);
-      setStatus({ ok: false, msg: `Leistungsstufe konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function saveAsrEngine(asr_override: AsrEngine) {
-    if (!settings) return;
-    const asr_model = normalizeAsrModelForEngine(asr_override, settings.asr_model);
-    setSettings({ ...settings, asr_override, asr_model });
-    try {
-      await api.updateSettings({ asr_override, asr_model });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: "Transkriptions-Engine gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Transkriptions-Engine konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function saveAsrModel(value: string) {
-    if (!settings) return;
-    const asr_model = value.trim();
-    setSettings({ ...settings, asr_model });
-    try {
-      await api.updateSettings({ asr_model });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: asr_model ? "Transkriptions-Modell gespeichert." : "Transkriptions-Modell auf Vorschlag zurückgesetzt." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function applyAsrSuggestion(suggestion: (typeof ASR_MODEL_SUGGESTIONS)[number]) {
-    if (!settings) return;
-    setSettings({ ...settings, asr_override: suggestion.engine, asr_model: suggestion.model });
-    try {
-      await api.updateSettings({ asr_override: suggestion.engine, asr_model: suggestion.model });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: "Transkriptions-Modell gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function saveDiarizationModel(value: string) {
-    if (!settings) return;
-    const diarization_model = value.trim();
-    setSettings({ ...settings, diarization_model });
-    try {
-      await api.updateSettings({ diarization_model });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function applyDiarizationSuggestion(suggestion: (typeof DIARIZATION_MODEL_SUGGESTIONS)[number]) {
-    if (!settings) return;
-    setSettings({ ...settings, diarization_model: suggestion.model });
-    try {
-      await api.updateSettings({ diarization_model: suggestion.model });
-      void refreshModelStatus();
-      setStatus({ ok: true, msg: "Diarisierungs-Modell gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Diarisierungs-Modell konnte nicht gespeichert werden: ${(e as Error).message}` });
-    }
-  }
-
-  async function saveToken() {
-    if (!token.trim()) return;
-    setBusy(true);
-    setStatus(null);
-    try {
-      const res = await api.setHfToken(token.trim());
-      if (res.valid) {
-        setStatus({ ok: true, msg: `Token gültig${res.name ? ` (${res.name})` : ""}` });
-        setToken("");
-        setSettings((s) => (s ? { ...s, hf_token_set: true } : s));
-      } else {
-        setStatus({ ok: false, msg: `Gespeichert, aber nicht verifiziert: ${res.error ?? ""}` });
-        setSettings((s) => (s ? { ...s, hf_token_set: true } : s));
-      }
-    } catch (e) {
-      setStatus({ ok: false, msg: String((e as Error).message) });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function saveCaldav() {
-    if (!settings) return;
-    setBusy(true);
-    setStatus(null);
-    try {
-      await api.updateSettings({ caldav: settings.caldav });
-      if (caldavPassword.trim()) {
-        const res = await api.setCaldavPassword(caldavPassword.trim());
-        setSettings((s) => (s ? { ...s, caldav_password_set: res.caldav_password_set } : s));
-        setCaldavPassword("");
-      }
-      setStatus({ ok: true, msg: "Kalender-Verbindung gespeichert." });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Kalender-Verbindung konnte nicht gespeichert werden: ${(e as Error).message}` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function testCaldav() {
-    if (!settings) return;
-    setBusy(true);
-    setStatus(null);
-    try {
-      const res = await api.testCaldav({
-        url: settings.caldav.url,
-        username: settings.caldav.username,
-        password: caldavPassword.trim() || undefined,
-      });
-      setStatus({
-        ok: res.ok,
-        msg: res.ok
-          ? `Kalender erreichbar${res.status ? ` (HTTP ${res.status})` : ""}.`
-          : `Kalender nicht erreichbar${res.status ? ` (HTTP ${res.status})` : ""}: ${res.error ?? "Unbekannter Fehler"}`,
-      });
-    } catch (e) {
-      setStatus({ ok: false, msg: `Kalender-Test fehlgeschlagen: ${(e as Error).message}` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeCaldavPassword() {
-    setBusy(true);
-    await api.deleteCaldavPassword();
-    setSettings((s) => (s ? { ...s, caldav_password_set: false } : s));
-    setStatus({ ok: true, msg: "Kalender-Passwort entfernt." });
-    setBusy(false);
-  }
-
-  async function removeToken() {
-    setBusy(true);
-    await api.deleteHfToken();
-    setSettings((s) => (s ? { ...s, hf_token_set: false } : s));
-    setStatus(null);
-    setBusy(false);
-  }
+  const state = useSettingsModalState();
+  const {
+    settings,
+    setSettings,
+    token,
+    setToken,
+    caldavPassword,
+    setCaldavPassword,
+    busy,
+    status,
+    setStatus,
+    showTemplates,
+    setShowTemplates,
+    recordingDevices,
+    systemAudioCapability,
+    hardware,
+    modelStatus,
+    modelStatusLoading,
+    selectedAsrEngine,
+    refreshModelStatus,
+    refreshRecordingDevices,
+    chooseDigestFolder,
+    saveDictationShortcut,
+    saveMeetingDetection,
+    savePerformanceProfile,
+    saveAsrEngine,
+    saveAsrModel,
+    applyAsrSuggestion,
+    saveDiarizationModel,
+    applyDiarizationSuggestion,
+    saveToken,
+    removeToken,
+    saveCaldav,
+    testCaldav,
+    removeCaldavPassword,
+  } = state;
 
   const statusEl = status && (
     <div style={{ marginTop: 8, fontSize: 12, color: status.ok ? "var(--ok)" : "var(--danger)" }}>
       {status.msg}
+    </div>
+  );
+  const secretStorageWarning = settings && !settings.secret_storage.secure && (
+    <div style={{ color: "var(--danger)", fontSize: 11.5, lineHeight: 1.5, marginBottom: 10 }}>
+      Die macOS-Keychain ist nicht verfügbar. Tarscribe speichert neue Tokens und Passwörter
+      erst, wenn ein sicherer Secret-Speicher erreichbar ist.
     </div>
   );
 
@@ -557,12 +108,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     },
   ] as const;
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
-  const modelItems = modelStatus?.items ?? [];
-  const activeAsr = activeModelStatus(modelItems, "asr");
-  const activeDiarization = activeModelStatus(modelItems, "diarization");
-  const embeddingModel = findModelStatus(modelItems, "embedding", "speechbrain/spkrec-ecapa-voxceleb");
-  const selectedAsrEngine = asrEngineValue(settings?.asr_override);
-  const runtimeSummary = activeRuntimeSummary(modelItems, hardware?.memory_gb);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -600,591 +145,73 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               <p>{activeTab.description}</p>
             </div>
 
-            {/* ── Allgemein ───────────────────────────────────────────────── */}
             {tab === "general" && settings && (
-              <>
-                <div className="settings-section-title">
-                  <span>Aufnahme</span>
-                  <small>Quelle, Mikrofon und Sprache für neue Aufnahmen.</small>
-                </div>
-                <div className="field">
-                  <label>Aufnahmequelle</label>
-                  <select
-                    value={settings.recording_source}
-                    onChange={(e) => {
-                      const recording_source = e.target.value as AppSettings["recording_source"];
-                      setSettings({ ...settings, recording_source });
-                      api.updateSettings({ recording_source });
-                    }}
-                  >
-                    <option value="microphone">Nur Mikrofon</option>
-                    <option value="system_audio" disabled={!systemAudioCapability?.supported}>
-                      Nur Systemaudio
-                    </option>
-                    <option value="system_audio_and_microphone" disabled={!systemAudioCapability?.supported}>
-                      Systemaudio + Mikrofon
-                    </option>
-                  </select>
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    {systemAudioCapability?.supported
-                      ? `macOS ${systemAudioCapability.current_macos_version}: Systemaudio kann ohne zusätzlich installierte Programme aufgenommen werden.`
-                      : systemAudioCapability?.reason ?? "Prüfe native Systemaudio-Unterstützung…"}
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Standard-Mikrofon</label>
-                  <select
-                    value={settings.recording_device_id}
-                    onChange={(e) => {
-                      const recording_device_id = e.target.value;
-                      setSettings({ ...settings, recording_device_id });
-                      api.updateSettings({ recording_device_id });
-                    }}
-                  >
-                    <option value="">Systemstandard</option>
-                    {recordingDevices.map((device) => (
-                      <option key={device.deviceId} value={device.deviceId}>
-                        {device.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                    <button className="btn" onClick={refreshRecordingDevices}>
-                      Geräte aktualisieren
-                    </button>
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Transkriptions-Sprache</label>
-                  <select
-                    value={settings.language ?? ""}
-                    onChange={(e) => {
-                      const language = e.target.value || null;
-                      setSettings({ ...settings, language });
-                      api.updateSettings({ language });
-                    }}
-                  >
-                    <option value="">Automatisch erkennen</option>
-                    <option value="de">Deutsch</option>
-                    <option value="en">Englisch</option>
-                    <option value="fr">Französisch</option>
-                    <option value="es">Spanisch</option>
-                    <option value="it">Italienisch</option>
-                  </select>
-                </div>
-
-                <div className="settings-section-title">
-                  <span>Automationen</span>
-                  <small>Kurze Wege für Diktat und Meeting-Erkennung.</small>
-                </div>
-                <div className="field">
-                  <label>Diktat-Hotkey</label>
-                  <input
-                    type="text"
-                    value={settings.dictation_shortcut ?? "Alt+Meta+D"}
-                    placeholder="Alt+Meta+D"
-                    onChange={(e) => setSettings({ ...settings, dictation_shortcut: e.target.value })}
-                    onBlur={(e) => saveDictationShortcut(e.target.value)}
-                    spellCheck={false}
-                  />
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Format: <code>Alt+Meta+D</code>, <code>Shift+Meta+N</code> oder <code>Control+Alt+M</code>.
-                    Meta entspricht auf dem Mac der Command-Taste.
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Meeting-Erkennung</label>
-                  <label className="check-row">
-                    <input
-                      type="checkbox"
-                      checked={settings.meeting_detection_enabled}
-                      onChange={(e) =>
-                        saveMeetingDetection({
-                          meeting_detection_enabled: e.target.checked,
-                          meeting_detection_apps: settings.meeting_detection_apps,
-                        })
-                      }
-                    />
-                    <span>Aufnahme anbieten, wenn eine Meeting-App aktiv das Mikrofon nutzt</span>
-                  </label>
-                  <textarea
-                    value={(settings.meeting_detection_apps ?? []).join("\n")}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        meeting_detection_apps: e.target.value
-                          .split("\n")
-                          .map((line) => line.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    onBlur={(e) =>
-                      saveMeetingDetection({
-                        meeting_detection_enabled: settings.meeting_detection_enabled,
-                        meeting_detection_apps: e.target.value
-                          .split("\n")
-                          .map((line) => line.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                    rows={4}
-                    spellCheck={false}
-                  />
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Ein App-Name pro Zeile, z. B. <code>zoom.us</code> oder <code>Microsoft Teams</code>.
-                    Die Aufnahme wird nur vorgeschlagen, wenn die App gerade das Mikrofon nutzt – im
-                    Hintergrund laufende Apps lösen keinen Hinweis mehr aus. Für Browser-Meetings die
-                    Browser-App ergänzen (z. B. <code>Google Chrome</code>).
-                  </div>
-                </div>
-
-                {statusEl}
-              </>
+              <GeneralSettingsTab
+                settings={settings}
+                setSettings={(next) => setSettings(next)}
+                recordingDevices={recordingDevices}
+                systemAudioCapability={systemAudioCapability}
+                statusEl={statusEl}
+                refreshRecordingDevices={refreshRecordingDevices}
+                saveDictationShortcut={saveDictationShortcut}
+                saveMeetingDetection={saveMeetingDetection}
+              />
             )}
 
-            {/* ── Modelle ─────────────────────────────────────────────────── */}
             {tab === "models" && settings && (
-              <>
-                <div className="settings-section-title model-status-title">
-                  <div>
-                    <span>Lokale Modelle</span>
-                    <small>Cache-Status für die aktuell genutzten lokalen Modelle.</small>
-                  </div>
-                  <button className="btn" onClick={refreshModelStatus} disabled={modelStatusLoading}>
-                    {modelStatusLoading ? "Prüfe…" : "Aktualisieren"}
-                  </button>
-                </div>
-                {runtimeSummary && (
-                  <div className="model-runtime-summary">
-                    <div className="model-runtime-copy">
-                      <strong>Aktive Modelle: {runtimeSummary.total}</strong>
-                      <span>{runtimeSummary.parts}</span>
-                    </div>
-                    {runtimeSummary.budgetPercent !== undefined && (
-                      <div
-                        className="model-runtime-budget"
-                        aria-label={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
-                        title={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
-                      >
-                        <span style={{ width: `${runtimeSummary.budgetPercent}%` }} />
-                      </div>
-                    )}
-                    {runtimeSummary.budgetLabel && <small>{runtimeSummary.budgetLabel}</small>}
-                  </div>
-                )}
-                <div className="model-status-grid">
-                  <ModelStatusCard title="Transkription" item={activeAsr} loading={modelStatusLoading} />
-                  <ModelStatusCard title="Diarisierung" item={activeDiarization} loading={modelStatusLoading} />
-                  <ModelStatusCard title="Sprecher-Matching" item={embeddingModel} loading={modelStatusLoading} />
-                </div>
-                <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                  Cache-Ordner: <code>{modelStatus?.models_dir ?? "wird ermittelt"}</code>
-                </div>
-
-                <div className="settings-section-title">
-                  <span>Laufzeitprofil</span>
-                  <small>Speicherverhalten und Rechenmodus, nicht deine Modellwahl.</small>
-                </div>
-                <div className="field">
-                  <label>Leistungsstufe</label>
-                  <div className="settings-info-box">
-                    Die Leistungsstufe ist ein Laufzeitprofil. Sie wählt nur dann Standardmodelle,
-                    wenn unten kein eigenes Modell eingetragen ist, und regelt sonst vor allem
-                    Chunk-Größe, Rechenpräzision und Speaker-Matching auf knappen Geräten.
-                  </div>
-                  <div className="performance-options">
-                    {PERFORMANCE_PROFILES.map((profile) => {
-                      const active = settings.performance_profile === profile.id;
-                      const recommended = hardware?.recommended_profile === profile.id;
-                      return (
-                        <button
-                          key={profile.id}
-                          type="button"
-                          className={active ? "performance-option active" : "performance-option"}
-                          onClick={() => savePerformanceProfile(profile.id)}
-                        >
-                          <span className="performance-option-head">
-                            <strong>{profile.label}</strong>
-                            {recommended && <span className="mini-badge">Empfohlen</span>}
-                          </span>
-                          <span>{profile.detail}</span>
-                          <span className="performance-option-meta">
-                            <span>{profile.asr}</span>
-                            <span>{profile.diarization}</span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    {hardware
-                      ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Hohe Qualität ist für moderne Laptops realistisch; 24 GB RAM sind komfortabel, 16 GB funktionieren bei vielen Workflows ebenfalls.`
-                      : "Prüfe RAM und GPU für die empfohlene Stufe…"}
-                  </div>
-                </div>
-
-                <div className="settings-section-title">
-                  <span>Transkription</span>
-                  <small>Engine auswählen, Modell frei eintragen.</small>
-                </div>
-                <div className="field">
-                  <label>Transkriptions-Modell</label>
-                  <div className="model-row">
-                    <select
-                      value={selectedAsrEngine}
-                      aria-label="Transkriptions-Engine"
-                      onChange={(e) => saveAsrEngine(e.target.value as AsrEngine)}
-                    >
-                      <option value="">Automatisch nach System</option>
-                      <option value="parakeet-mlx">Parakeet MLX</option>
-                      <option value="mlx-whisper">MLX Whisper</option>
-                      <option value="faster-whisper">faster-whisper</option>
-                    </select>
-                    <input
-                      type="text"
-                      list="asr-model-suggestions"
-                      value={settings.asr_model ?? ""}
-                      placeholder={asrModelPlaceholder(selectedAsrEngine)}
-                      onChange={(e) => setSettings({ ...settings, asr_model: e.target.value })}
-                      onBlur={(e) => saveAsrModel(e.target.value)}
-                      spellCheck={false}
-                    />
-                    <datalist id="asr-model-suggestions">
-                      {ASR_MODEL_SUGGESTIONS.map((suggestion) => (
-                        <option key={`${suggestion.engine}:${suggestion.model}`} value={suggestion.model} />
-                      ))}
-                    </datalist>
-                  </div>
-                  <div className="suggestion-chips">
-                    {ASR_MODEL_SUGGESTIONS.filter(
-                      (suggestion) => !selectedAsrEngine || suggestion.engine === selectedAsrEngine,
-                    ).map((suggestion) => {
-                      const item = findModelStatus(modelItems, "asr", suggestion.model, suggestion.engine);
-                      const runtime = runtimeMemoryLabel(item);
-                      return (
-                        <button
-                          key={`${suggestion.engine}:${suggestion.model}`}
-                          type="button"
-                          className="suggestion-chip"
-                          onClick={() => applyAsrSuggestion(suggestion)}
-                        >
-                          <span>{suggestion.label}</span>
-                          <code>{suggestion.model}</code>
-                          <span className="suggestion-chip-foot">
-                            <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
-                            <ModelStatusBadge item={item} loading={modelStatusLoading} />
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {selectedAsrEngine === "faster-whisper" && hardware?.is_apple_silicon && (
-                    <div className="settings-info-box" style={{ marginTop: 8 }}>
-                      faster-whisper läuft auf diesem Mac über CPU. Für Whisper Large v3 auf Apple-GPU
-                      wähle MLX Whisper und den Vorschlag MLX Whisper Large v3.
-                    </div>
-                  )}
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Die Vorschläge füllen das Feld nur aus. MLX Whisper nutzt Apple-GPU/Metal;
-                    die volle Large-v3-Variante braucht mehr RAM als Turbo oder Parakeet.
-                  </div>
-                </div>
-
-                <div className="settings-section-title">
-                  <span>Diarisierung</span>
-                  <small>Sprechertrennung und pyannote-Modell.</small>
-                </div>
-                <div className="field">
-                  <label>Hugging Face Token</label>
-                  {settings.hf_token_set ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        justifyContent: "space-between",
-                      }}
-                    >
-                      <span className="badge ready">✓ Token hinterlegt</span>
-                      <button className="btn ghost danger" onClick={removeToken} disabled={busy}>
-                        Entfernen
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <input
-                        type="password"
-                        placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-                        value={token}
-                        onChange={(e) => setToken(e.target.value)}
-                        spellCheck={false}
-                        autoComplete="off"
-                      />
-                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                        <button className="btn primary" onClick={saveToken} disabled={busy || !token.trim()}>
-                          {busy ? "Prüfe…" : "Speichern & prüfen"}
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
-                    Für viele pyannote-Modelle ist ein Token nötig. Er wird in der OS-Keychain
-                    gespeichert; die Modelllizenz akzeptierst du bei Hugging Face.
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Diarisierungs-Modell</label>
-                  <input
-                    type="text"
-                    list="diarization-model-suggestions"
-                    value={settings.diarization_model}
-                    placeholder="pyannote/speaker-diarization-community-1"
-                    onChange={(e) => setSettings({ ...settings, diarization_model: e.target.value })}
-                    onBlur={(e) => saveDiarizationModel(e.target.value)}
-                    spellCheck={false}
-                  />
-                  <datalist id="diarization-model-suggestions">
-                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
-                      <option key={suggestion.model} value={suggestion.model} />
-                    ))}
-                  </datalist>
-                  <div className="suggestion-chips">
-                    {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => {
-                      const item = findModelStatus(modelItems, "diarization", suggestion.model);
-                      const runtime = runtimeMemoryLabel(item);
-                      return (
-                        <button
-                          key={suggestion.model}
-                          type="button"
-                          className="suggestion-chip"
-                          onClick={() => applyDiarizationSuggestion(suggestion)}
-                        >
-                          <span>{suggestion.label}</span>
-                          <code>{suggestion.model}</code>
-                          <span className="suggestion-chip-foot">
-                            <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
-                            <ModelStatusBadge item={item} loading={modelStatusLoading} />
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
-                    Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder
-                    einen eigenen Modellpfad eintragen.
-                  </div>
-                </div>
-
-                {statusEl}
-              </>
+              <ModelsSettingsTab
+                settings={settings}
+                setSettings={(next) => setSettings(next)}
+                hardware={hardware}
+                modelStatus={modelStatus}
+                modelStatusLoading={modelStatusLoading}
+                token={token}
+                setToken={setToken}
+                busy={busy}
+                secretStorageWarning={secretStorageWarning}
+                selectedAsrEngine={selectedAsrEngine}
+                refreshModelStatus={refreshModelStatus}
+                savePerformanceProfile={savePerformanceProfile}
+                saveAsrEngine={saveAsrEngine}
+                saveAsrModel={saveAsrModel}
+                applyAsrSuggestion={applyAsrSuggestion}
+                saveDiarizationModel={saveDiarizationModel}
+                applyDiarizationSuggestion={applyDiarizationSuggestion}
+                saveToken={saveToken}
+                removeToken={removeToken}
+              />
             )}
 
-            {/* ── Zusammenfassung (LLM) ───────────────────────────────────── */}
-            {tab === "summaries" && (
-              <>
-                <LlmSettings />
-
-                {settings && (
-                  <div className="field">
-                    <label>Themenbereich-Wissen</label>
-                    <label className="check-row">
-                      <input
-                        type="checkbox"
-                        checked={settings.summary_use_topic_knowledge ?? true}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          setSettings({ ...settings, summary_use_topic_knowledge: next });
-                          api.updateSettings({ summary_use_topic_knowledge: next });
-                        }}
-                      />
-                      <span>Relevantes Wissen aus dem Themenbereich in Zusammenfassungen einbeziehen</span>
-                    </label>
-                    <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                      Zieht passende Passagen aus anderen Transkripten, Zusammenfassungen und
-                      hochgeladenen Dateien desselben Themenbereichs hinzu. Benötigt aktiven
-                      Wissens-Chat (RAG).
-                    </div>
-                  </div>
-                )}
-
-                {settings && (
-                  <div className="field">
-                    <label>Wochen-Digest Export-Ordner</label>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="text"
-                        placeholder="/Users/du/Obsidian/Wochen"
-                        value={settings.digest_export_path ?? ""}
-                        onChange={(e) => setSettings({ ...settings, digest_export_path: e.target.value })}
-                        onBlur={(e) => api.updateSettings({ digest_export_path: e.target.value.trim() })}
-                        style={{ flex: 1 }}
-                        spellCheck={false}
-                      />
-                      {isTauri() && (
-                        <button className="btn" onClick={chooseDigestFolder}>
-                          Durchsuchen…
-                        </button>
-                      )}
-                    </div>
-                    <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                      Dorthin schreibt Tarscribe den Wochen-Digest als Markdown, getrennt von den
-                      Themenbereich-Exporten.
-                    </div>
-                  </div>
-                )}
-
-                <div className="field">
-                  <label>Zusammenfassungs-Vorlagen</label>
-                  <button className="btn" onClick={() => setShowTemplates(true)}>
-                    Vorlagen verwalten
-                  </button>
-                </div>
-              </>
+            {tab === "summaries" && settings && (
+              <SummarySettingsTab
+                settings={settings}
+                setSettings={(next) => setSettings(next)}
+                chooseDigestFolder={chooseDigestFolder}
+                onShowTemplates={() => setShowTemplates(true)}
+              />
             )}
 
-            {/* ── Wissens-Chat (RAG) ──────────────────────────────────────── */}
             {tab === "rag" && <RagSettings />}
 
-            {/* ── Kalender (CalDAV) ────────────────────────────────────────── */}
             {tab === "calendar" && settings && (
-              <>
-                <div className="field">
-                  <label>CalDAV-Kalender</label>
-                  <input
-                    type="url"
-                    placeholder="https://cloud.example.com/remote.php/dav/calendars/name/tasks/"
-                    value={settings.caldav.url}
-                    onChange={(e) =>
-                      setSettings({ ...settings, caldav: { ...settings.caldav, url: e.target.value } })
-                    }
-                    spellCheck={false}
-                  />
-                  <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-                    Kalender-Collection-URL, nicht nur die Web-Oberfläche. Nextcloud zeigt sie in den
-                    Kalender-Einstellungen an.
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label>Benutzername</label>
-                  <input
-                    type="text"
-                    value={settings.caldav.username}
-                    onChange={(e) =>
-                      setSettings({ ...settings, caldav: { ...settings.caldav, username: e.target.value } })
-                    }
-                    spellCheck={false}
-                    autoComplete="username"
-                  />
-                </div>
-
-                <div className="field">
-                  <label>App-Passwort</label>
-                  {settings.caldav_password_set && !caldavPassword ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-                      <span className="badge ready">✓ Passwort hinterlegt</span>
-                      <button className="btn ghost danger" onClick={removeCaldavPassword} disabled={busy}>
-                        Entfernen
-                      </button>
-                    </div>
-                  ) : (
-                    <input
-                      type="password"
-                      value={caldavPassword}
-                      onChange={(e) => setCaldavPassword(e.target.value)}
-                      spellCheck={false}
-                      autoComplete="current-password"
-                      placeholder={settings.caldav_password_set ? "Neues Passwort setzen" : "App-Passwort"}
-                    />
-                  )}
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <button className="btn" onClick={testCaldav} disabled={busy || !settings.caldav.url.trim()}>
-                    Verbindung testen
-                  </button>
-                  <button className="btn primary" onClick={saveCaldav} disabled={busy || !settings.caldav.url.trim()}>
-                    Speichern
-                  </button>
-                </div>
-                {statusEl}
-              </>
+              <CalendarSettingsTab
+                settings={settings}
+                setSettings={(next) => setSettings(next)}
+                caldavPassword={caldavPassword}
+                setCaldavPassword={setCaldavPassword}
+                busy={busy}
+                secretStorageWarning={secretStorageWarning}
+                statusEl={statusEl}
+                saveCaldav={saveCaldav}
+                testCaldav={testCaldav}
+                removeCaldavPassword={removeCaldavPassword}
+              />
             )}
 
-            {/* ── Agenten (MCP) ───────────────────────────────────────────── */}
             {tab === "agents" && <McpSettings />}
 
-            {/* ── Sprecher ────────────────────────────────────────────────── */}
-            {tab === "speakers" && (
-              <>
-                <div className="settings-section-title">
-                  <span>Stimmen</span>
-                  <small>Gespeicherte Stimmen und Aufgaben-Zuordnung.</small>
-                </div>
-                <KnownSpeakers />
-
-                {settings && (
-                  <div className="field">
-                    <label>Das bin ich</label>
-                    <select
-                      value={settings.my_speaker_id ?? 0}
-                      onChange={(e) => {
-                        const v = Number(e.target.value);
-                        setSettings({ ...settings, my_speaker_id: v || null });
-                        api.updateSettings({ my_speaker_id: v });
-                      }}
-                    >
-                      <option value={0}>— Nicht festgelegt —</option>
-                      {(knownSpeakers ?? []).map((sp) => (
-                        <option key={sp.id} value={sp.id}>
-                          {sp.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 7, lineHeight: 1.5 }}>
-                      Der Aufgaben-Bereich zeigt standardmäßig nur Aufgaben und Entscheidungen, die
-                      diesem Sprecher zugeordnet sind. In jeder Aufnahme werden weiterhin alle
-                      Aufgaben extrahiert; andere lassen sich gezielt zu „Meine Aufgaben“ hinzufügen.
-                      {(knownSpeakers ?? []).length === 0 &&
-                        " Lege zuerst über „Bekannte Sprecher“ eine Stimme an."}
-                    </div>
-                  </div>
-                )}
-
-                {settings && (
-                  <div className="field">
-                    <label>Speaker-Match-Schwellenwert</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={0.95}
-                        step={0.05}
-                        value={settings.speaker_match_threshold ?? 0.5}
-                        style={{ flex: 1 }}
-                        onChange={(e) => {
-                          const v = Number(e.target.value);
-                          setSettings({ ...settings, speaker_match_threshold: v });
-                        }}
-                        onMouseUp={(e) => {
-                          api.updateSettings({ speaker_match_threshold: Number((e.target as HTMLInputElement).value) });
-                        }}
-                      />
-                      <span className="mono" style={{ width: 34 }}>
-                        {(settings.speaker_match_threshold ?? 0.5).toFixed(2)}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
-                      Wie ähnlich eine Stimme einem bekannten Sprecher sein muss, um als Match zu gelten (0 = immer, 1 = nur exakt).
-                    </div>
-                  </div>
-                )}
-
-              </>
+            {tab === "speakers" && settings && (
+              <SpeakersSettingsTab settings={settings} setSettings={(next) => setSettings(next)} />
             )}
           </div>
         </div>

@@ -85,12 +85,13 @@ export function RecordingList({
     }
   }
 
-  const hasRecordings = recordings && recordings.length > 0;
+  const recordingCount = recordings?.length ?? 0;
+  const hasRecordings = recordingCount > 0;
   const visibleRecordings = recordings?.filter(
     (recording) =>
       !undoDelete.isPending(recording.id) &&
       recording.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-  );
+  ) ?? [];
   const totalDuration = recordings?.reduce((sum, recording) => sum + recording.duration_sec, 0) ?? 0;
 
   return (
@@ -140,7 +141,7 @@ export function RecordingList({
               <div className="page-kicker">Audio-Bibliothek</div>
               <h2>{topic.name}</h2>
               <p>
-                {recordings!.length} {recordings!.length === 1 ? "Aufnahme" : "Aufnahmen"}
+                {recordingCount} {recordingCount === 1 ? "Aufnahme" : "Aufnahmen"}
                 <span>·</span>
                 {fmtDuration(totalDuration)} Gesamtzeit
               </p>
@@ -167,7 +168,7 @@ export function RecordingList({
           </div>
 
           <div className={`rec-list ${dragOver ? "drag-active" : ""}`}>
-            {visibleRecordings!.map((r) => (
+            {visibleRecordings.map((r) => (
               <RecordingRow
                 key={r.id}
                 r={r}
@@ -177,7 +178,7 @@ export function RecordingList({
                 }
               />
             ))}
-            {visibleRecordings!.length === 0 && (
+            {visibleRecordings.length === 0 && (
               <div className="list-empty empty-next">
                 <strong>Keine Aufnahme passt zu deiner Suche.</strong>
                 <span>Setze den Suchfilter zurück oder importiere eine neue Aufnahme in diesen Bereich.</span>

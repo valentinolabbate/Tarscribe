@@ -18,6 +18,11 @@ import {
   systemAudioSampleRate,
 } from "../lib/nativeSystemAudioRecorder";
 import { Recorder, errorMessage, recordingExtension } from "../lib/recorder";
+import {
+  FinalTranscriptionPollingError,
+  failedFinalTranscriptionJob,
+  waitForFinalTranscriptionJob,
+} from "./finalTranscriptionPolling";
 import { useLiveRecording, type LiveRecordingHandle } from "./useLiveRecording";
 import { trackPendingJob } from "./useJobs";
 import type { JobEvent, LiveEvent, Recording } from "../lib/types";
@@ -50,37 +55,13 @@ interface RecordingContextValue {
 }
 
 const RecordingContext = createContext<RecordingContextValue | null>(null);
-const FINAL_TRANSCRIPTION_POLL_MS = 1000;
-
-function isTerminalJob(job: JobEvent): boolean {
-  return job.status === "done" || job.status === "failed" || job.status === "canceled";
-}
-
-async function waitForFinalTranscription(
-  recordingId: number,
-  jobId: number,
-  onUpdate: (job: JobEvent) => void,
-): Promise<JobEvent> {
-  for (;;) {
-    try {
-      const jobs = await api.getJobs(recordingId);
-      const job = jobs.find((candidate) => candidate.job_id === jobId);
-      if (job) {
-        onUpdate(job);
-        if (isTerminalJob(job)) return job;
-      }
-    } catch (e) {
-      console.warn("[recording] final transcription polling failed:", e);
-    }
-    await new Promise((resolve) => setTimeout(resolve, FINAL_TRANSCRIPTION_POLL_MS));
-  }
-}
 
 export function RecordingProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const recorder = useRef<Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null>(null);
   const pcmCapture = useRef<LivePcmCapture | SystemAudioPcmCapture | null>(null);
+  const finalTranscriptionAbort = useRef<AbortController | null>(null);
   const elapsedBase = useRef(0);
   const elapsedStartedAt = useRef<number | null>(null);
   const [state, setState] = useState<RecordingState>("idle");
@@ -114,11 +95,14 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   }, [state, computeElapsed]);
 
   useEffect(() => () => {
+    finalTranscriptionAbort.current?.abort();
     recorder.current?.dispose();
     pcmCapture.current?.stop();
   }, []);
 
   const reset = useCallback(() => {
+    finalTranscriptionAbort.current?.abort();
+    finalTranscriptionAbort.current = null;
     recorder.current = null;
     pcmCapture.current?.stop();
     pcmCapture.current = null;
@@ -272,14 +256,38 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           status: "pending",
           error: null,
         });
-        const finalJob = await waitForFinalTranscription(recording.id, transcriptionJobId, (job) => {
-          setFinalTranscriptionJob({
-            jobId: job.job_id,
-            progress: job.progress,
-            status: job.status,
-            error: job.error,
+        const controller = new AbortController();
+        finalTranscriptionAbort.current?.abort();
+        finalTranscriptionAbort.current = controller;
+        let finalJob: JobEvent;
+        try {
+          finalJob = await waitForFinalTranscriptionJob({
+            recordingId: recording.id,
+            jobId: transcriptionJobId,
+            getJobs: api.getJobs,
+            signal: controller.signal,
+            onPollError: (e) => console.warn("[recording] final transcription polling failed:", e),
+            onUpdate: (job) => {
+              setFinalTranscriptionJob({
+                jobId: job.job_id,
+                progress: job.progress,
+                status: job.status,
+                error: job.error,
+              });
+            },
           });
-        });
+        } catch (e) {
+          if (e instanceof FinalTranscriptionPollingError && e.reason === "aborted") throw e;
+          finalJob = failedFinalTranscriptionJob(recording.id, transcriptionJobId, e);
+          setFinalTranscriptionJob({
+            jobId: finalJob.job_id,
+            progress: finalJob.progress,
+            status: finalJob.status,
+            error: finalJob.error,
+          });
+        } finally {
+          if (finalTranscriptionAbort.current === controller) finalTranscriptionAbort.current = null;
+        }
         await queryClient.invalidateQueries({ queryKey: ["recordings", topicId] });
         await queryClient.invalidateQueries({ queryKey: ["transcript", recording.id] });
         try {
@@ -297,8 +305,10 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       }
       setLastFinishedRecording(recordingToOpen);
     } catch (e) {
-      toast(`Aufnahme fehlgeschlagen: ${errorMessage(e)}`, "error");
-      await liveHandle?.cancel();
+      if (!(e instanceof FinalTranscriptionPollingError && e.reason === "aborted")) {
+        toast(`Aufnahme fehlgeschlagen: ${errorMessage(e)}`, "error");
+        await liveHandle?.cancel();
+      }
     } finally {
       current.dispose();
       reset();

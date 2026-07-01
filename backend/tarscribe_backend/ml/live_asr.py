@@ -9,7 +9,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from ..live_audio import build_wav_window
+from ..audio_utils import build_wav_window
 from .asr.factory import get_backend
 
 # Configurable defaults (plan §10, §4.4).

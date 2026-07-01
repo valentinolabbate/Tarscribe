@@ -8,11 +8,8 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import SummaryTemplate
-from ..security import require_token
 
-router = APIRouter(
-    prefix="/api/templates", tags=["templates"], dependencies=[Depends(require_token)]
-)
+router = APIRouter(prefix="/api/templates", tags=["templates"])
 
 
 class TemplateIn(BaseModel):

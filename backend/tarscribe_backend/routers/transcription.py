@@ -27,12 +27,11 @@ from ..models import (
     Transcript,
     Word,
 )
-from ..security import require_token
 
 router = APIRouter(prefix="/api/recordings", tags=["transcription"])
 
 
-@router.post("/{recording_id}/transcribe", dependencies=[Depends(require_token)])
+@router.post("/{recording_id}/transcribe")
 def transcribe(
     recording_id: int, asr: str | None = None, session: Session = Depends(get_session)
 ) -> dict:
@@ -43,7 +42,7 @@ def transcribe(
     return {"job_id": job_id, "status": "queued"}
 
 
-@router.get("/{recording_id}/transcript", dependencies=[Depends(require_token)])
+@router.get("/{recording_id}/transcript")
 def get_transcript(recording_id: int, session: Session = Depends(get_session)) -> dict:
     transcripts = session.exec(
         select(Transcript)
@@ -111,7 +110,7 @@ def _reenqueue_for_phase(session: Session, recording_id: int, phase: JobPhase) -
     raise HTTPException(400, f"Phase {phase.value} kann nicht wiederholt werden.")
 
 
-@router.post("/{recording_id}/jobs/{job_id}/retry", dependencies=[Depends(require_token)])
+@router.post("/{recording_id}/jobs/{job_id}/retry")
 def retry_job(
     recording_id: int, job_id: int, session: Session = Depends(get_session)
 ) -> dict:
@@ -124,7 +123,7 @@ def retry_job(
     return {"job_id": new_job_id, "phase": job.phase.value, "status": "queued"}
 
 
-@router.get("/{recording_id}/jobs", dependencies=[Depends(require_token)])
+@router.get("/{recording_id}/jobs")
 def list_jobs(recording_id: int, session: Session = Depends(get_session)) -> list[dict]:
     jobs = session.exec(
         select(Job)

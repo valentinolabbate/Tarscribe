@@ -1,3 +1,4 @@
+mod mcp;
 mod menu;
 mod sidecar;
 mod system_audio;
@@ -46,9 +47,10 @@ fn remove_quarantine() {
     if let Ok(exe) = std::env::current_exe() {
         // exe: .../Tarscribe.app/Contents/MacOS/desktop
         if let Some(bundle) = exe
-            .parent()              // MacOS/
-            .and_then(|p| p.parent())  // Contents/
-            .and_then(|p| p.parent())  // Tarscribe.app
+            .parent() // MacOS/
+            .and_then(|p| p.parent()) // Contents/
+            .and_then(|p| p.parent())
+        // Tarscribe.app
         {
             if bundle.extension().is_some_and(|e| e == "app") {
                 let _ = std::process::Command::new("xattr")
@@ -64,13 +66,15 @@ fn remove_quarantine() {
 fn parse_dictation_shortcut(
     accelerator: &str,
 ) -> Result<(tauri_plugin_global_shortcut::Shortcut, String), String> {
-    use tauri_plugin_global_shortcut::{
-        Code, Modifiers, Shortcut,
-    };
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
 
     let mut modifiers = Modifiers::empty();
     let mut key: Option<Code> = None;
-    for part in accelerator.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+    for part in accelerator
+        .split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+    {
         match part.to_ascii_lowercase().as_str() {
             "alt" | "option" | "opt" => modifiers |= Modifiers::ALT,
             "meta" | "cmd" | "command" | "super" => modifiers |= Modifiers::META,
@@ -129,7 +133,11 @@ fn install_global_shortcut_plugin(app: &tauri::AppHandle) -> Result<(), String> 
                 let matches_current = state
                     .current
                     .lock()
-                    .map(|current| current.as_ref().is_some_and(|registered| shortcut == registered))
+                    .map(|current| {
+                        current
+                            .as_ref()
+                            .is_some_and(|registered| shortcut == registered)
+                    })
                     .unwrap_or(false);
                 if matches_current && event.state() == ShortcutState::Pressed {
                     if let Some(window) = app.get_webview_window("main") {
@@ -147,7 +155,10 @@ fn install_global_shortcut_plugin(app: &tauri::AppHandle) -> Result<(), String> 
 }
 
 #[cfg(desktop)]
-fn register_dictation_shortcut(app: &tauri::AppHandle, accelerator: &str) -> Result<String, String> {
+fn register_dictation_shortcut(
+    app: &tauri::AppHandle,
+    accelerator: &str,
+) -> Result<String, String> {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let state = app.state::<DictationShortcutState>();
@@ -196,11 +207,19 @@ fn start_meeting_detection_loop(app: tauri::AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(5));
         let state = app.state::<MeetingDetectionState>();
-        let enabled = state.enabled.lock().map(|enabled| *enabled).unwrap_or(false);
+        let enabled = state
+            .enabled
+            .lock()
+            .map(|enabled| *enabled)
+            .unwrap_or(false);
         if !enabled {
             continue;
         }
-        let apps = state.apps.lock().map(|apps| apps.clone()).unwrap_or_default();
+        let apps = state
+            .apps
+            .lock()
+            .map(|apps| apps.clone())
+            .unwrap_or_default();
         let Some(app_name) = detected_meeting_app(&apps) else {
             continue;
         };
@@ -269,6 +288,9 @@ pub fn run() {
         .manage(MeetingDetectionState::default())
         .invoke_handler(tauri::generate_handler![
             sidecar::backend_config,
+            sidecar::proxy_request,
+            sidecar::backend_ws_connect,
+            sidecar::backend_ws_disconnect,
             sidecar::is_env_ready,
             sidecar::is_backend_ready,
             sidecar::setup_environment,
@@ -276,6 +298,8 @@ pub fn run() {
             configure_meeting_detection,
             menu::set_update_badge,
             menu::set_tray_recording_state,
+            mcp::mcp_register_host,
+            mcp::mcp_unregister_host,
             system_audio::system_audio_capability,
             system_audio::start_system_audio_recording,
             system_audio::pause_system_audio_recording,
@@ -327,14 +351,12 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| {
-            match event {
-                RunEvent::Reopen { .. } => menu::show_main_window(app_handle),
-                RunEvent::Exit => {
-                    system_audio::stop_if_recording();
-                    sidecar::stop(app_handle);
-                }
-                _ => {}
+        .run(|app_handle, event| match event {
+            RunEvent::Reopen { .. } => menu::show_main_window(app_handle),
+            RunEvent::Exit => {
+                system_audio::stop_if_recording();
+                sidecar::stop(app_handle);
             }
+            _ => {}
         });
 }

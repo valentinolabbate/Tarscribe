@@ -6,15 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from pathlib import Path
-
 from ..calendar_sync import CALENDAR_MODES, sync_topic_action_items
 from ..db import get_session, vec_available
 from ..models import DiarizationRun, Document, Recording, Topic, Transcript
 from ..schemas import TopicCreate, TopicOverview, TopicReorder, TopicUpdate
-from ..security import require_token
 
-router = APIRouter(prefix="/api/topics", tags=["topics"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/topics", tags=["topics"])
 
 
 @router.get("")
@@ -135,9 +132,9 @@ def delete_topic(topic_id: int, session: Session = Depends(get_session)) -> None
             409, "Themenbereich enthält noch Aufnahmen und kann nicht gelöscht werden."
         )
 
-    # Topic-level documents have no recording to fall back to, so they are
-    # removed with the topic (index chunks + stored files).
-    doc_files: list[Path] = []
+    from .documents import _stored_paths_for_delete
+
+    doc_files = []
     docs = session.exec(select(Document).where(Document.topic_id == topic_id)).all()
     if docs and vec_available():
         from .. import rag
@@ -145,8 +142,7 @@ def delete_topic(topic_id: int, session: Session = Depends(get_session)) -> None
         for doc in docs:
             rag._delete_document_chunks(session, doc.id)
     for doc in docs:
-        doc_files.append(Path(doc.file_path))
-        session.delete(doc)
+        doc_files.extend(_stored_paths_for_delete(doc))
 
     session.delete(topic)
     session.commit()

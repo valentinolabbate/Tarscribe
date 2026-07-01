@@ -12,10 +12,15 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..jobs import enqueue_asr
 from ..models import Topic
-from ..security import require_token
+from ..upload_security import (
+    AUDIO_UPLOAD_SUFFIXES,
+    UploadValidationError,
+    display_filename,
+    require_suffix,
+)
 from .recordings import _persist_recording
 
-router = APIRouter(prefix="/api/dictations", tags=["dictations"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/dictations", tags=["dictations"])
 
 INBOX_TOPIC_NAME = "Inbox"
 
@@ -37,7 +42,11 @@ async def create_dictation(
     session: Session = Depends(get_session),
 ) -> dict:
     topic = _get_or_create_inbox_topic(session)
-    suffix = Path(file.filename or "dictation").suffix or ".bin"
+    original_filename = display_filename(file.filename, "Diktat.webm")
+    try:
+        suffix = require_suffix(original_filename, AUDIO_UPLOAD_SUFFIXES, "Audio")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             shutil.copyfileobj(file.file, tmp)
@@ -49,7 +58,7 @@ async def create_dictation(
         tmp_path,
         topic.id,
         title,
-        file.filename or "Diktat",
+        original_filename,
         session,
         kind="dictation",
     )

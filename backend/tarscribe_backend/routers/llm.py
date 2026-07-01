@@ -7,18 +7,12 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from .. import llm as L
+from .. import settings_store
 from ..db import get_session
 from ..jobs import enqueue_summary
 from ..models import Recording, Summary, SummaryTemplate
-from ..security import require_token
-from ..settings_store import (
-    has_llm_api_key,
-    load_prefs,
-    save_prefs,
-    set_llm_api_key,
-)
 
-router = APIRouter(tags=["llm"], dependencies=[Depends(require_token)])
+router = APIRouter(tags=["llm"])
 
 
 class LlmConfigIn(BaseModel):
@@ -41,17 +35,20 @@ class LlmApiKeyIn(BaseModel):
 def get_llm_config() -> dict:
     # The API key itself is a secret and never leaves the keychain; expose only
     # whether one is stored.
-    return {**(load_prefs().get("llm") or {}), "api_key_set": has_llm_api_key()}
+    return {
+        **(settings_store.load_prefs().get("llm") or {}),
+        "api_key_set": settings_store.has_llm_api_key(),
+    }
 
 
 @router.put("/api/llm/config")
 def set_llm_config(payload: LlmConfigIn) -> dict:
-    llm = dict(load_prefs().get("llm") or {})
+    llm = dict(settings_store.load_prefs().get("llm") or {})
     # exclude_unset=True: only touch fields the client explicitly sent
     # (allows sending null to clear a param)
     llm.update(payload.model_dump(exclude_unset=True))
-    save_prefs({"llm": llm})
-    return {**llm, "api_key_set": has_llm_api_key()}
+    settings_store.save_prefs({"llm": llm})
+    return {**llm, "api_key_set": settings_store.has_llm_api_key()}
 
 
 @router.get("/api/llm/models")
@@ -71,7 +68,10 @@ def test(payload: LlmConfigIn) -> dict:
 def set_api_key(payload: LlmApiKeyIn) -> dict:
     """Store the (secret) API key in the keychain and verify it by listing models."""
     key = payload.api_key.strip()
-    set_llm_api_key(key or None)
+    try:
+        settings_store.set_llm_api_key(key or None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     if not key:
         return {"saved": True, "api_key_set": False}
     try:
@@ -84,7 +84,10 @@ def set_api_key(payload: LlmApiKeyIn) -> dict:
 
 @router.delete("/api/llm/api-key")
 def delete_api_key() -> dict:
-    set_llm_api_key(None)
+    try:
+        settings_store.set_llm_api_key(None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, "api_key_set": False}
 
 

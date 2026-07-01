@@ -1,4 +1,4 @@
-"""Tests for the bundled MCP server: discovery, client, orchestrator, registration."""
+"""Tests for the bundled MCP server: discovery, client, orchestrator, and status."""
 
 from __future__ import annotations
 
@@ -425,7 +425,7 @@ def test_export_summary_empty_content_raises(tmp_path):
             C.export_summary(c, 3, str(tmp_path / "x.md"))
 
 
-# ── host registration ────────────────────────────────────────────────────────
+# ── host status ──────────────────────────────────────────────────────────────
 def _make_target(tmp_path, fmt: str, name: str) -> mcp_link.HostTarget:
     path = tmp_path / name
     return mcp_link.HostTarget(fmt, fmt, fmt, path, tmp_path)
@@ -443,76 +443,39 @@ def test_launch_command_sets_pythonpath():
     assert (Path(cmd["env"]["PYTHONPATH"]) / "tarscribe_backend").is_dir()
 
 
-def test_register_claude_format_preserves_other_servers(tmp_path):
+def test_is_registered_claude_format_detects_existing_server(tmp_path):
     t = _make_target(tmp_path, "claude", "claude_desktop_config.json")
     t.path.write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
 
     assert mcp_link.is_registered(t) is False
-    assert mcp_link.register(t)["registered"] is True
+    t.path.write_text(
+        json.dumps({"mcpServers": {"other": {"command": "x"}, "tarscribe": {"command": "y"}}})
+    )
     data = json.loads(t.path.read_text())
     assert "other" in data["mcpServers"]
-    assert data["mcpServers"]["tarscribe"]["args"] == ["-m", "tarscribe_backend.mcp_server"]
     assert mcp_link.is_registered(t) is True
 
-    mcp_link.unregister(t)
-    data = json.loads(t.path.read_text())
-    assert "tarscribe" not in data["mcpServers"]
-    assert "other" in data["mcpServers"]
-
-
-def test_register_opencode_format(tmp_path):
+def test_is_registered_opencode_format_detects_existing_server(tmp_path):
     t = _make_target(tmp_path, "opencode", "opencode.json")
-    mcp_link.register(t)
-    data = json.loads(t.path.read_text())
-    entry = data["mcp"]["tarscribe"]
-    assert entry["type"] == "local"
-    assert entry["command"][1:] == ["-m", "tarscribe_backend.mcp_server"]
-    assert entry["enabled"] is True
-    assert data["$schema"].startswith("https://opencode.ai")
+    t.path.write_text(json.dumps({"mcp": {"tarscribe": {"type": "local"}}}))
     assert mcp_link.is_registered(t) is True
 
 
-def test_register_hermes_yaml_format(tmp_path):
+def test_is_registered_hermes_yaml_format_detects_existing_server(tmp_path):
     import yaml
 
     t = _make_target(tmp_path, "hermes", "config.yaml")
-    t.path.write_text(yaml.safe_dump({"mcp_servers": {"keep": {"command": "y"}}}))
-    mcp_link.register(t)
-    data = yaml.safe_load(t.path.read_text())
-    assert "keep" in data["mcp_servers"]
-    assert data["mcp_servers"]["tarscribe"]["args"] == ["-m", "tarscribe_backend.mcp_server"]
+    t.path.write_text(yaml.safe_dump({"mcp_servers": {"tarscribe": {"command": "y"}}}))
     assert mcp_link.is_registered(t) is True
-    mcp_link.unregister(t)
-    assert "tarscribe" not in yaml.safe_load(t.path.read_text())["mcp_servers"]
 
 
-def test_register_codex_toml_upsert(tmp_path):
+def test_is_registered_codex_toml_detects_existing_server(tmp_path):
     t = _make_target(tmp_path, "codex", "config.toml")
     t.path.write_text('[mcp_servers.other]\ncommand = "z"\nargs = ["a"]\n')
 
     assert mcp_link.is_registered(t) is False
-    mcp_link.register(t)
-    text = t.path.read_text()
-    assert "[mcp_servers.other]" in text  # preserved
-    assert "[mcp_servers.tarscribe]" in text
-    assert "env = { PYTHONPATH = " in text  # inline env table, not a subtable
+    t.path.write_text('[mcp_servers.tarscribe]\ncommand = "x"\n')
     assert mcp_link.is_registered(t) is True
-
-    # idempotent: registering again must not duplicate the block
-    mcp_link.register(t)
-    assert t.path.read_text().count("[mcp_servers.tarscribe]") == 1
-
-    mcp_link.unregister(t)
-    text = t.path.read_text()
-    assert "[mcp_servers.tarscribe]" not in text
-    assert "[mcp_servers.other]" in text
-
-
-def test_register_creates_file_when_absent(tmp_path):
-    t = _make_target(tmp_path / "sub", "claude", "config.json")
-    mcp_link.register(t)
-    assert t.path.exists()
-    assert json.loads(t.path.read_text())["mcpServers"]["tarscribe"]["command"]
 
 
 def test_target_status_shape():

@@ -2,25 +2,16 @@
 
 from __future__ import annotations
 
-import httpx
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
 from typing import Literal
 
-from ..calendar_sync import test_caldav_connection
-from ..security import require_token
-from ..settings_store import (
-    get_caldav_password,
-    get_hf_token,
-    has_caldav_password,
-    has_hf_token,
-    load_prefs,
-    save_prefs,
-    set_caldav_password,
-    set_hf_token,
-)
+import httpx
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
-router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_token)])
+from .. import settings_store
+from ..calendar_sync import test_caldav_connection
+
+router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 class HfTokenIn(BaseModel):
@@ -61,15 +52,25 @@ class PrefsIn(BaseModel):
 
 @router.get("")
 def get_settings_payload() -> dict:
-    prefs = load_prefs()
-    return {**prefs, "hf_token_set": has_hf_token(), "caldav_password_set": has_caldav_password()}
+    prefs = settings_store.load_prefs()
+    return {
+        **prefs,
+        "hf_token_set": settings_store.has_hf_token(),
+        "caldav_password_set": settings_store.has_caldav_password(),
+        "secret_storage": settings_store.secret_storage_status(),
+    }
 
 
 @router.put("")
 def update_settings(payload: PrefsIn) -> dict:
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
-    prefs = save_prefs(patch)
-    return {**prefs, "hf_token_set": has_hf_token(), "caldav_password_set": has_caldav_password()}
+    prefs = settings_store.save_prefs(patch)
+    return {
+        **prefs,
+        "hf_token_set": settings_store.has_hf_token(),
+        "caldav_password_set": settings_store.has_caldav_password(),
+        "secret_storage": settings_store.secret_storage_status(),
+    }
 
 
 def _validate_hf_token(token: str) -> dict:
@@ -90,15 +91,22 @@ def _validate_hf_token(token: str) -> dict:
 
 @router.put("/hf-token")
 def set_token(payload: HfTokenIn) -> dict:
-    result = _validate_hf_token(payload.token.strip())
-    # Store even if validation fails for network reasons, but report status.
-    set_hf_token(payload.token.strip())
+    token = payload.token.strip()
+    if not token:
+        raise HTTPException(400, {"saved": False, "valid": False, "error": "Token darf nicht leer sein"})
+    result = _validate_hf_token(token)
+    if not result.get("valid"):
+        raise HTTPException(400, {"saved": False, **result})
+    try:
+        settings_store.set_hf_token(token)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, **result}
 
 
 @router.post("/hf-token/validate")
 def validate_token() -> dict:
-    token = get_hf_token()
+    token = settings_store.get_hf_token()
     if not token:
         return {"valid": False, "error": "Kein Token hinterlegt"}
     return _validate_hf_token(token)
@@ -106,27 +114,36 @@ def validate_token() -> dict:
 
 @router.delete("/hf-token")
 def delete_token() -> dict:
-    set_hf_token(None)
+    try:
+        settings_store.set_hf_token(None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, "hf_token_set": False}
 
 
 @router.put("/caldav-password")
 def set_caldav_secret(payload: CaldavPasswordIn) -> dict:
-    set_caldav_password(payload.password.strip() or None)
-    return {"saved": True, "caldav_password_set": has_caldav_password()}
+    try:
+        settings_store.set_caldav_password(payload.password.strip() or None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
+    return {"saved": True, "caldav_password_set": settings_store.has_caldav_password()}
 
 
 @router.delete("/caldav-password")
 def delete_caldav_secret() -> dict:
-    set_caldav_password(None)
+    try:
+        settings_store.set_caldav_password(None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, "caldav_password_set": False}
 
 
 @router.post("/caldav/test")
 def test_caldav(payload: CaldavTestIn) -> dict:
-    prefs = load_prefs()
+    prefs = settings_store.load_prefs()
     caldav = prefs.get("caldav") if isinstance(prefs.get("caldav"), dict) else {}
     url = payload.url if payload.url is not None else caldav.get("url", "")
     username = payload.username if payload.username is not None else caldav.get("username", "")
-    password = payload.password if payload.password is not None else get_caldav_password()
+    password = payload.password if payload.password is not None else settings_store.get_caldav_password()
     return test_caldav_connection(url or "", username or "", password)

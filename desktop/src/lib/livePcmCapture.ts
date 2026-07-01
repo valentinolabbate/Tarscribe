@@ -1,96 +1,8 @@
 /**
  * Captures mono PCM16 audio from a MediaStream via AudioWorklet at 16 kHz.
- * Uses an inline blob for the worklet module to work in Tauri's webview.
  */
 
-const WORKLET_CODE = `
-class PcmCaptureProcessor extends AudioWorkletProcessor {
-  constructor(options) {
-    super();
-    this._chunkSamples = (options.processorOptions && options.processorOptions.chunkSamples) || 32000;
-    this._buf = [];
-    this._active = true;
-    // System-audio samples fed from the main thread (already at this context's
-    // sample rate). Kept as a queue of segments with a read offset; the
-    // microphone input drives the clock and these are summed in 1:1.
-    this._sysSegments = [];
-    this._sysOffset = 0;
-    this._sysLength = 0;
-    this._maxSysQueue = sampleRate; // cap the queue at ~1 s to bound latency
-    this.port.onmessage = (e) => {
-      const data = e.data;
-      if (data === 'pause') {
-        this._active = false;
-        this._clearSystem();
-      } else if (data === 'resume') {
-        this._active = true;
-      } else if (data && data.type === 'system') {
-        this._pushSystem(data.samples);
-      }
-    };
-  }
-
-  _clearSystem() {
-    this._sysSegments = [];
-    this._sysOffset = 0;
-    this._sysLength = 0;
-  }
-
-  _pushSystem(samples) {
-    if (!samples || samples.length === 0) return;
-    this._sysSegments.push(samples);
-    this._sysLength += samples.length;
-    // Drop the oldest samples if the consumer (microphone clock) falls behind.
-    while (this._sysLength > this._maxSysQueue && this._sysSegments.length > 0) {
-      const head = this._sysSegments[0];
-      const available = head.length - this._sysOffset;
-      const overflow = this._sysLength - this._maxSysQueue;
-      if (overflow >= available) {
-        this._sysSegments.shift();
-        this._sysOffset = 0;
-        this._sysLength -= available;
-      } else {
-        this._sysOffset += overflow;
-        this._sysLength -= overflow;
-      }
-    }
-  }
-
-  _nextSystem() {
-    if (this._sysLength === 0) return 0;
-    const head = this._sysSegments[0];
-    const value = head[this._sysOffset++];
-    this._sysLength--;
-    if (this._sysOffset >= head.length) {
-      this._sysSegments.shift();
-      this._sysOffset = 0;
-    }
-    return value;
-  }
-
-  process(inputs) {
-    const ch = inputs[0] && inputs[0][0];
-    if (!ch) return true;
-    if (!this._active) return true;
-
-    for (let i = 0; i < ch.length; i++) {
-      const s = ch[i] + this._nextSystem();
-      this._buf.push(Math.max(-1, Math.min(1, s)));
-    }
-
-    while (this._buf.length >= this._chunkSamples) {
-      const slice = this._buf.splice(0, this._chunkSamples);
-      const pcm = new Int16Array(this._chunkSamples);
-      for (let i = 0; i < slice.length; i++) {
-        pcm[i] = Math.round(slice[i] * 32767);
-      }
-      this.port.postMessage({ type: 'chunk', buffer: pcm.buffer }, [pcm.buffer]);
-    }
-    return true;
-  }
-}
-registerProcessor('pcm-capture', PcmCaptureProcessor);
-`;
+const PCM_WORKLET_URL = new URL("/audioWorklet.js", import.meta.url).href;
 
 export interface SystemAudioSource {
   /** Drain system-audio samples buffered since the last poll (mono float). */
@@ -143,13 +55,7 @@ export class LivePcmCapture {
 
     this.audioCtx = new AudioContext({ sampleRate });
 
-    const blob = new Blob([WORKLET_CODE], { type: "application/javascript" });
-    const url = URL.createObjectURL(blob);
-    try {
-      await this.audioCtx.audioWorklet.addModule(url);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    await this.audioCtx.audioWorklet.addModule(PCM_WORKLET_URL);
 
     this.workletNode = new AudioWorkletNode(this.audioCtx, "pcm-capture", {
       processorOptions: { chunkSamples },

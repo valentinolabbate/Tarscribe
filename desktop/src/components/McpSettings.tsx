@@ -24,6 +24,10 @@ export function McpSettings() {
   useEffect(load, []);
 
   async function register(t: McpHostTarget) {
+    const confirmed = window.confirm(
+      `MCP für ${t.label} einrichten?\n\nTarscribe ändert diese Konfigurationsdatei:\n${t.path}`,
+    );
+    if (!confirmed) return;
     setBusy(t.id);
     try {
       await api.registerMcp(t.id);
@@ -37,6 +41,10 @@ export function McpSettings() {
   }
 
   async function unregister(t: McpHostTarget) {
+    const confirmed = window.confirm(
+      `MCP-Eintrag aus ${t.label} entfernen?\n\nTarscribe ändert diese Konfigurationsdatei:\n${t.path}`,
+    );
+    if (!confirmed) return;
     setBusy(t.id);
     try {
       await api.unregisterMcp(t.id);

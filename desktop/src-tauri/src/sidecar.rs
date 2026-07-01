@@ -2,27 +2,59 @@
 //! packaged macOS build, bootstraps its Python environment on first run via a
 //! bundled `uv` (the env lives in the app data dir, built from bundled sources).
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::time::Duration;
 
-use serde::Serialize;
+use futures_util::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::watch;
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::{
+    header::SEC_WEBSOCKET_PROTOCOL, HeaderValue as WsHeaderValue,
+};
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Default)]
 pub struct BackendState {
     pub child: Mutex<Option<Child>>,
     pub config: Mutex<Option<BackendConfig>>,
+    pub ws_connections: Mutex<HashMap<String, watch::Sender<bool>>>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 pub struct BackendConfig {
     pub base_url: String,
     pub token: String,
 }
+
+#[derive(Clone, Serialize)]
+pub struct PublicBackendConfig {
+    pub base_url: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ProxyHeader {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Serialize)]
+pub struct ProxyResponse {
+    pub status: u16,
+    pub headers: Vec<ProxyHeader>,
+    pub body: Vec<u8>,
+}
+
+const WS_SUBPROTOCOL: &str = "tarscribe";
+const WS_AUTH_SUBPROTOCOL_PREFIX: &str = "tarscribe-auth-";
 
 fn find_free_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind free port");
@@ -32,7 +64,9 @@ fn find_free_port() -> u16 {
 // --- locations -------------------------------------------------------------
 
 fn app_data(app: &AppHandle) -> PathBuf {
-    app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("."))
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
 }
 
 fn runtime_venv_python(app: &AppHandle) -> PathBuf {
@@ -69,7 +103,7 @@ fn python_path(backend: &Path) -> OsString {
 }
 
 /// Backend sources: bundled in the .app under resources, or the dev tree.
-fn backend_source(app: &AppHandle) -> Option<PathBuf> {
+pub fn backend_source(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(res) = app.path().resource_dir() {
         for cand in [res.join("backend"), res.join("resources/backend")] {
             if cand.join("pyproject.toml").exists() {
@@ -97,7 +131,7 @@ fn uv_binary(app: &AppHandle) -> PathBuf {
 }
 
 /// Pick the Python interpreter to run the backend with.
-fn resolve_python(app: &AppHandle) -> Option<PathBuf> {
+pub fn resolve_python(app: &AppHandle) -> Option<PathBuf> {
     if let Ok(p) = std::env::var("TARSCRIBE_BACKEND_PYTHON") {
         return Some(PathBuf::from(p));
     }
@@ -130,7 +164,8 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
     let port = find_free_port();
     let token = uuid::Uuid::new_v4().simple().to_string();
     let data_dir = app_data(app);
-    let backend = backend_source(app).ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
+    let backend =
+        backend_source(app).ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
     std::fs::create_dir_all(&data_dir).ok();
     println!("[backend] Quellen: {}", backend.display());
 
@@ -263,8 +298,8 @@ pub async fn setup_environment(app: AppHandle) -> Result<(), String> {
         }
 
         let uv = uv_binary(&app);
-        let backend = backend_source(&app)
-            .ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
+        let backend =
+            backend_source(&app).ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
         let venv = app_data(&app).join("runtime/.venv");
         std::fs::create_dir_all(venv.parent().unwrap()).ok();
 
@@ -289,7 +324,10 @@ pub async fn setup_environment(app: AppHandle) -> Result<(), String> {
         ]);
         run_streaming(&app, pip_cmd, "Installation")?;
         // Stamp the version so later updates can detect when deps need re-syncing.
-        let _ = std::fs::write(deps_stamp_path(&app), app.package_info().version.to_string());
+        let _ = std::fs::write(
+            deps_stamp_path(&app),
+            app.package_info().version.to_string(),
+        );
 
         let _ = app.emit("setup-progress", "Starte Backend…".to_string());
         start_if_ready(&app).map(|_| ())
@@ -300,6 +338,9 @@ pub async fn setup_environment(app: AppHandle) -> Result<(), String> {
 
 pub fn stop(app: &AppHandle) {
     let state = app.state::<BackendState>();
+    for (_, stop) in state.ws_connections.lock().unwrap().drain() {
+        let _ = stop.send(true);
+    }
     let child = state.child.lock().unwrap().take();
     if let Some(mut child) = child {
         let _ = child.kill();
@@ -307,14 +348,228 @@ pub fn stop(app: &AppHandle) {
     }
 }
 
-#[tauri::command]
-pub fn backend_config(state: tauri::State<BackendState>) -> Result<BackendConfig, String> {
+fn current_config(state: &BackendState) -> Result<BackendConfig, String> {
     state
         .config
         .lock()
         .unwrap()
         .clone()
         .ok_or_else(|| "Backend noch nicht bereit".to_string())
+}
+
+fn backend_api_url(config: &BackendConfig, path: &str) -> Result<String, String> {
+    if !path.starts_with("/api/") || path.starts_with("//") || path.contains("://") {
+        return Err("Nur relative /api/-Pfade dürfen über den Backend-Proxy laufen".to_string());
+    }
+    if path.contains('\n') || path.contains('\r') {
+        return Err("Ungültiger Backend-Pfad".to_string());
+    }
+    Ok(format!("{}{}", config.base_url, path))
+}
+
+fn should_forward_request_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "accept" | "content-type" | "x-sequence-number" | "x-sample-rate" | "x-channels"
+    )
+}
+
+fn should_return_response_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "content-disposition" | "content-type" | "etag" | "last-modified"
+    )
+}
+
+#[tauri::command]
+pub fn backend_config(state: tauri::State<BackendState>) -> Result<PublicBackendConfig, String> {
+    let config = current_config(&state)?;
+    Ok(PublicBackendConfig {
+        base_url: config.base_url,
+    })
+}
+
+#[tauri::command]
+pub async fn proxy_request(
+    state: tauri::State<'_, BackendState>,
+    method: String,
+    path: String,
+    headers: Vec<ProxyHeader>,
+    body: Option<Vec<u8>>,
+) -> Result<ProxyResponse, String> {
+    let config = current_config(&state)?;
+    let url = backend_api_url(&config, &path)?;
+    let method = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|_| "Ungültige HTTP-Methode".to_string())?;
+
+    let client = reqwest::Client::new();
+    let mut request = client
+        .request(method, url)
+        .header("X-Tarscribe-Token", config.token);
+
+    for header in headers {
+        if !should_forward_request_header(&header.name) {
+            continue;
+        }
+        request = request.header(header.name, header.value);
+    }
+    if let Some(body) = body {
+        request = request.body(body);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("Backend-Request fehlgeschlagen: {e}"))?;
+    let status = response.status().as_u16();
+    let headers = response
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| {
+            if !should_return_response_header(name.as_str()) {
+                return None;
+            }
+            Some(ProxyHeader {
+                name: name.as_str().to_string(),
+                value: value.to_str().ok()?.to_string(),
+            })
+        })
+        .collect();
+    let body = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Backend-Response konnte nicht gelesen werden: {e}"))?
+        .to_vec();
+
+    Ok(ProxyResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+fn backend_ws_url(config: &BackendConfig) -> String {
+    format!("{}/ws", config.base_url.replacen("http", "ws", 1))
+}
+
+async fn run_backend_ws_proxy(
+    app: AppHandle,
+    config: BackendConfig,
+    connection_id: String,
+    mut stop: watch::Receiver<bool>,
+) {
+    let event_name = format!("backend-ws-event-{connection_id}");
+    loop {
+        if *stop.borrow() {
+            break;
+        }
+
+        let protocols = format!(
+            "{WS_SUBPROTOCOL}, {WS_AUTH_SUBPROTOCOL_PREFIX}{}",
+            config.token
+        );
+        let mut request = match backend_ws_url(&config).into_client_request() {
+            Ok(request) => request,
+            Err(e) => {
+                eprintln!("[backend-ws] Request konnte nicht erstellt werden: {e}");
+                break;
+            }
+        };
+        match WsHeaderValue::from_str(&protocols) {
+            Ok(value) => {
+                request.headers_mut().insert(SEC_WEBSOCKET_PROTOCOL, value);
+            }
+            Err(e) => {
+                eprintln!("[backend-ws] Subprotocol ungültig: {e}");
+                break;
+            }
+        }
+
+        match connect_async(request).await {
+            Ok((socket, _)) => {
+                let (mut write, mut read) = socket.split();
+                let mut ping = tokio::time::interval(Duration::from_secs(20));
+                loop {
+                    tokio::select! {
+                        changed = stop.changed() => {
+                            if changed.is_err() || *stop.borrow() {
+                                let _ = write.send(Message::Close(None)).await;
+                                return;
+                            }
+                        }
+                        _ = ping.tick() => {
+                            if write.send(Message::Text("ping".into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        message = read.next() => {
+                            match message {
+                                Some(Ok(Message::Text(text))) => {
+                                    let _ = app.emit(&event_name, text.to_string());
+                                }
+                                Some(Ok(Message::Binary(bytes))) => {
+                                    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+                                        let _ = app.emit(&event_name, text);
+                                    }
+                                }
+                                Some(Ok(Message::Close(_))) | None => break,
+                                Some(Err(e)) => {
+                                    eprintln!("[backend-ws] Verbindung getrennt: {e}");
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[backend-ws] Verbindung fehlgeschlagen: {e}");
+            }
+        }
+
+        tokio::select! {
+            changed = stop.changed() => {
+                if changed.is_err() || *stop.borrow() {
+                    break;
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+    }
+}
+
+#[tauri::command]
+pub fn backend_ws_connect(
+    app: AppHandle,
+    state: tauri::State<BackendState>,
+    connection_id: String,
+) -> Result<String, String> {
+    let config = current_config(&state)?;
+    let (stop_tx, stop_rx) = watch::channel(false);
+    state
+        .ws_connections
+        .lock()
+        .unwrap()
+        .insert(connection_id.clone(), stop_tx);
+    tauri::async_runtime::spawn(run_backend_ws_proxy(
+        app,
+        config,
+        connection_id.clone(),
+        stop_rx,
+    ));
+    Ok(connection_id)
+}
+
+#[tauri::command]
+pub fn backend_ws_disconnect(
+    state: tauri::State<BackendState>,
+    connection_id: String,
+) -> Result<(), String> {
+    if let Some(stop) = state.ws_connections.lock().unwrap().remove(&connection_id) {
+        let _ = stop.send(true);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

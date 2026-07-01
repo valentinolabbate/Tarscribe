@@ -13,11 +13,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlmodel import Session, select
 
+from ..audio_utils import cleanup_session_dir, validate_and_append_chunk
 from ..config import get_settings
 from ..db import get_session
 from .. import jobs
 from ..live_analysis import get_service
-from ..live_audio import cleanup_session_dir, validate_and_append_chunk
 from ..models import (
     LiveRecordingSession,
     LiveSessionStatus,
@@ -28,14 +28,9 @@ from ..models import (
     Word,
 )
 from ..schemas import LiveSessionCreate, LiveSessionFinish
-from ..security import require_token
 from ..ws import hub
 
-router = APIRouter(
-    prefix="/api/live-recordings",
-    tags=["live-recordings"],
-    dependencies=[Depends(require_token)],
-)
+router = APIRouter(prefix="/api/live-recordings", tags=["live-recordings"])
 
 
 def _utcnow() -> datetime:

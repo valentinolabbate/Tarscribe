@@ -5,6 +5,7 @@ import { fmtDate } from "../lib/format";
 import type { ActionItem, Topic } from "../lib/types";
 import { ActionItemRow, isOverdue } from "./ActionItemsPanel";
 import { TasksIcon } from "./icons";
+import { TasksScoreboard } from "./tasks/TasksScoreboard";
 import { useToast } from "./Toast";
 
 type DoneFilter = "open" | "all" | "done";
@@ -131,24 +132,12 @@ export function TasksPage({
             Frist und Ursprung.
           </p>
         </div>
-        <div className="tasks-scoreboard" aria-label="Aufgabenüberblick">
-          <div className="tasks-score-card primary">
-            <strong>{openCount}</strong>
-            <span>Offen</span>
-          </div>
-          <div className={overdueCount > 0 ? "tasks-score-card urgent" : "tasks-score-card"}>
-            <strong>{overdueCount}</strong>
-            <span>Überfällig</span>
-          </div>
-          <div className="tasks-score-card">
-            <strong>{weekCount}</strong>
-            <span>Diese Woche</span>
-          </div>
-          <div className="tasks-score-card">
-            <strong>{doneCount}</strong>
-            <span>Erledigt</span>
-          </div>
-        </div>
+        <TasksScoreboard
+          openCount={openCount}
+          overdueCount={overdueCount}
+          weekCount={weekCount}
+          doneCount={doneCount}
+        />
       </header>
 
       <section className="tasks-controls" aria-label="Aufgabenfilter">

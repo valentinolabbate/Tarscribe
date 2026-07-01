@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
+import { validateHttpUrl } from "../lib/formValidation";
 import type { RagStatus } from "../lib/types";
 
 const PRESETS: Record<string, string> = {
@@ -25,6 +26,8 @@ export function RagSettings() {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [indexStatus, setIndexStatus] = useState<RagStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const baseUrlError = enabled ? validateHttpUrl(baseUrl, "Embedding-Base-URL") : null;
+  const showBaseUrlError = baseUrl.trim().length > 0 && !!baseUrlError;
 
   useEffect(() => {
     api.getRagConfig().then((c) => {
@@ -44,6 +47,11 @@ export function RagSettings() {
   }
 
   async function loadModels(url = baseUrl) {
+    const urlError = validateHttpUrl(url, "Embedding-Base-URL");
+    if (urlError) {
+      setStatus({ ok: false, msg: urlError });
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
@@ -81,6 +89,12 @@ export function RagSettings() {
   }
 
   async function save(next?: Partial<{ model: string; dimension: number; top_k: number; enabled: boolean }>) {
+    const nextEnabled = next?.enabled ?? enabled;
+    const urlError = nextEnabled ? validateHttpUrl(baseUrl, "Embedding-Base-URL") : null;
+    if (urlError) {
+      setStatus({ ok: false, msg: urlError });
+      return;
+    }
     await api.setRagConfig({
       base_url: baseUrl,
       model: next?.model ?? model,
@@ -109,8 +123,13 @@ export function RagSettings() {
     if (PRESETS[p] !== undefined && PRESETS[p]) setBaseUrl(PRESETS[p]);
   }
 
+  function submitSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void save();
+  }
+
   return (
-    <div className="field">
+    <form className="field" onSubmit={submitSettings}>
       <label>Wissens-Chat (RAG)</label>
       <div className="rec-sub" style={{ fontSize: 12, marginBottom: 8 }}>
         Transkripte und Zusammenfassungen werden eingebettet und durchsuchbar gemacht. Der
@@ -141,31 +160,37 @@ export function RagSettings() {
           ["openai", "OpenAI"],
           ["custom", "Eigener Endpoint"],
         ].map(([v, l]) => (
-          <button key={v} className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
+          <button key={v} type="button" className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
             {l}
           </button>
         ))}
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
         <input
-          type="text"
+          type="url"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          onBlur={() => save()}
           style={{ flex: 1 }}
           spellCheck={false}
+          aria-invalid={showBaseUrlError}
+          aria-describedby={showBaseUrlError ? "rag-base-url-error" : undefined}
         />
-        <button className="btn" disabled={busy} onClick={() => loadModels()}>
+        <button className="btn" type="button" disabled={busy || !!baseUrlError} onClick={() => loadModels()}>
           Modelle laden
         </button>
       </div>
+      {showBaseUrlError && (
+        <div id="rag-base-url-error" className="field-error">
+          {baseUrlError}
+        </div>
+      )}
 
       {KEY_PROVIDERS.has(provider) && (
         <div style={{ marginBottom: 8 }}>
           {apiKeySet && !apiKey ? (
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
               <span className="badge ready">✓ API-Key hinterlegt</span>
-              <button className="btn ghost danger" onClick={removeApiKey} disabled={busy}>
+              <button className="btn ghost danger" type="button" onClick={removeApiKey} disabled={busy}>
                 Entfernen
               </button>
             </div>
@@ -186,7 +211,8 @@ export function RagSettings() {
       {models.length > 0 ? (
         <select
           value={model}
-          onChange={(e) => { setModel(e.target.value); save({ model: e.target.value }); }}
+          onChange={(e) => setModel(e.target.value)}
+          disabled={!!baseUrlError}
           style={{ width: "100%" }}
         >
           <option value="">— Embedding-Modell wählen —</option>
@@ -198,7 +224,6 @@ export function RagSettings() {
           value={model}
           placeholder="Embedding-Modell (z.B. nomic-embed-text)"
           onChange={(e) => setModel(e.target.value)}
-          onBlur={() => save()}
           style={{ width: "100%" }}
           spellCheck={false}
         />
@@ -216,7 +241,6 @@ export function RagSettings() {
             value={dimension}
             style={{ width: 90 }}
             onChange={(e) => setDimension(Number(e.target.value))}
-            onBlur={() => save({ dimension })}
           />
         </div>
         <div className="tuning-hint">
@@ -235,13 +259,15 @@ export function RagSettings() {
             value={topK}
             style={{ width: 90 }}
             onChange={(e) => setTopK(Number(e.target.value))}
-            onBlur={() => save({ top_k: topK })}
           />
         </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
-        <button className="btn primary" disabled={busy || !vecAvailable || !enabled} onClick={reindex}>
+        <button className="btn" type="submit" disabled={busy || !vecAvailable || !!baseUrlError}>
+          Speichern
+        </button>
+        <button className="btn primary" type="button" disabled={busy || !vecAvailable || !enabled || !!baseUrlError} onClick={reindex}>
           Alle Aufnahmen neu indizieren
         </button>
         {indexStatus && (
@@ -256,6 +282,6 @@ export function RagSettings() {
           {status.msg}
         </div>
       )}
-    </div>
+    </form>
   );
 }

@@ -1,4 +1,4 @@
-"""Text extraction for uploaded reference documents (PDF / DOCX / TXT / MD).
+"""Text extraction for uploaded reference documents (PDF / DOCX / TXT / MD / HTML / EPUB).
 
 Extracted plain text is fed into the same RAG pipeline as transcripts and
 summaries (see ``rag.index_document``). Parser libraries are imported lazily so
@@ -8,10 +8,13 @@ the whole backend at import time.
 
 from __future__ import annotations
 
+from html.parser import HTMLParser
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
-# Suffixes we accept on upload. Anything else is rejected with a 415.
-SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown", ".text"}
+from .upload_security import DOCUMENT_UPLOAD_SUFFIXES
+
+SUPPORTED_SUFFIXES = DOCUMENT_UPLOAD_SUFFIXES
 
 
 class DocumentError(Exception):
@@ -63,6 +66,49 @@ def _extract_text_file(path: Path) -> str:
     raise DocumentError("Textdatei-Encoding nicht erkannt.")
 
 
+class _HTMLTextParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+    def text(self) -> str:
+        return "\n".join(self.parts)
+
+
+def _html_to_text(data: str) -> str:
+    parser = _HTMLTextParser()
+    parser.feed(data)
+    return parser.text()
+
+
+def _extract_html_file(path: Path) -> str:
+    return _html_to_text(_extract_text_file(path))
+
+
+def _extract_epub(path: Path) -> str:
+    try:
+        with ZipFile(path) as archive:
+            parts: list[str] = []
+            for name in archive.namelist():
+                lower = name.lower()
+                if lower.endswith((".html", ".htm", ".xhtml")):
+                    raw = archive.read(name)
+                    for encoding in ("utf-8", "utf-16", "latin-1"):
+                        try:
+                            parts.append(_html_to_text(raw.decode(encoding)))
+                            break
+                        except (UnicodeDecodeError, UnicodeError):
+                            continue
+            return "\n\n".join(part for part in parts if part.strip())
+    except (BadZipFile, OSError) as exc:
+        raise DocumentError(f"EPUB konnte nicht gelesen werden: {exc}") from exc
+
+
 def extract_text(path: Path, content_type: str | None = None) -> str:
     """Return the plain-text content of a supported document file.
 
@@ -76,6 +122,10 @@ def extract_text(path: Path, content_type: str | None = None) -> str:
         text = _extract_docx(path)
     elif suffix in {".txt", ".md", ".markdown", ".text"}:
         text = _extract_text_file(path)
+    elif suffix in {".html", ".htm"}:
+        text = _extract_html_file(path)
+    elif suffix == ".epub":
+        text = _extract_epub(path)
     else:
         raise DocumentError(f"Nicht unterstütztes Dateiformat: {suffix or '(keine Endung)'}")
 

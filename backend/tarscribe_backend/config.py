@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     # Storage
     data_dir: Path = _default_data_dir()
+    audit_log_path: Path | None = None
+    audit_log_max_bytes: int = 5_000_000
+    audit_log_backup_count: int = 5
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)

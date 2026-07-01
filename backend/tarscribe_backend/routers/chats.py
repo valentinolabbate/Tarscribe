@@ -11,9 +11,8 @@ from sqlmodel import Session, select
 
 from ..db import get_session
 from ..models import ChatMessage, ChatSession, Recording, Topic
-from ..security import require_token
 
-router = APIRouter(prefix="/api/chats", tags=["chats"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/chats", tags=["chats"])
 
 VALID_SCOPES = {"global", "recording"}
 

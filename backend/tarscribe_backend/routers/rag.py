@@ -12,17 +12,11 @@ from sqlmodel import Session
 
 from .. import llm as L
 from .. import rag as R
+from .. import settings_store
 from ..db import get_session, vec_available
 from ..models import Recording
-from ..security import require_token
-from ..settings_store import (
-    has_rag_api_key,
-    load_prefs,
-    save_prefs,
-    set_rag_api_key,
-)
 
-router = APIRouter(prefix="/api/rag", tags=["rag"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/rag", tags=["rag"])
 
 
 class RagConfigIn(BaseModel):
@@ -79,11 +73,11 @@ SYSTEM_PROMPT = (
 
 @router.get("/config")
 def get_config() -> dict:
-    rag = load_prefs().get("rag") or {}
+    rag = settings_store.load_prefs().get("rag") or {}
     return {
         **rag,
-        "enabled": bool(load_prefs().get("rag_enabled")),
-        "api_key_set": has_rag_api_key(),
+        "enabled": bool(settings_store.load_prefs().get("rag_enabled")),
+        "api_key_set": settings_store.has_rag_api_key(),
         "vec_available": vec_available(),
     }
 
@@ -95,11 +89,11 @@ def set_config(payload: RagConfigIn, session: Session = Depends(get_session)) ->
     if "enabled" in data:
         patch["rag_enabled"] = bool(data.pop("enabled"))
     if data:
-        rag = dict(load_prefs().get("rag") or {})
+        rag = dict(settings_store.load_prefs().get("rag") or {})
         rag.update(data)
         patch["rag"] = rag
     if patch:
-        save_prefs(patch)
+        settings_store.save_prefs(patch)
 
     # If the embedding model or dimension changed, the old vectors are unusable:
     # the index is wiped and re-indexed automatically so it never silently empties.
@@ -137,7 +131,10 @@ def test(payload: RagConfigIn) -> dict:
 @router.put("/api-key")
 def set_api_key(payload: RagApiKeyIn) -> dict:
     key = payload.api_key.strip()
-    set_rag_api_key(key or None)
+    try:
+        settings_store.set_rag_api_key(key or None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     if not key:
         return {"saved": True, "api_key_set": False}
     try:
@@ -149,7 +146,10 @@ def set_api_key(payload: RagApiKeyIn) -> dict:
 
 @router.delete("/api-key")
 def delete_api_key() -> dict:
-    set_rag_api_key(None)
+    try:
+        settings_store.set_rag_api_key(None)
+    except settings_store.SecretStorageUnavailable as exc:
+        raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, "api_key_set": False}
 
 

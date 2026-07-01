@@ -104,7 +104,7 @@ class Transcript(SQLModel, table=True):
     __tablename__ = "transcripts"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     asr_model: str
     language: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
@@ -114,7 +114,7 @@ class Word(SQLModel, table=True):
     __tablename__ = "words"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    transcript_id: int = Field(foreign_key="transcripts.id", index=True)
+    transcript_id: int = Field(foreign_key="transcripts.id", ondelete="CASCADE", index=True)
     idx: int  # ordering within the transcript
     start: float
     end: float
@@ -128,7 +128,7 @@ class DiarizationRun(SQLModel, table=True):
     __tablename__ = "diarization_runs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     model: str
     params_json: str = "{}"  # serialized diarization parameters
     num_speakers: Optional[int] = None
@@ -140,7 +140,7 @@ class Segment(SQLModel, table=True):
     __tablename__ = "speaker_segments"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    run_id: int = Field(foreign_key="diarization_runs.id", index=True)
+    run_id: int = Field(foreign_key="diarization_runs.id", ondelete="CASCADE", index=True)
     start: float
     end: float
     speaker_label: str  # raw label from the pipeline, e.g. "SPEAKER_00"
@@ -152,10 +152,12 @@ class SpeakerLabel(SQLModel, table=True):
     __tablename__ = "speaker_labels"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     original_label: str
     display_name: Optional[str] = None
-    known_speaker_id: Optional[int] = Field(default=None, foreign_key="known_speakers.id")
+    known_speaker_id: Optional[int] = Field(
+        default=None, foreign_key="known_speakers.id", ondelete="SET NULL"
+    )
 
 
 class KnownSpeaker(SQLModel, table=True):
@@ -179,7 +181,7 @@ class ManualEdit(SQLModel, table=True):
     __tablename__ = "manual_edits"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     edit_type: str  # rename | reassign | merge | split | boundary
     payload_json: str = "{}"
     created_at: datetime = Field(default_factory=_utcnow)
@@ -202,7 +204,7 @@ class Summary(SQLModel, table=True):
     __tablename__ = "summaries"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     template_id: Optional[int] = Field(default=None, foreign_key="summary_templates.id")
     model: str
     content: str = ""
@@ -224,9 +226,9 @@ class Document(SQLModel, table=True):
     __tablename__ = "documents"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    topic_id: int = Field(foreign_key="topics.id", index=True)
+    topic_id: int = Field(foreign_key="topics.id", ondelete="CASCADE", index=True)
     recording_id: Optional[int] = Field(
-        default=None, foreign_key="recordings.id", index=True
+        default=None, foreign_key="recordings.id", ondelete="CASCADE", index=True
     )
     title: str
     original_filename: Optional[str] = None
@@ -254,12 +256,14 @@ class RagChunk(SQLModel, table=True):
     # recording_id. Recording-scoped chunks (transcript/summary/recording-document)
     # carry it so recording-filtered retrieval includes them.
     recording_id: Optional[int] = Field(
-        default=None, foreign_key="recordings.id", index=True
+        default=None, foreign_key="recordings.id", ondelete="CASCADE", index=True
     )
     # Denormalized for fast topic-filtered KNN (mirrored into the vec0 table).
     topic_id: int = Field(index=True)
-    summary_id: Optional[int] = Field(default=None, foreign_key="summaries.id")
-    document_id: Optional[int] = Field(default=None, foreign_key="documents.id", index=True)
+    summary_id: Optional[int] = Field(default=None, foreign_key="summaries.id", ondelete="CASCADE")
+    document_id: Optional[int] = Field(
+        default=None, foreign_key="documents.id", ondelete="CASCADE", index=True
+    )
     source_type: str = "transcript"  # transcript | summary | document
     chunk_index: int = 0
     text: str = ""
@@ -280,8 +284,12 @@ class ChatSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     scope: str = Field(index=True)  # global | recording
     title: str = "Neuer Chat"
-    recording_id: Optional[int] = Field(default=None, foreign_key="recordings.id", index=True)
-    topic_id: Optional[int] = Field(default=None, foreign_key="topics.id", index=True)
+    recording_id: Optional[int] = Field(
+        default=None, foreign_key="recordings.id", ondelete="CASCADE", index=True
+    )
+    topic_id: Optional[int] = Field(
+        default=None, foreign_key="topics.id", ondelete="SET NULL", index=True
+    )
     archived: bool = False
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow, index=True)
@@ -293,7 +301,7 @@ class ChatMessage(SQLModel, table=True):
     __tablename__ = "chat_messages"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    session_id: int = Field(foreign_key="chat_sessions.id", index=True)
+    session_id: int = Field(foreign_key="chat_sessions.id", ondelete="CASCADE", index=True)
     role: str
     content: str = ""
     sources_json: Optional[str] = None
@@ -306,7 +314,7 @@ class ActionItem(SQLModel, table=True):
     __tablename__ = "action_items"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     kind: str = "task"  # task | decision
     text: str
     assignee: Optional[str] = None
@@ -331,7 +339,7 @@ class Chapter(SQLModel, table=True):
     __tablename__ = "chapters"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     idx: int = 0
     start: float = 0.0
     end: Optional[float] = None
@@ -356,10 +364,10 @@ class ThreadMention(SQLModel, table=True):
     __tablename__ = "thread_mentions"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    thread_id: int = Field(foreign_key="threads.id", index=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
-    chapter_id: Optional[int] = Field(default=None, foreign_key="chapters.id")
-    chunk_id: Optional[int] = Field(default=None, foreign_key="rag_chunks.id")
+    thread_id: int = Field(foreign_key="threads.id", ondelete="CASCADE", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
+    chapter_id: Optional[int] = Field(default=None, foreign_key="chapters.id", ondelete="SET NULL")
+    chunk_id: Optional[int] = Field(default=None, foreign_key="rag_chunks.id", ondelete="SET NULL")
     start_sec: Optional[float] = None
     text: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
@@ -383,7 +391,7 @@ class Job(SQLModel, table=True):
     __tablename__ = "jobs"
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    recording_id: int = Field(foreign_key="recordings.id", index=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     phase: JobPhase
     progress: float = 0.0  # 0..1
     status: JobStatus = JobStatus.pending
@@ -398,7 +406,7 @@ class LiveRecordingSession(SQLModel, table=True):
     __tablename__ = "live_recording_sessions"
 
     id: str = Field(primary_key=True)  # UUID hex
-    topic_id: int = Field(foreign_key="topics.id", index=True)
+    topic_id: int = Field(foreign_key="topics.id", ondelete="CASCADE", index=True)
     title: str
     status: LiveSessionStatus = LiveSessionStatus.starting
     pcm_path: Optional[str] = None
@@ -409,7 +417,9 @@ class LiveRecordingSession(SQLModel, table=True):
     transcript_snapshot_json: Optional[str] = None
     speaker_snapshot_json: Optional[str] = None
     last_analyzed_sec: float = 0.0
-    finalized_recording_id: Optional[int] = Field(default=None, foreign_key="recordings.id")
+    finalized_recording_id: Optional[int] = Field(
+        default=None, foreign_key="recordings.id", ondelete="CASCADE"
+    )
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

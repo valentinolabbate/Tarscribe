@@ -268,12 +268,16 @@ fn apply_tray(app: &AppHandle, state: &TrayState, rebuild_menu: bool) {
 }
 
 fn tray_menu(app: &AppHandle, meta: &TrayMeta) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    let show = MenuItemBuilder::new("Tarscribe öffnen").id("show").build(app)?;
+    let show = MenuItemBuilder::new("Tarscribe öffnen")
+        .id("show")
+        .build(app)?;
     let check_label = match &meta.update_version {
         Some(version) if meta.update_available => format!("Update {version} anzeigen…"),
         _ => "Nach Updates suchen…".to_string(),
     };
-    let check = MenuItemBuilder::new(check_label).id("check-update").build(app)?;
+    let check = MenuItemBuilder::new(check_label)
+        .id("check-update")
+        .build(app)?;
     let dictation = MenuItemBuilder::new("Diktat starten/stoppen (⌥⌘D)")
         .id("dictation-toggle")
         .build(app)?;

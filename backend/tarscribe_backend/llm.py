@@ -7,7 +7,7 @@ self-hosted servers, and custom OpenAI-compatible endpoints.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 
 import httpx
@@ -59,19 +59,16 @@ def test_connection(base_url: str | None = None, api_key: str | None = None) -> 
         return {"ok": False, "error": str(exc)}
 
 
-def stream_chat(
+def _chat_payload(
     messages: list[dict],
     model: str,
-    base_url: str,
-    temperature: float = 0.3,
-    top_p: float | None = None,
-    top_k: int | None = None,
-    max_tokens: int | None = None,
-    api_key: str | None = None,
-    reasoning_effort: str | None = None,
-    provider: str | None = None,
-) -> Iterator[str]:
-    """Yield content deltas from a streaming chat completion."""
+    temperature: float,
+    top_p: float | None,
+    top_k: int | None,
+    max_tokens: int | None,
+    reasoning_effort: str | None,
+    provider: str | None,
+) -> dict:
     payload: dict = {
         "model": model,
         "messages": messages,
@@ -85,12 +82,49 @@ def stream_chat(
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
     if reasoning_effort:
-        # OpenRouter exposes reasoning depth via a `reasoning` object; OpenAI,
-        # Ollama and LM Studio accept the top-level `reasoning_effort` field.
         if provider == "openrouter":
             payload["reasoning"] = {"effort": reasoning_effort}
         else:
             payload["reasoning_effort"] = reasoning_effort
+    return payload
+
+
+def _parse_stream_line(line: str) -> str | None:
+    if not line or not line.startswith("data:"):
+        return None
+    data = line[len("data:") :].strip()
+    if data == "[DONE]":
+        return None
+    try:
+        chunk = json.loads(data)
+        return chunk["choices"][0]["delta"].get("content")
+    except (json.JSONDecodeError, KeyError, IndexError):
+        return None
+
+
+def stream_chat(
+    messages: list[dict],
+    model: str,
+    base_url: str,
+    temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+) -> Iterator[str]:
+    """Yield content deltas from a streaming chat completion."""
+    payload = _chat_payload(
+        messages,
+        model,
+        temperature,
+        top_p,
+        top_k,
+        max_tokens,
+        reasoning_effort,
+        provider,
+    )
     with httpx.stream(
         "POST",
         f"{base_url}/chat/completions",
@@ -100,18 +134,50 @@ def stream_chat(
     ) as r:
         r.raise_for_status()
         for line in r.iter_lines():
-            if not line or not line.startswith("data:"):
-                continue
-            data = line[len("data:") :].strip()
-            if data == "[DONE]":
+            if line.strip() == "data: [DONE]":
                 break
-            try:
-                chunk = json.loads(data)
-                delta = chunk["choices"][0]["delta"].get("content")
+            delta = _parse_stream_line(line)
+            if delta:
+                yield delta
+
+
+async def astream_chat(
+    messages: list[dict],
+    model: str,
+    base_url: str,
+    temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+) -> AsyncIterator[str]:
+    """Async variant used by background LLM jobs so cancellation closes HTTP streams."""
+    payload = _chat_payload(
+        messages,
+        model,
+        temperature,
+        top_p,
+        top_k,
+        max_tokens,
+        reasoning_effort,
+        provider,
+    )
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream(
+            "POST",
+            f"{base_url}/chat/completions",
+            json=payload,
+            headers=_auth_headers(api_key),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.strip() == "data: [DONE]":
+                    break
+                delta = _parse_stream_line(line)
                 if delta:
                     yield delta
-            except (json.JSONDecodeError, KeyError, IndexError):
-                continue
 
 
 def render_template(template_str: str, context: dict[str, str]) -> str:

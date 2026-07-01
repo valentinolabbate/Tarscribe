@@ -8,7 +8,6 @@ so they surface in semantic/keyword search and the knowledge chat.
 from __future__ import annotations
 
 import shutil
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -19,11 +18,15 @@ from ..config import get_settings
 from ..db import get_session, vec_available
 from ..documents import SUPPORTED_SUFFIXES, is_supported
 from ..models import Document, Recording, Topic
-from ..security import require_token
-
-router = APIRouter(
-    prefix="/api/documents", tags=["documents"], dependencies=[Depends(require_token)]
+from ..upload_security import (
+    UploadPathForbidden,
+    UploadValidationError,
+    display_filename,
+    require_child_path,
+    require_suffix,
 )
+
+router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
 @router.get("")
@@ -70,30 +73,34 @@ async def upload_document(
         # Keep topic_id consistent with the recording it is attached to.
         topic_id = rec.topic_id
 
-    filename = file.filename or "dokument"
+    filename = display_filename(file.filename, "dokument.txt")
     if not is_supported(filename):
         raise HTTPException(
-            415,
+            400,
             "Nicht unterstütztes Format. Erlaubt: "
             + ", ".join(sorted(SUPPORTED_SUFFIXES)),
         )
 
-    settings = get_settings()
-    suffix = Path(filename).suffix.lower()
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    dst = settings.documents_dir / stored_name
-    with dst.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    try:
+        suffix = require_suffix(filename, SUPPORTED_SUFFIXES, "Dokument")
+    except UploadValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     doc = Document(
         topic_id=topic_id,
         recording_id=recording_id,
         title=(title or "").strip() or Path(filename).stem,
         original_filename=filename,
-        file_path=str(dst),
+        file_path="",
         content_type=file.content_type,
         status="uploaded",
     )
+    session.add(doc)
+    session.flush()
+    dst = _stored_document_path(doc, suffix)
+    with dst.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+    doc.file_path = str(dst)
     session.add(doc)
     session.commit()
     session.refresh(doc)
@@ -126,7 +133,7 @@ def download_document(
     doc = session.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "Dokument nicht gefunden")
-    path = Path(doc.file_path)
+    path = _download_path(doc)
     if not path.exists():
         raise HTTPException(410, "Datei nicht mehr vorhanden")
     return FileResponse(
@@ -147,10 +154,42 @@ def delete_document(document_id: int, session: Session = Depends(get_session)) -
 
         rag._delete_document_chunks(session, document_id)
 
-    file_path = Path(doc.file_path)
+    file_paths = _stored_paths_for_delete(doc)
     session.delete(doc)
     session.commit()
+    for file_path in file_paths:
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"Dokumentdatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
+
+
+def _stored_document_path(doc: Document, suffix: str) -> Path:
+    if doc.id is None:
+        raise HTTPException(500, "Dokument-ID fehlt")
+    return get_settings().documents_dir / f"{doc.id}{suffix}"
+
+
+def _download_path(doc: Document) -> Path:
+    suffix = Path(doc.original_filename or doc.file_path).suffix.lower()
+    if suffix in SUPPORTED_SUFFIXES and doc.id is not None:
+        return _stored_document_path(doc, suffix)
+    legacy = Path(doc.file_path)
     try:
-        file_path.unlink(missing_ok=True)
-    except OSError as exc:
-        print(f"Dokumentdatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
+        return require_child_path(legacy, get_settings().documents_dir)
+    except UploadPathForbidden as exc:
+        raise HTTPException(410, "Datei nicht mehr vorhanden") from exc
+
+
+def _stored_paths_for_delete(doc: Document) -> list[Path]:
+    paths: list[Path] = []
+    suffix = Path(doc.original_filename or doc.file_path).suffix.lower()
+    if suffix in SUPPORTED_SUFFIXES and doc.id is not None:
+        paths.append(_stored_document_path(doc, suffix))
+    try:
+        legacy = require_child_path(Path(doc.file_path), get_settings().documents_dir)
+    except UploadPathForbidden:
+        legacy = None
+    if legacy is not None and legacy not in paths:
+        paths.append(legacy)
+    return paths

@@ -1,0 +1,169 @@
+import type { ReactNode } from "react";
+import { api } from "../../lib/api";
+import type { AppSettings } from "../../lib/types";
+import type { RecordingDevice } from "../../lib/recorder";
+import type { SystemAudioCapability } from "../../lib/tauri";
+
+export function GeneralSettingsTab({
+  settings,
+  setSettings,
+  recordingDevices,
+  systemAudioCapability,
+  statusEl,
+  refreshRecordingDevices,
+  saveDictationShortcut,
+  saveMeetingDetection,
+}: {
+  settings: AppSettings;
+  setSettings: (settings: AppSettings) => void;
+  recordingDevices: RecordingDevice[];
+  systemAudioCapability: SystemAudioCapability | null;
+  statusEl: ReactNode;
+  refreshRecordingDevices: () => void;
+  saveDictationShortcut: (value: string) => void;
+  saveMeetingDetection: (next: Pick<AppSettings, "meeting_detection_enabled" | "meeting_detection_apps">) => void;
+}) {
+  return (
+    <>
+      <div className="settings-section-title">
+        <span>Aufnahme</span>
+        <small>Quelle, Mikrofon und Sprache für neue Aufnahmen.</small>
+      </div>
+      <div className="field">
+        <label>Aufnahmequelle</label>
+        <select
+          value={settings.recording_source}
+          onChange={(event) => {
+            const recording_source = event.target.value as AppSettings["recording_source"];
+            setSettings({ ...settings, recording_source });
+            api.updateSettings({ recording_source });
+          }}
+        >
+          <option value="microphone">Nur Mikrofon</option>
+          <option value="system_audio" disabled={!systemAudioCapability?.supported}>
+            Nur Systemaudio
+          </option>
+          <option value="system_audio_and_microphone" disabled={!systemAudioCapability?.supported}>
+            Systemaudio + Mikrofon
+          </option>
+        </select>
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          {systemAudioCapability?.supported
+            ? `macOS ${systemAudioCapability.current_macos_version}: Systemaudio kann ohne zusätzlich installierte Programme aufgenommen werden.`
+            : systemAudioCapability?.reason ?? "Prüfe native Systemaudio-Unterstützung…"}
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Standard-Mikrofon</label>
+        <select
+          value={settings.recording_device_id}
+          onChange={(event) => {
+            const recording_device_id = event.target.value;
+            setSettings({ ...settings, recording_device_id });
+            api.updateSettings({ recording_device_id });
+          }}
+        >
+          <option value="">Systemstandard</option>
+          {recordingDevices.map((device) => (
+            <option key={device.deviceId} value={device.deviceId}>
+              {device.label}
+            </option>
+          ))}
+        </select>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+          <button className="btn" onClick={refreshRecordingDevices}>
+            Geräte aktualisieren
+          </button>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Transkriptions-Sprache</label>
+        <select
+          value={settings.language ?? ""}
+          onChange={(event) => {
+            const language = event.target.value || null;
+            setSettings({ ...settings, language });
+            api.updateSettings({ language });
+          }}
+        >
+          <option value="">Automatisch erkennen</option>
+          <option value="de">Deutsch</option>
+          <option value="en">Englisch</option>
+          <option value="fr">Französisch</option>
+          <option value="es">Spanisch</option>
+          <option value="it">Italienisch</option>
+        </select>
+      </div>
+
+      <div className="settings-section-title">
+        <span>Automationen</span>
+        <small>Kurze Wege für Diktat und Meeting-Erkennung.</small>
+      </div>
+      <div className="field">
+        <label>Diktat-Hotkey</label>
+        <input
+          type="text"
+          value={settings.dictation_shortcut ?? "Alt+Meta+D"}
+          placeholder="Alt+Meta+D"
+          onChange={(event) => setSettings({ ...settings, dictation_shortcut: event.target.value })}
+          onBlur={(event) => saveDictationShortcut(event.target.value)}
+          spellCheck={false}
+        />
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          Format: <code>Alt+Meta+D</code>, <code>Shift+Meta+N</code> oder <code>Control+Alt+M</code>.
+          Meta entspricht auf dem Mac der Command-Taste.
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Meeting-Erkennung</label>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={settings.meeting_detection_enabled}
+            onChange={(event) =>
+              saveMeetingDetection({
+                meeting_detection_enabled: event.target.checked,
+                meeting_detection_apps: settings.meeting_detection_apps,
+              })
+            }
+          />
+          <span>Aufnahme anbieten, wenn eine Meeting-App aktiv das Mikrofon nutzt</span>
+        </label>
+        <textarea
+          value={(settings.meeting_detection_apps ?? []).join("\n")}
+          onChange={(event) =>
+            setSettings({
+              ...settings,
+              meeting_detection_apps: event.target.value
+                .split("\n")
+                .map((line) => line.trim())
+                .filter(Boolean),
+            })
+          }
+          onBlur={(event) =>
+            saveMeetingDetection({
+              meeting_detection_enabled: settings.meeting_detection_enabled,
+              meeting_detection_apps: event.target.value
+                .split("\n")
+                .map((line) => line.trim())
+                .filter(Boolean),
+            })
+          }
+          rows={4}
+          spellCheck={false}
+        />
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          Ein App-Name pro Zeile, z. B. <code>zoom.us</code> oder <code>Microsoft Teams</code>.
+          Die Aufnahme wird nur vorgeschlagen, wenn die App gerade das Mikrofon nutzt – im
+          Hintergrund laufende Apps lösen keinen Hinweis mehr aus. Für Browser-Meetings die
+          Browser-App ergänzen (z. B. <code>Google Chrome</code>).
+        </div>
+      </div>
+
+      {statusEl}
+    </>
+  );
+}

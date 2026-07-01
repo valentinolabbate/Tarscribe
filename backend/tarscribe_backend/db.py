@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import get_settings
@@ -20,6 +21,37 @@ VEC_AVAILABLE: bool | None = None
 
 # Whether the FTS5 keyword index could be created (set during migrations).
 FTS_AVAILABLE: bool = False
+
+_CASCADE_FK_ONDELETE = {
+    "transcripts": {"recording_id": "CASCADE"},
+    "words": {"transcript_id": "CASCADE"},
+    "diarization_runs": {"recording_id": "CASCADE"},
+    "speaker_segments": {"run_id": "CASCADE"},
+    "speaker_labels": {"recording_id": "CASCADE", "known_speaker_id": "SET NULL"},
+    "manual_edits": {"recording_id": "CASCADE"},
+    "summaries": {"recording_id": "CASCADE"},
+    "documents": {"topic_id": "CASCADE", "recording_id": "CASCADE"},
+    "rag_chunks": {
+        "recording_id": "CASCADE",
+        "summary_id": "CASCADE",
+        "document_id": "CASCADE",
+    },
+    "chat_sessions": {"recording_id": "CASCADE", "topic_id": "SET NULL"},
+    "chat_messages": {"session_id": "CASCADE"},
+    "action_items": {"recording_id": "CASCADE"},
+    "chapters": {"recording_id": "CASCADE"},
+    "thread_mentions": {
+        "thread_id": "CASCADE",
+        "recording_id": "CASCADE",
+        "chapter_id": "SET NULL",
+        "chunk_id": "SET NULL",
+    },
+    "jobs": {"recording_id": "CASCADE"},
+    "live_recording_sessions": {
+        "topic_id": "CASCADE",
+        "finalized_recording_id": "CASCADE",
+    },
+}
 
 
 def _on_connect(dbapi_connection, _record) -> None:  # pragma: no cover - sqlite pragma
@@ -120,6 +152,7 @@ def _run_lightweight_migrations() -> None:
                     )
 
     _migrate_rag_chunks_for_documents()
+    _migrate_cascade_foreign_keys()
     _ensure_vec_table()
     _ensure_fts_table()
     _mark_stale_live_sessions()
@@ -192,6 +225,95 @@ def _migrate_rag_chunks_for_documents() -> None:
         conn.execute("PRAGMA foreign_keys=ON")
     finally:
         conn.close()
+
+
+def _migrate_cascade_foreign_keys() -> None:
+    import sqlite3
+
+    from sqlalchemy import text
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+        }
+        rebuild = [
+            table_name
+            for table_name, expected in _CASCADE_FK_ONDELETE.items()
+            if table_name in tables
+            and table_name in SQLModel.metadata.tables
+            and _foreign_key_actions(conn, table_name) != expected
+        ]
+    if not rebuild:
+        return
+
+    conn = sqlite3.connect(str(get_settings().db_path))
+    conn.isolation_level = None
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN")
+        for table_name in rebuild:
+            _rebuild_table_with_current_metadata(conn, table_name)
+        conn.execute("COMMIT")
+        conn.execute("PRAGMA foreign_keys=ON")
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            print(f"[tarscribe] foreign key violations after cascade migration: {violations}")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        conn.execute("PRAGMA foreign_keys=ON")
+        raise
+    finally:
+        conn.close()
+
+
+def _foreign_key_actions(conn, table_name: str) -> dict[str, str]:
+    from sqlalchemy import text
+
+    actions = {}
+    for row in conn.execute(text(f"PRAGMA foreign_key_list({_quote_identifier(table_name)})")):
+        actions[row[3]] = (row[6] or "NO ACTION").upper()
+    return {
+        column: actions.get(column, "NO ACTION")
+        for column in _CASCADE_FK_ONDELETE[table_name]
+    }
+
+
+def _rebuild_table_with_current_metadata(conn, table_name: str) -> None:
+    from sqlalchemy import MetaData
+
+    table = SQLModel.metadata.tables[table_name]
+    temp_name = f"{table_name}__cascade_new"
+    metadata = MetaData()
+    for other_table in SQLModel.metadata.tables.values():
+        if other_table.name != table_name:
+            other_table.to_metadata(metadata)
+    temp_table = table.to_metadata(metadata, name=temp_name)
+    dialect = get_engine().dialect
+    conn.execute(f"DROP TABLE IF EXISTS {_quote_identifier(temp_name)}")
+    conn.execute(str(CreateTable(temp_table).compile(dialect=dialect)))
+    old_columns = {
+        row[1] for row in conn.execute(f"PRAGMA table_info({_quote_identifier(table_name)})")
+    }
+    columns = [column.name for column in table.columns if column.name in old_columns]
+    if columns:
+        column_list = ", ".join(_quote_identifier(column) for column in columns)
+        conn.execute(
+            f"INSERT INTO {_quote_identifier(temp_name)} ({column_list}) "
+            f"SELECT {column_list} FROM {_quote_identifier(table_name)}"
+        )
+    conn.execute(f"DROP TABLE {_quote_identifier(table_name)}")
+    conn.execute(
+        f"ALTER TABLE {_quote_identifier(temp_name)} RENAME TO {_quote_identifier(table_name)}"
+    )
+    for index in table.indexes:
+        conn.execute(str(CreateIndex(index).compile(dialect=dialect)))
+
+
+def _quote_identifier(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _ensure_vec_table() -> bool:

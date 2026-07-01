@@ -144,6 +144,19 @@ npm run dev
 Das Vite-Frontend läuft dann unter `http://localhost:1420` und verbindet sich mit dem Backend
 auf `127.0.0.1:8765`.
 
+> **Hinweis:** CORS ist auf Tauri- und Vite-Dev-Origins beschränkt. Für andere Origins
+> (z. B. Remote-Development) `TARSCRIBE_ALLOWED_ORIGINS` setzen (Komma-getrennt).
+
+Secrets wie Hugging Face Token, CalDAV-Passwort und LLM/RAG-API-Keys werden über
+den OS-Secret-Store gespeichert. Ohne verfügbaren Keyring werden neue Secrets nicht
+gespeichert; der alte Klartext-Fallback kann nur für lokale Entwicklung oder Tests
+mit `TARSCRIBE_ALLOW_INSECURE_SECRET_FALLBACK=1` aktiviert werden.
+
+Security-relevante Aktionen werden getrennt von Uvicorn als rotierendes JSONL-Audit-Log
+unter `<App-Data>/logs/audit.log` gespeichert. Pfad, maximale Dateigröße und Anzahl der
+Backups lassen sich über `TARSCRIBE_AUDIT_LOG_PATH`, `TARSCRIBE_AUDIT_LOG_MAX_BYTES`
+und `TARSCRIBE_AUDIT_LOG_BACKUP_COUNT` überschreiben. Secrets werden nicht protokolliert.
+
 ## Architektur
 
 ```text
@@ -158,9 +171,10 @@ backend/        FastAPI-Sidecar für ASR, Diarisierung, Jobs, SQLite und RAG
 ```
 
 Die Tauri-Shell startet das Python-Backend als lokalen Sidecar-Prozess. Das Frontend bekommt
-Port und Auth-Token über einen Tauri-Command. Nutzerdaten liegen im macOS-App-Data-Verzeichnis
-als SQLite-Datenbank plus Audiodateien. Der RAG-Index nutzt `sqlite-vec` (semantisch) und FTS5
-(Volltext).
+nur die Backend-Basisadresse; HTTP-Requests und WebSocket-Events laufen in der Desktop-App über
+einen Rust-Proxy, der das interne Auth-Token nicht an den Browser-Kontext weitergibt.
+Nutzerdaten liegen im macOS-App-Data-Verzeichnis als SQLite-Datenbank plus Audiodateien. Der
+RAG-Index nutzt `sqlite-vec` (semantisch) und FTS5 (Volltext).
 
 ## Tests und Build
 
@@ -182,6 +196,10 @@ cd ..
 
 Weitere Details zu Releases und Auto-Updates stehen in [RELEASING.md](RELEASING.md), zur privaten
 Weitergabe ohne Apple Developer ID in [SHARING.md](SHARING.md).
+
+Dependency-Updates werden monatlich per Dependabot für npm, uv, Cargo und GitHub Actions
+vorgeschlagen. Patch-/Minor-Updates sind gruppiert; Major-Updates bleiben im manuellen
+Security-Review gemäß `.github/DEPENDENCY_REVIEW.md`.
 
 ## Hinweise
 

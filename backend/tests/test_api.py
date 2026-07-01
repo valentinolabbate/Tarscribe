@@ -35,7 +35,7 @@ def client(monkeypatch):
 
 
 def test_health(client):
-    r = client.get("/api/system/health")
+    r = client.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
@@ -48,6 +48,11 @@ def test_mcp_diagnostics(client):
     assert body["tools"]["count"] > 0
     capability_ids = {item["id"] for item in body["capabilities"]}
     assert {"context", "search", "tasks", "analysis"} <= capability_ids
+
+
+def test_mcp_registration_api_is_not_exposed(client):
+    assert client.post("/api/mcp/register/codex").status_code == 404
+    assert client.delete("/api/mcp/register/codex").status_code == 404
 
 
 def test_hardware(client):
@@ -760,7 +765,11 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
 
     events = []
     monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
-    monkeypatch.setattr(llm, "stream_chat", lambda *args, **kwargs: iter(("Hallo", " Welt")))
+    async def fake_astream_chat(*_args, **_kwargs):
+        for delta in ("Hallo", " Welt"):
+            yield delta
+
+    monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs.hub, "broadcast", events.append)
 
     jobs._run_summary(recording_id, job_id, template_id, summary_id)
@@ -828,12 +837,12 @@ def test_meeting_protocol_prompt_treats_topic_as_context(client, monkeypatch):
 
     seen: dict[str, list[dict]] = {}
 
-    def fake_stream_chat(messages, *_args, **_kwargs):
+    async def fake_astream_chat(messages, *_args, **_kwargs):
         seen["messages"] = messages
-        return iter(("ok",))
+        yield "ok"
 
     monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
-    monkeypatch.setattr(llm, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
 
     jobs._run_summary(recording_id, job_id, template_id, summary_id)

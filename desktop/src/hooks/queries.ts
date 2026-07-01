@@ -272,8 +272,11 @@ export function useSummaryProgress(recordingId: number, summaryId: number | null
   return useQuery({
     queryKey: ["summary-progress", summaryId, jobId],
     queryFn: async () => {
+      if (summaryId == null || jobId == null) {
+        throw new Error("Summary progress requires a summary and job id.");
+      }
       const [summary, jobs] = await Promise.all([
-        api.getSummary(summaryId!),
+        api.getSummary(summaryId),
         api.getJobs(recordingId),
       ]);
       return { summary, job: jobs.find((job) => job.job_id === jobId) ?? null };

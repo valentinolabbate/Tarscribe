@@ -344,7 +344,7 @@ def test_upload_rejects_unsupported_format(client):
         data={"topic_id": topic["id"]},
         files={"file": ("bild.png", b"\x89PNG", "image/png")},
     )
-    assert r.status_code == 415
+    assert r.status_code == 400
 
 
 def test_recording_scoped_listing(client):

@@ -24,9 +24,9 @@ from ..models import (
     Word,
 )
 from ..overlay import load_overlay
-from ..security import require_token
+from ..upload_security import UploadPathForbidden, require_child_path
 
-router = APIRouter(prefix="/api/recordings", tags=["export"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/recordings", tags=["export"])
 
 
 def _ts(seconds: float, comma: bool) -> str:
@@ -245,11 +245,17 @@ def send_to_folder(recording_id: int, session: Session = Depends(get_session)) -
             400, "Für diesen Themenbereich ist kein Export-Ordner gesetzt."
         )
     folder = Path(topic.export_path).expanduser()
+    if not folder.is_absolute():
+        raise HTTPException(400, "Export-Ordner muss ein absoluter Pfad sein.")
     if not folder.is_dir():
         raise HTTPException(400, f"Ordner existiert nicht: {folder}")
+    folder = folder.resolve()
 
     content = _build_markdown(session, rec, words, segments, name_map)
-    target = folder / f"{_safe_filename(rec.title)}.md"
+    try:
+        target = require_child_path(folder / f"{_safe_filename(rec.title)}.md", folder)
+    except UploadPathForbidden as exc:
+        raise HTTPException(400, "Export-Ziel liegt außerhalb des Export-Ordners") from exc
     try:
         target.write_text(content, encoding="utf-8")
     except OSError as exc:

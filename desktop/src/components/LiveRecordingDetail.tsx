@@ -6,8 +6,6 @@ import { StopIcon } from "./icons";
 const fmt = (sec: number) =>
   `${String(Math.floor(sec / 60)).padStart(2, "0")}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
-// ── Upload status pill ────────────────────────────────────────────────────────
-
 function UploadStatus({
   queueLength,
   hasError,
@@ -37,8 +35,6 @@ function UploadStatus({
   return null;
 }
 
-// ── Speaker chips ─────────────────────────────────────────────────────────────
-
 function SpeakerChips({ snapshot }: { snapshot: LiveSpeakerSnapshot | null }) {
   if (!snapshot || snapshot.speakers.length === 0) return null;
   return (
@@ -62,8 +58,6 @@ function SpeakerChips({ snapshot }: { snapshot: LiveSpeakerSnapshot | null }) {
     </div>
   );
 }
-
-// ── Utterance rendering ───────────────────────────────────────────────────────
 
 interface UtteranceGroup {
   speakerId: string | null;
@@ -178,8 +172,6 @@ function LiveTranscript({
     </>
   );
 }
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 interface Props {
   topicName: string;

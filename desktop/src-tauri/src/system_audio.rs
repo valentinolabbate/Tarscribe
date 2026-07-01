@@ -29,9 +29,8 @@ pub fn system_audio_capability() -> SystemAudioCapability {
             .as_deref()
             .and_then(parse_version)
             .is_some_and(|version| version >= (14, 2));
-        let reason = (!supported).then(|| {
-            "Systemaudio-Aufnahmen benötigen macOS 14.2 oder neuer.".to_string()
-        });
+        let reason = (!supported)
+            .then(|| "Systemaudio-Aufnahmen benötigen macOS 14.2 oder neuer.".to_string());
         SystemAudioCapability {
             supported,
             minimum_macos_version: MINIMUM_MACOS_VERSION,
@@ -46,7 +45,9 @@ pub fn system_audio_capability() -> SystemAudioCapability {
             supported: false,
             minimum_macos_version: MINIMUM_MACOS_VERSION,
             current_macos_version: None,
-            reason: Some("Systemaudio-Aufnahmen werden derzeit nur unter macOS unterstützt.".to_string()),
+            reason: Some(
+                "Systemaudio-Aufnahmen werden derzeit nur unter macOS unterstützt.".to_string(),
+            ),
         }
     }
 }

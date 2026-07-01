@@ -204,7 +204,7 @@ def test_extract_endpoint_enqueues_job(client, monkeypatch):
     import tarscribe_backend.jobs as jobs
 
     rec_id, _ = _make_recording()
-    monkeypatch.setattr(jobs._executor, "submit", lambda *a, **k: None)
+    monkeypatch.setattr(jobs, "_submit_llm_job", lambda *a, **k: None)
     r = client.post(f"/api/recordings/{rec_id}/action-items/extract")
     assert r.status_code == 200
     assert r.json()["job_id"] > 0
@@ -230,14 +230,14 @@ def test_run_action_items_persists_llm_due_date(client, monkeypatch):
         s.commit()
         job_id = job.id
 
-    def fake_chat(msgs):
+    async def fake_chat(msgs):
         assert "Referenzdatum für relative Fristen: 2026-06-18" in msgs[-1]["content"]
         return (
             '[{"kind":"task","text":"Bericht schreiben","assignee":null,'
             '"due":"morgen","due_date":"2026-06-19"}]'
         )
 
-    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
+    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda: fake_chat)
     jobs._run_action_items(rec_id, job_id)
 
     with Session(db.get_engine()) as s:
@@ -294,13 +294,13 @@ def test_run_action_items_auto_syncs_caldav(client, monkeypatch):
         s.commit()
         job_id = job.id
 
-    def fake_chat(_msgs):
+    async def fake_chat(_msgs):
         return (
             '[{"kind":"task","text":"Bericht schreiben","assignee":"Anna",'
             '"due":"morgen","due_date":"2026-06-19"}]'
         )
 
-    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
+    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda: fake_chat)
     jobs._run_action_items(rec_id, job_id)
 
     with Session(db.get_engine()) as s:

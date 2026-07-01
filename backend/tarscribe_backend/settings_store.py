@@ -1,9 +1,8 @@
 """User settings + secret storage.
 
-Non-secret preferences live in ``settings.json`` in the app data dir. Secrets
-(the HuggingFace token) go into the OS keychain via ``keyring`` (macOS Keychain /
-Windows Credential Manager), with a locked-down 0600 file fallback if no keychain
-backend is available.
+Non-secret preferences live in ``settings.json`` in the app data dir. Secrets go
+into the OS keychain via ``keyring`` (macOS Keychain / Windows Credential Manager).
+The legacy plaintext fallback file is disabled unless explicitly enabled for dev.
 """
 
 from __future__ import annotations
@@ -22,6 +21,11 @@ HF_TOKEN_KEY = "hf_token"
 LLM_API_KEY_KEY = "llm_api_key"
 RAG_API_KEY_KEY = "rag_api_key"
 CALDAV_PASSWORD_KEY = "caldav_password"
+INSECURE_SECRET_FALLBACK_ENV = "TARSCRIBE_ALLOW_INSECURE_SECRET_FALLBACK"
+
+
+class SecretStorageUnavailable(RuntimeError):
+    pass
 
 DEFAULT_PREFS: dict[str, Any] = {
     "language": None,  # None => auto/model default
@@ -70,6 +74,26 @@ def _secret_fallback_path() -> Path:
     return get_settings().data_dir / ".secrets.json"
 
 
+def _insecure_fallback_enabled() -> bool:
+    return os.environ.get(INSECURE_SECRET_FALLBACK_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def secret_storage_status() -> dict[str, bool]:
+    keyring_available = _keyring() is not None
+    fallback_enabled = _insecure_fallback_enabled()
+    return {
+        "available": keyring_available or fallback_enabled,
+        "secure": keyring_available,
+        "keyring_available": keyring_available,
+        "fallback_enabled": fallback_enabled,
+    }
+
+
 def load_prefs() -> dict[str, Any]:
     path = _prefs_path()
     if not path.exists():
@@ -116,7 +140,8 @@ def _secret_get(key: str) -> str | None:
                 return val
         except Exception:
             pass
-    # Fallback file (may hold several secrets keyed by name).
+    if not _insecure_fallback_enabled():
+        return None
     path = _secret_fallback_path()
     if path.exists():
         try:
@@ -128,17 +153,20 @@ def _secret_get(key: str) -> str | None:
 
 def _secret_set(key: str, value: str | None) -> None:
     kr = _keyring()
+    last_error: Exception | None = None
     if kr is not None:
         try:
             if value:
                 kr.set_password(SERVICE, key, value)
             else:
-                kr.delete_password(SERVICE, key)
+                if kr.get_password(SERVICE, key):
+                    kr.delete_password(SERVICE, key)
             return
-        except Exception:
-            pass
-    # Fallback: 0600 file holding all secrets. Read-modify-write so setting one
-    # secret never clobbers the others.
+        except Exception as exc:
+            last_error = exc
+    if not _insecure_fallback_enabled():
+        detail = f": {last_error}" if last_error else ""
+        raise SecretStorageUnavailable(f"Kein sicherer Secret-Speicher verfügbar{detail}")
     path = _secret_fallback_path()
     data: dict[str, Any] = {}
     if path.exists():

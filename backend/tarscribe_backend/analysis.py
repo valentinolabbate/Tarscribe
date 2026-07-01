@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 
 Chat = Callable[[list[dict]], str]
+AsyncChat = Callable[[list[dict]], Awaitable[str]]
 
 # Keep prompts well under the configured chunk budget so the instructions fit.
 ACTION_ITEM_KINDS = ("task", "decision")
@@ -153,6 +154,49 @@ def extract_action_items(
     return items
 
 
+async def extract_action_items_async(
+    chat: AsyncChat,
+    text: str,
+    speakers: list[str],
+    chunk_size: int = 48000,
+    progress=None,
+    reference_date: date | datetime | str | None = None,
+) -> list[dict]:
+    from .llm import chunk_text
+
+    speakers_hint = f"Bekannte Personen: {', '.join(speakers)}\n" if speakers else ""
+    reference_date_text = _reference_date_iso(reference_date)
+    items: list[dict] = []
+    seen: set[str] = set()
+    chunks = chunk_text(text, size=chunk_size)
+    for i, chunk in enumerate(chunks):
+        if progress:
+            progress(0.05 + 0.9 * (i / len(chunks)))
+        raw = await chat(
+            [
+                {"role": "system", "content": _ITEMS_SYSTEM},
+                {
+                    "role": "user",
+                    "content": _ITEMS_USER.format(
+                        reference_date=reference_date_text,
+                        speakers_hint=speakers_hint,
+                        chunk=chunk,
+                    ),
+                },
+            ]
+        )
+        for entry in _extract_json_array(raw):
+            item = _coerce_action_item(entry)
+            if not item:
+                continue
+            key = _norm_text(item["text"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+    return items
+
+
 # ── Dictation inbox ──────────────────────────────────────────────────────────
 
 _DICTATION_SYSTEM = (
@@ -222,6 +266,59 @@ def analyze_dictation(
     source = chunk_text(text, size=chunk_size)[0]
     reference_date_text = _reference_date_iso(reference_date)
     raw = chat(
+        [
+            {"role": "system", "content": _DICTATION_SYSTEM},
+            {
+                "role": "user",
+                "content": _DICTATION_USER.format(
+                    topics=", ".join(topic_names) if topic_names else "keine",
+                    reference_date=reference_date_text,
+                    text=source,
+                ),
+            },
+        ]
+    )
+    data = _extract_json_object(raw)
+    title = _clean_title(data.get("title"))
+    topic_name = str(data.get("topic_name") or "").strip() or None
+    try:
+        confidence = float(data.get("topic_confidence") or 0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(confidence, 1.0))
+
+    items: list[dict] = []
+    seen: set[str] = set()
+    for entry in data.get("action_items") or []:
+        item = _coerce_action_item(entry)
+        if not item:
+            continue
+        key = _norm_text(item["text"])
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(item)
+
+    return {
+        "title": title,
+        "topic_name": topic_name,
+        "topic_confidence": confidence,
+        "action_items": items,
+    }
+
+
+async def analyze_dictation_async(
+    chat: AsyncChat,
+    text: str,
+    topic_names: list[str],
+    chunk_size: int = 48000,
+    reference_date: date | datetime | str | None = None,
+) -> dict:
+    from .llm import chunk_text
+
+    source = chunk_text(text, size=chunk_size)[0]
+    reference_date_text = _reference_date_iso(reference_date)
+    raw = await chat(
         [
             {"role": "system", "content": _DICTATION_SYSTEM},
             {
@@ -338,6 +435,54 @@ def generate_chapters(chat: Chat, utterances, duration_sec: float, chunk_size: i
     if not chapters:
         return []
     chapters[0]["start"] = 0.0  # YouTube chapter convention: list starts at 0:00
+    for i, ch in enumerate(chapters):
+        ch["end"] = chapters[i + 1]["start"] if i + 1 < len(chapters) else duration_sec
+    return chapters
+
+
+async def generate_chapters_async(
+    chat: AsyncChat, utterances, duration_sec: float, chunk_size: int = 48000
+) -> list[dict]:
+    lines = [
+        f"[{int(u.start)}] {u.speaker + ': ' if u.speaker else ''}{u.text}"
+        for u in utterances
+    ]
+    if not lines:
+        return []
+    raw = await chat(
+        [
+            {"role": "system", "content": _CHAPTERS_SYSTEM},
+            {
+                "role": "user",
+                "content": _CHAPTERS_USER.format(
+                    max_chapters=MAX_CHAPTERS, lines=_condense_lines(lines, chunk_size)
+                ),
+            },
+        ]
+    )
+
+    parsed: list[tuple[float, str]] = []
+    for entry in _extract_json_array(raw):
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        try:
+            start = float(entry.get("start_sec"))
+        except (TypeError, ValueError):
+            continue
+        if not title:
+            continue
+        parsed.append((max(0.0, min(start, duration_sec)), title))
+
+    parsed.sort(key=lambda c: c[0])
+    chapters: list[dict] = []
+    for start, title in parsed[:MAX_CHAPTERS]:
+        if chapters and start - chapters[-1]["start"] < MIN_CHAPTER_GAP_SEC:
+            continue
+        chapters.append({"start": start, "title": title})
+    if not chapters:
+        return []
+    chapters[0]["start"] = 0.0
     for i, ch in enumerate(chapters):
         ch["end"] = chapters[i + 1]["start"] if i + 1 < len(chapters) else duration_sec
     return chapters

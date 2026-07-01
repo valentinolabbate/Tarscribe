@@ -1,62 +1,8 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-
-const PRESETS: Record<string, string> = {
-  ollama: "http://localhost:11434/v1",
-  lmstudio: "http://localhost:1234/v1",
-  openai: "https://api.openai.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-};
-
-// Providers that usually authenticate with an API key.
-const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
-
-function NumField({
-  label,
-  enabled,
-  onToggle,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  placeholder,
-}: {
-  label: string;
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
-  value: number;
-  onChange: (v: number) => void;
-  min: number;
-  max?: number;
-  step: number;
-  placeholder?: string;
-}) {
-  return (
-    <div className="tuning-row">
-      <label>
-        <input
-          type="checkbox"
-          checked={enabled}
-          onChange={(e) => onToggle(e.target.checked)}
-        />{" "}
-        {label}
-      </label>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={!enabled}
-        placeholder={placeholder}
-        style={{ width: 80, opacity: enabled ? 1 : 0.4 }}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    </div>
-  );
-}
+import { validateHttpUrl } from "../lib/formValidation";
+import { KEY_PROVIDERS, NumField, PRESETS } from "./llm-settings/model";
 
 export function LlmSettings() {
   const qc = useQueryClient();
@@ -82,6 +28,8 @@ export function LlmSettings() {
   // Reasoning/"thinking" depth ("" = off / model default).
   const [reasoningEffort, setReasoningEffort] = useState("");
   const [chunkSize, setChunkSize] = useState(48000);
+  const baseUrlError = validateHttpUrl(baseUrl, "Base-URL");
+  const showBaseUrlError = baseUrl.trim().length > 0 && !!baseUrlError;
 
   useEffect(() => {
     api.getLlmConfig().then((c) => {
@@ -101,6 +49,11 @@ export function LlmSettings() {
   }, []);
 
   async function loadModels(url = baseUrl) {
+    const urlError = validateHttpUrl(url, "Base-URL");
+    if (urlError) {
+      setStatus({ ok: false, msg: urlError });
+      return;
+    }
     setBusy(true);
     setStatus(null);
     try {
@@ -140,6 +93,10 @@ export function LlmSettings() {
   }
 
   async function save(nextModel = model) {
+    if (baseUrlError) {
+      setStatus({ ok: false, msg: baseUrlError });
+      return;
+    }
     await api.setLlmConfig({
       provider,
       base_url: baseUrl,
@@ -169,6 +126,11 @@ export function LlmSettings() {
     if (PRESETS[p]) setBaseUrl(PRESETS[p]);
   }
 
+  function submitConnection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void loadModels();
+  }
+
   return (
     <div className="field">
       <label>Chat-Modell (Zusammenfassungen &amp; Chat)</label>
@@ -185,18 +147,27 @@ export function LlmSettings() {
           </button>
         ))}
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <input
-          type="text"
-          value={baseUrl}
-          onChange={(e) => setBaseUrl(e.target.value)}
-          style={{ flex: 1 }}
-          spellCheck={false}
-        />
-        <button className="btn" disabled={busy} onClick={() => loadModels()}>
-          Modelle laden
-        </button>
-      </div>
+      <form onSubmit={submitConnection}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <input
+            type="url"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            style={{ flex: 1 }}
+            spellCheck={false}
+            aria-invalid={showBaseUrlError}
+            aria-describedby={showBaseUrlError ? "llm-base-url-error" : undefined}
+          />
+          <button className="btn" type="submit" disabled={busy || !!baseUrlError}>
+            Modelle laden
+          </button>
+        </div>
+        {showBaseUrlError && (
+          <div id="llm-base-url-error" className="field-error">
+            {baseUrlError}
+          </div>
+        )}
+      </form>
 
       {KEY_PROVIDERS.has(provider) && (
         <div style={{ marginBottom: 8 }}>
@@ -231,6 +202,7 @@ export function LlmSettings() {
             setModel(e.target.value);
             save(e.target.value);
           }}
+          disabled={!!baseUrlError}
           style={{ width: "100%" }}
         >
           <option value="">— Modell wählen —</option>
@@ -343,7 +315,7 @@ export function LlmSettings() {
         </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-          <button className="btn primary" onClick={() => save()}>
+          <button className="btn primary" onClick={() => save()} disabled={!!baseUrlError}>
             Parameter speichern
           </button>
         </div>

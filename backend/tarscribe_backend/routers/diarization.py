@@ -21,7 +21,6 @@ from ..models import (
     Transcript,
     Word,
 )
-from ..security import require_token
 
 router = APIRouter(prefix="/api/recordings", tags=["diarization"])
 
@@ -34,7 +33,7 @@ class DiarizeParamsIn(BaseModel):
     min_duration_off: float | None = None
 
 
-@router.post("/{recording_id}/diarize", dependencies=[Depends(require_token)])
+@router.post("/{recording_id}/diarize")
 def diarize(
     recording_id: int,
     params: DiarizeParamsIn | None = None,
@@ -47,7 +46,7 @@ def diarize(
     return {"job_id": job_id, "status": "queued"}
 
 
-@router.get("/{recording_id}/diarization", dependencies=[Depends(require_token)])
+@router.get("/{recording_id}/diarization")
 def get_diarization(recording_id: int, session: Session = Depends(get_session)) -> dict:
     run = session.exec(
         select(DiarizationRun)

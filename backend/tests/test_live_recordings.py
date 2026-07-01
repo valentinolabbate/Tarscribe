@@ -393,10 +393,10 @@ def test_cancel_schedules_pcm_cleanup(client, monkeypatch):
     assert len(cleaned) == 1
 
 
-# ── live_audio module unit tests ─────────────────────────────────────────────
+# ── audio_utils module unit tests ────────────────────────────────────────────
 
 def test_validate_append_first_chunk(tmp_path):
-    from tarscribe_backend.live_audio import validate_and_append_chunk
+    from tarscribe_backend.audio_utils import validate_and_append_chunk
 
     pcm_path = tmp_path / "audio.pcm"
     chunk = b"\x01\x00" * 16000  # 1s mono PCM16
@@ -408,7 +408,7 @@ def test_validate_append_first_chunk(tmp_path):
 
 
 def test_validate_append_idempotent(tmp_path):
-    from tarscribe_backend.live_audio import validate_and_append_chunk
+    from tarscribe_backend.audio_utils import validate_and_append_chunk
 
     pcm_path = tmp_path / "audio.pcm"
     chunk = b"\x00\x00" * 8000
@@ -419,7 +419,7 @@ def test_validate_append_idempotent(tmp_path):
 
 
 def test_validate_append_gap(tmp_path):
-    from tarscribe_backend.live_audio import validate_and_append_chunk
+    from tarscribe_backend.audio_utils import validate_and_append_chunk
 
     pcm_path = tmp_path / "audio.pcm"
     chunk = b"\x00\x00" * 8000
@@ -429,7 +429,7 @@ def test_validate_append_gap(tmp_path):
 
 
 def test_build_wav_window(tmp_path):
-    from tarscribe_backend.live_audio import build_wav_window, validate_and_append_chunk
+    from tarscribe_backend.audio_utils import build_wav_window, validate_and_append_chunk
 
     pcm_path = tmp_path / "audio.pcm"
     chunk = b"\x00\x00" * 48000  # 3s
@@ -473,3 +473,8 @@ def test_finish_with_unknown_recording_id_rejected(client):
     assert r.status_code == 404
     # Session must stay active so a finish with the real recording can follow.
     assert client.get(f"/api/live-recordings/{sid}").json()["status"] == "recording"
+
+
+def test_legacy_live_audio_endpoint_is_gone(client):
+    assert client.get("/api/live-audio").status_code == 410
+    assert client.post("/api/live-audio/chunks", content=b"\x00\x00").status_code == 410

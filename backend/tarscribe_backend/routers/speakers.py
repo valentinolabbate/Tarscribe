@@ -14,10 +14,9 @@ from ..db import get_session
 from ..ml.embedding import embed_speaker_segments, from_blob, to_blob, update_mean
 from ..ml.speaker_matching import apply_matches, match_recording
 from ..models import KnownSpeaker, Recording, SpeakerLabel
-from ..security import require_token
 from ..settings_store import load_prefs
 
-router = APIRouter(tags=["speakers"], dependencies=[Depends(require_token)])
+router = APIRouter(tags=["speakers"])
 
 
 class KnownSpeakerOut(BaseModel):

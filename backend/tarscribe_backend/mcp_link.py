@@ -1,4 +1,4 @@
-"""Read/write the MCP connection descriptor.
+"""Publish the MCP connection descriptor and report agent-host status.
 
 The packaged app starts the backend on a random port with a per-launch token,
 both known only to the Tauri shell. To let an external (stdio) MCP server reach
@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -56,7 +55,7 @@ def remove_connection_file() -> None:
         pass
 
 
-# ── agent-host registration (Claude Desktop) ─────────────────────────────────
+# ── agent-host discovery ─────────────────────────────────────────────────────
 def launch_command() -> dict:
     """The stdio launch command for an agent host. ``sys.executable`` is the
     app's runtime venv interpreter (in app data, signed, not quarantined);
@@ -69,11 +68,8 @@ def launch_command() -> dict:
     }
 
 
-# JSON-mcpServers key per format; opencode/hermes use different containers.
 _CONTAINER = {"claude": "mcpServers", "opencode": "mcp", "hermes": "mcp_servers"}
-_CODEX_BLOCK = re.compile(
-    rf"(?ms)^\[mcp_servers\.{SERVER_KEY}\][ \t]*\n(?:(?!\[)[^\n]*\n?)*"
-)
+_CODEX_HEADER = f"[mcp_servers.{SERVER_KEY}]"
 
 
 @dataclass(frozen=True)
@@ -129,101 +125,15 @@ def _read_structured(target: HostTarget) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _write_structured(target: HostTarget, data: dict) -> None:
-    target.path.parent.mkdir(parents=True, exist_ok=True)
-    if target.fmt == "hermes":
-        import yaml
-
-        target.path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
-    else:
-        target.path.write_text(json.dumps(data, indent=2))
-
-
-def _entry(fmt: str) -> dict:
-    """Per-host server entry for the bundled MCP launcher."""
-    cmd = launch_command()
-    env = cmd["env"]
-    if fmt == "opencode":
-        return {
-            "type": "local",
-            "command": [cmd["command"], *cmd["args"]],
-            "environment": env,
-            "enabled": True,
-        }
-    if fmt == "hermes":
-        return {"command": cmd["command"], "args": cmd["args"], "env": env, "enabled": True}
-    return {"command": cmd["command"], "args": cmd["args"], "env": env}  # claude
-
-
-def _codex_block() -> str:
-    cmd = launch_command()
-    args = ", ".join(json.dumps(a) for a in cmd["args"])
-    env_inline = ", ".join(f"{k} = {json.dumps(v)}" for k, v in cmd["env"].items())
-    return (
-        f"[mcp_servers.{SERVER_KEY}]\n"
-        f"command = {json.dumps(cmd['command'])}\n"
-        f"args = [{args}]\n"
-        f"env = {{ {env_inline} }}\n"
-    )
-
-
 def is_registered(target: HostTarget) -> bool:
     if target.fmt == "codex":
         try:
-            return bool(_CODEX_BLOCK.search(target.path.read_text()))
+            return any(line.strip() == _CODEX_HEADER for line in target.path.read_text().splitlines())
         except (FileNotFoundError, OSError):
             return False
     data = _read_structured(target)
     servers = data.get(_CONTAINER[target.fmt])
     return isinstance(servers, dict) and SERVER_KEY in servers
-
-
-def register(target: HostTarget) -> dict:
-    """Add the Tarscribe server to a host config (merging, non-destructive)."""
-    if target.fmt == "codex":
-        try:
-            text = target.path.read_text()
-        except (FileNotFoundError, OSError):
-            text = ""
-        block = _codex_block()
-        if _CODEX_BLOCK.search(text):
-            text = _CODEX_BLOCK.sub(block, text)
-        else:
-            text = (text.rstrip() + "\n\n" + block) if text.strip() else block
-        target.path.parent.mkdir(parents=True, exist_ok=True)
-        target.path.write_text(text)
-    else:
-        data = _read_structured(target)
-        if target.fmt == "opencode":
-            data.setdefault("$schema", "https://opencode.ai/config.json")
-        key = _CONTAINER[target.fmt]
-        servers = data.get(key)
-        if not isinstance(servers, dict):
-            servers = data[key] = {}
-        servers[SERVER_KEY] = _entry(target.fmt)
-        _write_structured(target, data)
-    return {"registered": True, "path": str(target.path), "id": target.id}
-
-
-def unregister(target: HostTarget) -> dict:
-    removed = False
-    if target.fmt == "codex":
-        try:
-            text = target.path.read_text()
-        except (FileNotFoundError, OSError):
-            text = ""
-        if _CODEX_BLOCK.search(text):
-            stripped = _CODEX_BLOCK.sub("", text).strip()
-            target.path.write_text(stripped + "\n" if stripped else "")
-            removed = True
-    else:
-        data = _read_structured(target)
-        servers = data.get(_CONTAINER[target.fmt])
-        if isinstance(servers, dict) and SERVER_KEY in servers:
-            del servers[SERVER_KEY]
-            _write_structured(target, data)
-            removed = True
-    return {"registered": False, "removed": removed, "path": str(target.path), "id": target.id}
 
 
 def target_status() -> list[dict]:

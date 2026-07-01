@@ -11,9 +11,8 @@ from sqlmodel import Session, select
 from .. import jobs
 from ..db import get_session
 from ..models import ManualEdit, Recording, SpeakerLabel
-from ..security import require_token
 
-router = APIRouter(prefix="/api/recordings", tags=["editing"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api/recordings", tags=["editing"])
 
 
 class RenameIn(BaseModel):

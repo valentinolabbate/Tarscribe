@@ -144,7 +144,7 @@ def run_window(
     """
     import tempfile
 
-    from ..live_audio import build_wav_window
+    from ..audio_utils import build_wav_window
 
     if current_duration_sec < DIAR_MIN_AUDIO_SEC:
         return state
@@ -219,7 +219,7 @@ def match_known_speakers(
     import tempfile
 
     from .embedding import cosine, embed_speaker_segments, from_blob
-    from ..live_audio import build_wav_window
+    from ..audio_utils import build_wav_window
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         wav_path = Path(tmp.name)

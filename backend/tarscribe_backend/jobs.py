@@ -6,9 +6,12 @@ persisted on the Job row and broadcast over the WebSocket hub.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+import threading
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,10 +39,94 @@ _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-job"
 # Embedding (RAG) jobs are I/O-bound HTTP calls, not heavy local ML. Run them on a
 # dedicated worker so a bulk reindex never blocks ASR / diarization / summaries.
 _embed_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tarscribe-embed")
+_async_loop: asyncio.AbstractEventLoop | None = None
+_owned_async_loop: asyncio.AbstractEventLoop | None = None
+_owned_async_loop_thread: threading.Thread | None = None
+_async_loop_lock = threading.Lock()
+_llm_futures: dict[int, Future] = {}
+_llm_futures_lock = threading.Lock()
 
 
 class JobCanceled(RuntimeError):
     """Raised inside worker threads when a user cancels a job."""
+
+
+def bind_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _async_loop
+    with _async_loop_lock:
+        _async_loop = loop
+
+
+def _ensure_async_loop() -> asyncio.AbstractEventLoop:
+    global _owned_async_loop, _owned_async_loop_thread
+    with _async_loop_lock:
+        if (
+            _async_loop is not None
+            and _async_loop.is_running()
+            and not _async_loop.is_closed()
+        ):
+            return _async_loop
+        if (
+            _owned_async_loop is not None
+            and _owned_async_loop.is_running()
+            and not _owned_async_loop.is_closed()
+        ):
+            return _owned_async_loop
+
+        loop = asyncio.new_event_loop()
+        ready = threading.Event()
+
+        def run_loop() -> None:
+            asyncio.set_event_loop(loop)
+            ready.set()
+            loop.run_forever()
+
+        thread = threading.Thread(
+            target=run_loop,
+            name="tarscribe-async-jobs",
+            daemon=True,
+        )
+        thread.start()
+        ready.wait(timeout=2)
+        _owned_async_loop = loop
+        _owned_async_loop_thread = thread
+        return loop
+
+
+def _submit_llm_job(
+    job_id: int,
+    coro_fn: Callable[..., Awaitable[None]],
+    *args,
+) -> Future:
+    global _async_loop
+    loop = _ensure_async_loop()
+    coro = coro_fn(*args)
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+    except RuntimeError:
+        coro.close()
+        with _async_loop_lock:
+            if _async_loop is loop:
+                _async_loop = None
+        loop = _ensure_async_loop()
+        future = asyncio.run_coroutine_threadsafe(coro_fn(*args), loop)
+    with _llm_futures_lock:
+        _llm_futures[job_id] = future
+
+    def cleanup(done: Future) -> None:
+        with _llm_futures_lock:
+            if _llm_futures.get(job_id) is done:
+                _llm_futures.pop(job_id, None)
+
+    future.add_done_callback(cleanup)
+    return future
+
+
+def _cancel_llm_future(job_id: int) -> None:
+    with _llm_futures_lock:
+        future = _llm_futures.get(job_id)
+    if future is not None and not future.done():
+        future.cancel()
 
 
 def _status_value(status) -> str:
@@ -156,6 +243,7 @@ def cancel_job(job_id: int) -> dict | None:
         s.add(job)
         s.flush()
         payload = serialize_job(job)
+    _cancel_llm_future(job_id)
     if reset_recording_id is not None:
         _set_recording_status_after_cancel(reset_recording_id)
     hub.broadcast(payload)
@@ -483,6 +571,12 @@ def _format_topic_knowledge(hits: list[dict]) -> str:
 
 
 def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: int) -> None:
+    asyncio.run(_run_summary_async(recording_id, job_id, template_id, summary_id))
+
+
+async def _run_summary_async(
+    recording_id: int, job_id: int, template_id: int, summary_id: int
+) -> None:
     from . import llm as L
     from .models import SummaryTemplate, Topic
 
@@ -527,13 +621,22 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         chunk_size = int(prefs.get("llm_chunk_size") or 48000)
         use_topic_knowledge = bool(prefs.get("summary_use_topic_knowledge", True))
 
-        def _chat(msgs: list[dict]) -> str:
-            return "".join(L.stream_chat(msgs, model, base,
-                                         temperature=temperature, top_p=top_p,
-                                         top_k=top_k, max_tokens=max_tokens,
-                                         api_key=api_key,
-                                         reasoning_effort=reasoning_effort,
-                                         provider=provider))
+        async def _chat(msgs: list[dict]) -> str:
+            content = ""
+            async for delta in L.astream_chat(
+                msgs,
+                model,
+                base,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                max_tokens=max_tokens,
+                api_key=api_key,
+                reasoning_effort=reasoning_effort,
+                provider=provider,
+            ):
+                content += delta
+            return content
 
         # Map step: condense long transcripts before applying the template.
         chunks = L.chunk_text(text, size=chunk_size)
@@ -546,7 +649,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
                     {"role": "system", "content": "Fasse den folgenden Transkript-Abschnitt in knappen Stichpunkten zusammen, behalte Sprecher und wichtige Fakten."},
                     {"role": "user", "content": ch},
                 ]
-                notes.append(_chat(msgs))
+                notes.append(await _chat(msgs))
                 _raise_if_canceled(job_id)
             text = "\n".join(notes)
 
@@ -598,12 +701,18 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         ]
 
         _update_job(job_id, progress=0.6)
-        for delta in L.stream_chat(messages, model, base,
-                                   temperature=temperature, top_p=top_p,
-                                   top_k=top_k, max_tokens=max_tokens,
-                                   api_key=api_key,
-                                   reasoning_effort=reasoning_effort,
-                                   provider=provider):
+        async for delta in L.astream_chat(
+            messages,
+            model,
+            base,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            max_tokens=max_tokens,
+            api_key=api_key,
+            reasoning_effort=reasoning_effort,
+            provider=provider,
+        ):
             _raise_if_canceled(job_id)
             acc += delta
             now = time.monotonic()
@@ -620,7 +729,7 @@ def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: i
         )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
-    except JobCanceled:
+    except (JobCanceled, asyncio.CancelledError):
         if acc:
             _save_summary_content(summary_id, acc, model)
         _update_job(job_id, status=JobStatus.canceled)
@@ -667,7 +776,38 @@ def _llm_chat_fn():
     return _chat
 
 
+def _llm_chat_fn_async():
+    from . import llm as L
+
+    cfg = L.get_llm_config()
+    if not cfg["model"]:
+        raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
+
+    async def _chat(msgs: list[dict]) -> str:
+        content = ""
+        async for delta in L.astream_chat(
+            msgs,
+            cfg["model"],
+            cfg["base_url"],
+            temperature=cfg.get("temperature", 0.3),
+            top_p=cfg.get("top_p"),
+            top_k=cfg.get("top_k"),
+            max_tokens=cfg.get("max_tokens"),
+            api_key=cfg.get("api_key"),
+            reasoning_effort=cfg.get("reasoning_effort"),
+            provider=cfg.get("provider"),
+        ):
+            content += delta
+        return content
+
+    return _chat
+
+
 def _run_action_items(recording_id: int, job_id: int) -> None:
+    asyncio.run(_run_action_items_async(recording_id, job_id))
+
+
+async def _run_action_items_async(recording_id: int, job_id: int) -> None:
     from . import analysis
     from .calendar_sync import sync_action_item
     from .models import ActionItem
@@ -675,7 +815,7 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
 
     try:
         _start_job(job_id, progress=0.05)
-        chat = _llm_chat_fn()
+        chat = _llm_chat_fn_async()
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
             reference_date = rec.created_at.date().isoformat() if rec and rec.created_at else None
@@ -689,7 +829,7 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
             _raise_if_canceled(job_id)
             _update_job(job_id, progress=round(frac, 4), status=JobStatus.running)
 
-        items = analysis.extract_action_items(
+        items = await analysis.extract_action_items_async(
             chat,
             text,
             speakers,
@@ -721,7 +861,7 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
                 sync_action_item(s, item)
                 s.add(item)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
-    except JobCanceled:
+    except (JobCanceled, asyncio.CancelledError):
         _update_job(job_id, status=JobStatus.canceled)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
@@ -807,6 +947,10 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
 
 
 def _run_chapters(recording_id: int, job_id: int) -> None:
+    asyncio.run(_run_chapters_async(recording_id, job_id))
+
+
+async def _run_chapters_async(recording_id: int, job_id: int) -> None:
     from . import analysis
     from .models import Chapter
     from .rag import load_utterances
@@ -814,7 +958,7 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
 
     try:
         _start_job(job_id, progress=0.1)
-        chat = _llm_chat_fn()
+        chat = _llm_chat_fn_async()
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
             if not rec:
@@ -826,7 +970,9 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
 
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
         _update_job(job_id, progress=0.3)
-        chapters = analysis.generate_chapters(chat, utts, duration, chunk_size=chunk_size)
+        chapters = await analysis.generate_chapters_async(
+            chat, utts, duration, chunk_size=chunk_size
+        )
         _raise_if_canceled(job_id)
         if not chapters:
             raise RuntimeError("Das LLM hat keine verwertbaren Kapitel geliefert.")
@@ -846,9 +992,9 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
                         end=ch.get("end"),
                         title=ch["title"],
                     )
-                )
+        )
         _update_job(job_id, status=JobStatus.done, progress=1.0)
-    except JobCanceled:
+    except (JobCanceled, asyncio.CancelledError):
         _update_job(job_id, status=JobStatus.canceled)
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
@@ -864,7 +1010,7 @@ def enqueue_action_items(recording_id: int) -> int:
         s.add(job)
         s.flush()
         job_id = job.id
-    _executor.submit(_run_action_items, recording_id, job_id)
+    _submit_llm_job(job_id, _run_action_items_async, recording_id, job_id)
     return job_id
 
 
@@ -874,7 +1020,7 @@ def enqueue_chapters(recording_id: int) -> int:
         s.add(job)
         s.flush()
         job_id = job.id
-    _executor.submit(_run_chapters, recording_id, job_id)
+    _submit_llm_job(job_id, _run_chapters_async, recording_id, job_id)
     return job_id
 
 
@@ -980,7 +1126,7 @@ def enqueue_summary(recording_id: int, template_id: int, summary_id: int) -> int
         s.add(job)
         s.flush()
         job_id = job.id
-    _executor.submit(_run_summary, recording_id, job_id, template_id, summary_id)
+    _submit_llm_job(job_id, _run_summary_async, recording_id, job_id, template_id, summary_id)
     return job_id
 
 

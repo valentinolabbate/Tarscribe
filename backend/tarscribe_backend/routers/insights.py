@@ -32,10 +32,9 @@ from ..models import (
     Word,
 )
 from ..overlay import load_overlay
-from ..security import require_token
 from ..settings_store import load_prefs
 
-router = APIRouter(prefix="/api", tags=["insights"], dependencies=[Depends(require_token)])
+router = APIRouter(prefix="/api", tags=["insights"])
 
 THREAD_STOPWORDS = {
     "der",

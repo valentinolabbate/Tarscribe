@@ -55,6 +55,13 @@ export interface Recording {
 export type RecordingSource = "microphone" | "system_audio" | "system_audio_and_microphone";
 export type PerformanceProfile = "m1_8gb" | "balanced" | "quality";
 
+export interface SecretStorageStatus {
+  available: boolean;
+  secure: boolean;
+  keyring_available: boolean;
+  fallback_enabled: boolean;
+}
+
 export interface AppSettings {
   language: string | null;
   performance_profile: PerformanceProfile;
@@ -76,6 +83,7 @@ export interface AppSettings {
   meeting_detection_apps: string[];
   caldav: { url: string; username: string };
   caldav_password_set: boolean;
+  secret_storage: SecretStorageStatus;
 }
 
 export interface WordSeg {
@@ -193,6 +201,13 @@ export interface McpInfo {
   connection_file: string;
   snippet: string;
   targets: McpHostTarget[];
+}
+
+export interface McpRegistrationResult {
+  registered: boolean;
+  removed?: boolean;
+  path: string;
+  id: string;
 }
 
 export interface McpCapability {

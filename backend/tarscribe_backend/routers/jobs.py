@@ -8,7 +8,6 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..jobs import cancel_job, serialize_job
 from ..models import Job, JobStatus, Recording, Topic
-from ..security import require_token
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -33,7 +32,7 @@ def _serialize_job_detail(job: Job, session: Session) -> dict:
     return payload
 
 
-@router.get("", dependencies=[Depends(require_token)])
+@router.get("")
 def list_jobs(
     status: str = "active",
     limit: int = 50,
@@ -53,7 +52,7 @@ def list_jobs(
     return [_serialize_job_detail(job, session) for job in rows]
 
 
-@router.post("/{job_id}/cancel", dependencies=[Depends(require_token)])
+@router.post("/{job_id}/cancel")
 def cancel_job_endpoint(job_id: int, session: Session = Depends(get_session)) -> dict:
     job = session.get(Job, job_id)
     if not job:

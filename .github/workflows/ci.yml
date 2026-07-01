@@ -57,6 +57,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Stage Tauri resources
+        working-directory: desktop
+        run: ./scripts/stage-resources.sh
+
       - name: Rust check
         working-directory: desktop/src-tauri
-        run: cargo check
+        run: cargo check --locked

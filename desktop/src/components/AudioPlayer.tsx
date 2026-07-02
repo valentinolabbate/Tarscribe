@@ -11,6 +11,7 @@ import { api } from "../lib/api";
 export interface PlayerHandle {
   seek: (seconds: number) => void;
   playPause: () => void;
+  playRange: (start: number, end: number) => Promise<boolean>;
 }
 
 function cssVar(name: string, fallback: string): string {
@@ -41,6 +42,16 @@ export const AudioPlayer = forwardRef<
         }
       },
       playPause: () => ws.current?.playPause(),
+      playRange: async (start: number, end: number) => {
+        const w = ws.current;
+        if (!w || duration <= 0) return false;
+        try {
+          await w.play(start, Math.min(end, duration));
+          return true;
+        } catch {
+          return false;
+        }
+      },
     }));
 
     useEffect(() => {

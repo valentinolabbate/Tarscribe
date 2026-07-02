@@ -289,6 +289,9 @@ export function RecordingDetail({
                 diarizePending={diarizeFirst.isPending}
                 onToggleTuning={() => setShowTuning((value) => !value)}
                 onDiarize={() => diarizeFirst.mutate({ id: recording.id })}
+                playerRef={playerRef}
+                currentTime={currentTime}
+                playing={playing}
               />
             )}
           </div>

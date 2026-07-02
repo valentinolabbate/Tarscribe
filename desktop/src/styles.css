@@ -2537,6 +2537,9 @@ select:focus {
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--bg-input) 45%, transparent);
 }
+.legend-item.preview-playing {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
 .legend-name {
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -2546,6 +2549,42 @@ select:focus {
   font-size: 13px;
   font-weight: 550;
   width: 130px;
+}
+.speaker-preview-btn {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.speaker-preview-btn svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+.speaker-preview-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.speaker-preview-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.speaker-preview-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.legend-item.preview-playing .speaker-preview-btn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 .merge-sel,
 .speaker-chip-sel {

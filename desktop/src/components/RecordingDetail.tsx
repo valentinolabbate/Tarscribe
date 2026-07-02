@@ -244,6 +244,8 @@ export function RecordingDetail({
           <AudioPlayer
             ref={playerRef}
             recordingId={recording.id}
+            audioPath={recording.audio_path}
+            durationSec={recording.duration_sec}
             onTime={setCurrentTime}
             onPlaying={setPlaying}
           />

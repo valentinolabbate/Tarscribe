@@ -9,6 +9,11 @@ export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Pr
   return invoke<T>(cmd, args);
 }
 
+export async function convertLocalFileSrc(path: string): Promise<string> {
+  const { convertFileSrc } = await import("@tauri-apps/api/core");
+  return convertFileSrc(path);
+}
+
 export async function listen<T>(event: string, cb: (payload: T) => void): Promise<() => void> {
   const { listen } = await import("@tauri-apps/api/event");
   return listen<T>(event, (e) => cb(e.payload));

@@ -40,6 +40,54 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
+def test_waveform_endpoint_returns_and_reuses_bounded_peaks(client, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.routers.recordings as recordings_router
+    from tarscribe_backend.config import get_settings
+    from tarscribe_backend.models import Recording, Topic
+
+    audio_path = get_settings().audio_dir / "waveform-test.wav"
+    samples = np.linspace(-0.75, 0.75, 400, dtype=np.float32)
+    sf.write(audio_path, samples, 8000, subtype="PCM_16")
+
+    with Session(db.get_engine()) as session:
+        topic = Topic(name="Waveform")
+        session.add(topic)
+        session.flush()
+        recording = Recording(
+            topic_id=topic.id,
+            title="Lange Aufnahme",
+            audio_path=str(audio_path),
+            duration_sec=0.05,
+        )
+        session.add(recording)
+        session.commit()
+        recording_id = recording.id
+
+    response = client.get(f"/api/recordings/{recording_id}/waveform?points=200")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["duration_sec"] == pytest.approx(0.05)
+    assert len(body["peaks"]) == 400
+    assert max(body["peaks"]) <= 1.0
+    assert min(body["peaks"]) >= -1.0
+    cache_dir = recordings_router.get_settings().waveforms_dir
+    assert len(list(cache_dir.glob(f"{recording_id}-*.json"))) == 1
+
+    monkeypatch.setattr(
+        recordings_router,
+        "compute_waveform_peaks",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache not used")),
+    )
+    cached = client.get(f"/api/recordings/{recording_id}/waveform?points=200")
+    assert cached.status_code == 200
+    assert cached.json() == body
+
+
 def test_mcp_diagnostics(client):
     r = client.get("/api/mcp/diagnostics")
     assert r.status_code == 200

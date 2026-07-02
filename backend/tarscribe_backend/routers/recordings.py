@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from ..audio import AudioError, mix_to_wav, normalize_to_wav, probe_duration
+from ..audio import AudioError, compute_waveform_peaks, mix_to_wav, normalize_to_wav, probe_duration
 from ..config import get_settings
 from ..db import get_session
 from ..models import (
@@ -242,6 +243,8 @@ def delete_recording(recording_id: int, session: Session = Depends(get_session))
         audio_path.unlink(missing_ok=True)
     except OSError as exc:
         print(f"Audiodatei konnte nach DB-Löschung nicht entfernt werden: {exc}")
+    for waveform_path in get_settings().waveforms_dir.glob(f"{recording_id}-*.json"):
+        waveform_path.unlink(missing_ok=True)
     for doc_file in doc_files:
         try:
             doc_file.unlink(missing_ok=True)
@@ -258,3 +261,40 @@ def stream_audio(recording_id: int, session: Session = Depends(get_session)) -> 
     if not path.exists():
         raise HTTPException(410, "Audiodatei nicht mehr vorhanden")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
+
+
+@router.get("/{recording_id}/waveform")
+def get_waveform(
+    recording_id: int,
+    points: int = Query(2400, ge=200, le=5000),
+    session: Session = Depends(get_session),
+) -> dict:
+    rec = session.get(Recording, recording_id)
+    if not rec:
+        raise HTTPException(404, "Aufnahme nicht gefunden")
+    path = Path(rec.audio_path)
+    if not path.exists():
+        raise HTTPException(410, "Audiodatei nicht mehr vorhanden")
+
+    stat = path.stat()
+    settings = get_settings()
+    cache_path = settings.waveforms_dir / (
+        f"{recording_id}-{stat.st_size}-{stat.st_mtime_ns}-{points}.json"
+    )
+    try:
+        return json.loads(cache_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
+
+    try:
+        duration, peaks = compute_waveform_peaks(path, points)
+    except AudioError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    payload = {"duration_sec": duration or rec.duration_sec, "peaks": peaks}
+    try:
+        for stale_path in settings.waveforms_dir.glob(f"{recording_id}-*.json"):
+            stale_path.unlink(missing_ok=True)
+        cache_path.write_text(json.dumps(payload, separators=(",", ":")))
+    except OSError:
+        pass
+    return payload

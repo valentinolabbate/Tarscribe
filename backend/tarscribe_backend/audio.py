@@ -7,8 +7,12 @@ the ASR and diarization models expect, and keep the original filename for export
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from pathlib import Path
+
+import numpy as np
+import soundfile as sf
 
 from .media_tools import media_tool_path
 
@@ -60,6 +64,24 @@ def probe_duration(path: Path) -> float:
     except (AudioError, subprocess.CalledProcessError, ValueError, json.JSONDecodeError):
         pass
     return _soundfile_duration(path)
+
+
+def compute_waveform_peaks(path: Path, point_count: int) -> tuple[float, list[float]]:
+    try:
+        with sf.SoundFile(str(path)) as audio:
+            total_frames = len(audio)
+            duration = total_frames / audio.samplerate if audio.samplerate else 0.0
+            frames_per_point = max(1, math.ceil(total_frames / point_count))
+            peaks: list[float] = []
+            while len(peaks) < point_count * 2:
+                samples = audio.read(frames_per_point, dtype="float32", always_2d=True)
+                if samples.size == 0:
+                    break
+                peak = float(np.max(np.abs(samples)))
+                peaks.extend((-peak, peak))
+    except Exception as exc:
+        raise AudioError(f"Wellenform konnte nicht gelesen werden: {exc}") from exc
+    return duration, peaks or [0.0, 0.0]
 
 
 def _soundfile_duration(path: Path) -> float:

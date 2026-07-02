@@ -3194,9 +3194,25 @@ select:focus {
 .play-btn:disabled {
   opacity: 0.5;
 }
-.waveform {
+.waveform-shell {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+.waveform {
+  min-width: 0;
+}
+.waveform-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 12px;
+  pointer-events: none;
+}
+.waveform-status.error {
+  color: var(--danger);
 }
 .player-time {
   font-variant-numeric: tabular-nums;

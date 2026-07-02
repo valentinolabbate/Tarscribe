@@ -61,6 +61,10 @@ class Settings(BaseSettings):
         return self.data_dir / "audio"
 
     @property
+    def waveforms_dir(self) -> Path:
+        return self.data_dir / "waveforms"
+
+    @property
     def models_dir(self) -> Path:
         return self.data_dir / "models"
 
@@ -92,6 +96,7 @@ class Settings(BaseSettings):
         for d in (
             self.data_dir,
             self.audio_dir,
+            self.waveforms_dir,
             self.models_dir,
             self.samples_dir,
             self.documents_dir,

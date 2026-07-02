@@ -1,16 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bytesFromIpcResponse, downloadFilenameFromContentDisposition } from "./api";
-
-describe("bytesFromIpcResponse", () => {
-  it("keeps raw IPC array buffers binary", () => {
-    const input = new Uint8Array([82, 73, 70, 70]).buffer;
-    expect([...bytesFromIpcResponse(input)]).toEqual([82, 73, 70, 70]);
-  });
-
-  it("supports the numeric fallback used outside raw IPC", () => {
-    expect([...bytesFromIpcResponse([1, 2, 255])]).toEqual([1, 2, 255]);
-  });
-});
+import { downloadFilenameFromContentDisposition } from "./api";
 
 describe("downloadFilenameFromContentDisposition", () => {
   it("parses quoted filenames", () => {

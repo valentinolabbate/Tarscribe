@@ -35,7 +35,12 @@ import type {
   TopicDocument,
   TopicThread,
 } from "./types";
-import { invoke as tauriInvoke, isTauri as isTauriRuntime, listen as tauriListen } from "./tauri";
+import {
+  convertLocalFileSrc,
+  invoke as tauriInvoke,
+  isTauri as isTauriRuntime,
+  listen as tauriListen,
+} from "./tauri";
 
 export interface SearchFilters {
   topicId?: number | null;
@@ -102,10 +107,6 @@ async function resolveConfig(): Promise<BackendConfig> {
 export function getConfig(): Promise<BackendConfig> {
   if (!configPromise) configPromise = resolveConfig();
   return configPromise;
-}
-
-export function bytesFromIpcResponse(data: ArrayBuffer | number[]): Uint8Array<ArrayBuffer> {
-  return data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data);
 }
 
 function proxyHeaders(headers: Headers): ProxyHeader[] {
@@ -830,16 +831,17 @@ export const api = {
   async downloadAudio(id: number, title: string): Promise<void> {
     await downloadBlob(`/api/recordings/${id}/audio`, `${title}.wav`);
   },
-  async audioUrl(id: number): Promise<string> {
+  async audioUrl(id: number, audioPath: string): Promise<string> {
     const path = `/api/recordings/${id}/audio`;
     if (isTauriRuntime()) {
-      const data = await tauriInvoke<ArrayBuffer | number[]>("proxy_binary", { path });
-      return URL.createObjectURL(new Blob([bytesFromIpcResponse(data)], { type: "audio/wav" }));
+      return convertLocalFileSrc(audioPath);
     }
-    const res = await backendFetch(path);
-    if (!res.ok) throw new Error("Audio konnte nicht geladen werden");
-    return URL.createObjectURL(await res.blob());
+    const cfg = await getConfig();
+    if (cfg.token) throw new Error("Audio-Streaming ist im Browser mit Token nicht verfügbar");
+    return `${cfg.base_url}${path}`;
   },
+  getWaveform: (id: number) =>
+    request<{ duration_sec: number; peaks: number[] }>(`/api/recordings/${id}/waveform`),
 
   // MCP (agent integration)
   getMcpInfo: () => request<McpInfo>("/api/mcp/info"),

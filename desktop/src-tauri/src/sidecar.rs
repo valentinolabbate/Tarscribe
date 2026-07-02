@@ -448,32 +448,6 @@ pub async fn proxy_request(
     })
 }
 
-#[tauri::command]
-pub async fn proxy_binary(
-    state: tauri::State<'_, BackendState>,
-    path: String,
-) -> Result<tauri::ipc::Response, String> {
-    let config = current_config(&state)?;
-    let url = backend_api_url(&config, &path)?;
-    let response = reqwest::Client::new()
-        .get(url)
-        .header("X-Tarscribe-Token", config.token)
-        .send()
-        .await
-        .map_err(|e| format!("Backend-Request fehlgeschlagen: {e}"))?;
-    let status = response.status();
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Backend-Response konnte nicht gelesen werden: {e}"))?;
-    if !status.is_success() {
-        return Err(format!(
-            "Binärdaten konnten nicht geladen werden (HTTP {status})"
-        ));
-    }
-    Ok(tauri::ipc::Response::new(body.to_vec()))
-}
-
 fn backend_ws_url(config: &BackendConfig) -> String {
     format!("{}/ws", config.base_url.replacen("http", "ws", 1))
 }

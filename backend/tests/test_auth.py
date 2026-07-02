@@ -156,11 +156,24 @@ def test_frontend_websocket_auth_does_not_use_query_token():
 
 def test_tauri_frontend_uses_proxy_instead_of_backend_token():
     api_source = (_repo_root() / "desktop/src/lib/api.ts").read_text()
+    player_source = (_repo_root() / "desktop/src/components/AudioPlayer.tsx").read_text()
     sidecar_source = (_repo_root() / "desktop/src-tauri/src/sidecar.rs").read_text()
+    cargo_source = (_repo_root() / "desktop/src-tauri/Cargo.toml").read_text()
 
     public_config = sidecar_source.split("pub struct PublicBackendConfig", 1)[1].split("}", 1)[0]
     assert "token" not in public_config
     assert 'tauriInvoke<ProxyResponse>("proxy_request"' in api_source
     assert 'tauriInvoke<string>("backend_ws_connect"' in api_source
-    assert 'tauriInvoke<ArrayBuffer | number[]>("proxy_binary"' in api_source
-    assert "Result<tauri::ipc::Response, String>" in sidecar_source
+    assert "convertLocalFileSrc(audioPath)" in api_source
+    assert "proxy_binary" not in api_source
+    assert "proxy_binary" not in sidecar_source
+    audio_source = api_source.split("async audioUrl", 1)[1].split("getWaveform", 1)[0]
+    assert ".blob()" not in audio_source
+    assert 'media.preload = "metadata"' in player_source
+    assert "peaks: [waveform.peaks]" in player_source
+    assert '"protocol-asset"' in cargo_source
+
+    config = json.loads((_repo_root() / "desktop/src-tauri/tauri.conf.json").read_text())
+    asset_protocol = config["app"]["security"]["assetProtocol"]
+    assert asset_protocol == {"enable": True, "scope": ["$APPDATA/audio/**"]}
+    assert "media-src 'self' blob: asset: http://asset.localhost" in config["app"]["security"]["csp"]

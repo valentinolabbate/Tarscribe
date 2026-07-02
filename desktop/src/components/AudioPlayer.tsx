@@ -23,14 +23,21 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).p
 
 export const AudioPlayer = forwardRef<
   PlayerHandle,
-  { recordingId: number; onTime: (t: number) => void; onPlaying?: (p: boolean) => void }
->(function AudioPlayer({ recordingId, onTime, onPlaying }, ref) {
+  {
+    recordingId: number;
+    audioPath: string;
+    durationSec: number;
+    onTime: (t: number) => void;
+    onPlaying?: (p: boolean) => void;
+  }
+>(function AudioPlayer({ recordingId, audioPath, durationSec, onTime, onPlaying }, ref) {
     const container = useRef<HTMLDivElement>(null);
     const ws = useRef<WaveSurfer | null>(null);
     const [ready, setReady] = useState(false);
     const [playing, setPlaying] = useState(false);
     const [time, setTime] = useState(0);
     const [duration, setDuration] = useState(0);
+    const [error, setError] = useState<string | null>(null);
     const lastEmit = useRef(0);
 
     useImperativeHandle(ref, () => ({
@@ -56,55 +63,68 @@ export const AudioPlayer = forwardRef<
 
     useEffect(() => {
       let disposed = false;
-      let objectUrl: string | null = null;
 
       (async () => {
-        const url = await api.audioUrl(recordingId);
-        if (disposed || !container.current) return;
-        objectUrl = url;
-        const w = WaveSurfer.create({
-          container: container.current,
-          height: 56,
-          waveColor: cssVar("--border-strong", "#333a48"),
-          progressColor: cssVar("--accent", "#6366f1"),
-          cursorColor: cssVar("--text", "#e6e8ee"),
-          barWidth: 2,
-          barGap: 1,
-          barRadius: 2,
-          url,
-        });
-        ws.current = w;
-        w.on("ready", () => {
-          setReady(true);
-          setDuration(w.getDuration());
-        });
-        w.on("timeupdate", (t: number) => {
-          setTime(t);
-          const now = performance.now();
-          if (now - lastEmit.current > 80) {
-            lastEmit.current = now;
-            onTime(t);
-          }
-        });
-        w.on("play", () => {
-          setPlaying(true);
-          onPlaying?.(true);
-        });
-        w.on("pause", () => {
-          setPlaying(false);
-          onPlaying?.(false);
-        });
-        w.on("finish", () => {
-          setPlaying(false);
-          onPlaying?.(false);
-        });
+        try {
+          const [url, waveform] = await Promise.all([
+            api.audioUrl(recordingId, audioPath),
+            api.getWaveform(recordingId).catch(() => ({
+              duration_sec: durationSec,
+              peaks: [0, 0],
+            })),
+          ]);
+          if (disposed || !container.current) return;
+          const media = document.createElement("audio");
+          media.preload = "metadata";
+          const w = WaveSurfer.create({
+            container: container.current,
+            media,
+            height: 56,
+            waveColor: cssVar("--border-strong", "#333a48"),
+            progressColor: cssVar("--accent", "#6366f1"),
+            cursorColor: cssVar("--text", "#e6e8ee"),
+            barWidth: 2,
+            barGap: 1,
+            barRadius: 2,
+            url,
+            peaks: [waveform.peaks],
+            duration: Math.max(waveform.duration_sec || durationSec, 0.001),
+          });
+          ws.current = w;
+          w.on("ready", () => {
+            setReady(true);
+            setDuration(w.getDuration());
+          });
+          w.on("timeupdate", (t: number) => {
+            setTime(t);
+            const now = performance.now();
+            if (now - lastEmit.current > 80) {
+              lastEmit.current = now;
+              onTime(t);
+            }
+          });
+          w.on("play", () => {
+            setPlaying(true);
+            onPlaying?.(true);
+          });
+          w.on("pause", () => {
+            setPlaying(false);
+            onPlaying?.(false);
+          });
+          w.on("finish", () => {
+            setPlaying(false);
+            onPlaying?.(false);
+          });
+          w.on("error", () => setError("Audio konnte nicht geladen werden"));
+        } catch (loadError) {
+          if (!disposed) setError((loadError as Error).message);
+        }
       })();
 
       return () => {
         disposed = true;
         ws.current?.destroy();
         ws.current = null;
-        if (objectUrl) URL.revokeObjectURL(objectUrl);
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [recordingId]);
@@ -128,7 +148,14 @@ export const AudioPlayer = forwardRef<
             </svg>
           )}
         </button>
-        <div ref={container} className="waveform" />
+        <div className="waveform-shell">
+          {!ready && (
+            <span className={`waveform-status${error ? " error" : ""}`}>
+              {error ?? "Wellenform wird vorbereitet…"}
+            </span>
+          )}
+          <div ref={container} className="waveform" />
+        </div>
         <span className="player-time">
           {fmt(time)} / {fmt(duration)}
         </span>

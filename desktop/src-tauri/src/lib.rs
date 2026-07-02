@@ -289,6 +289,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar::backend_config,
             sidecar::proxy_request,
+            sidecar::proxy_binary,
             sidecar::backend_ws_connect,
             sidecar::backend_ws_disconnect,
             sidecar::is_env_ready,

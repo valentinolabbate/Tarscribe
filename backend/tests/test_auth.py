@@ -162,3 +162,5 @@ def test_tauri_frontend_uses_proxy_instead_of_backend_token():
     assert "token" not in public_config
     assert 'tauriInvoke<ProxyResponse>("proxy_request"' in api_source
     assert 'tauriInvoke<string>("backend_ws_connect"' in api_source
+    assert 'tauriInvoke<ArrayBuffer | number[]>("proxy_binary"' in api_source
+    assert "Result<tauri::ipc::Response, String>" in sidecar_source

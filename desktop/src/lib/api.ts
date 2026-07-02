@@ -104,6 +104,10 @@ export function getConfig(): Promise<BackendConfig> {
   return configPromise;
 }
 
+export function bytesFromIpcResponse(data: ArrayBuffer | number[]): Uint8Array<ArrayBuffer> {
+  return data instanceof ArrayBuffer ? new Uint8Array(data) : Uint8Array.from(data);
+}
+
 function proxyHeaders(headers: Headers): ProxyHeader[] {
   return [...headers.entries()].map(([name, value]) => ({ name, value }));
 }
@@ -827,7 +831,12 @@ export const api = {
     await downloadBlob(`/api/recordings/${id}/audio`, `${title}.wav`);
   },
   async audioUrl(id: number): Promise<string> {
-    const res = await backendFetch(`/api/recordings/${id}/audio`);
+    const path = `/api/recordings/${id}/audio`;
+    if (isTauriRuntime()) {
+      const data = await tauriInvoke<ArrayBuffer | number[]>("proxy_binary", { path });
+      return URL.createObjectURL(new Blob([bytesFromIpcResponse(data)], { type: "audio/wav" }));
+    }
+    const res = await backendFetch(path);
     if (!res.ok) throw new Error("Audio konnte nicht geladen werden");
     return URL.createObjectURL(await res.blob());
   },

@@ -824,7 +824,7 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
 
     r = client.get(f"/api/summaries/{summary_id}")
     assert r.status_code == 200
-    assert r.json()["content"] == "Hallo Welt"
+    assert r.json()["content"] == "Hallo Welt\n\n## Aufgaben\n\nKeine Aufgaben erkannt."
     job_payload = client.get(f"/api/recordings/{recording_id}/jobs").json()[0]
     assert job_payload["job_id"] == job_id
     assert "id" not in job_payload
@@ -833,6 +833,95 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
 
     with Session(db.get_engine()) as s:
         assert s.get(Job, job_id).status == JobStatus.done
+
+
+def test_summary_appends_separately_extracted_tasks_without_sending_them_to_summary_llm(
+    client, monkeypatch
+):
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.llm as llm
+    from tarscribe_backend.models import (
+        ActionItem,
+        Job,
+        JobPhase,
+        JobStatus,
+        Recording,
+        Summary,
+        SummaryTemplate,
+        Topic,
+        Transcript,
+        Word,
+    )
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Test")
+        s.add(topic)
+        s.flush()
+        recording = Recording(topic_id=topic.id, title="Aufgaben", audio_path="/tmp/tasks.wav")
+        s.add(recording)
+        s.flush()
+        transcript = Transcript(recording_id=recording.id, asr_model="test")
+        s.add(transcript)
+        s.flush()
+        s.add(
+            Word(
+                transcript_id=transcript.id,
+                idx=0,
+                start=0,
+                end=1,
+                text="Anna schreibt den Bericht bis Freitag.",
+            )
+        )
+        template = SummaryTemplate(name="Test", user_prompt_template="{{transcript}}")
+        s.add(template)
+        s.flush()
+        summary = Summary(recording_id=recording.id, template_id=template.id, model="")
+        s.add(summary)
+        job = Job(recording_id=recording.id, phase=JobPhase.summarize, status=JobStatus.pending)
+        s.add(job)
+        s.commit()
+        recording_id = recording.id
+        template_id = template.id
+        summary_id = summary.id
+        job_id = job.id
+
+    summary_messages: list[list[dict]] = []
+
+    async def fake_astream_chat(messages, *_args, **_kwargs):
+        if "JSON-Array" in messages[0]["content"]:
+            yield (
+                '[{"kind":"task","text":"Bericht schreiben","assignee":"Anna",'
+                '"due":"bis Freitag","due_date":null}]'
+            )
+            return
+        summary_messages.append(messages)
+        yield "Nur die Zusammenfassung."
+
+    monkeypatch.setattr(
+        llm,
+        "get_llm_config",
+        lambda: {"model": "local-test", "base_url": "http://llm"},
+    )
+    monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
+    monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
+
+    jobs._run_summary(recording_id, job_id, template_id, summary_id)
+
+    with Session(db.get_engine()) as s:
+        content = s.get(Summary, summary_id).content
+        items = list(s.exec(select(ActionItem).where(ActionItem.recording_id == recording_id)))
+
+    assert summary_messages
+    assert all("Bericht schreiben" not in message["content"] for message in summary_messages[0])
+    assert content == (
+        "Nur die Zusammenfassung.\n\n"
+        "## Aufgaben\n\n"
+        "- [ ] Bericht schreiben — Anna, bis Freitag"
+    )
+    assert [item.text for item in items] == ["Bericht schreiben"]
 
 
 def test_meeting_protocol_prompt_treats_topic_as_context(client, monkeypatch):

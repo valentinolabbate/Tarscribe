@@ -528,8 +528,9 @@ BUILTIN_TEMPLATES = [
             "Falls Entscheidungen gefallen sind, als Obsidian-Callout:\n"
             "> [!important] Entscheidungen\n"
             "> - Entscheidung 1\n\n"
-            "## Offene Fragen & Nächste Schritte\n"
-            "Als Checkliste (- [ ] Aufgabe — Verantwortliche Person).\n\n"
+            "## Offene Fragen\n"
+            "Tatsächlich offengebliebene Fragen als Stichpunkte. Keine Aufgaben oder nächsten "
+            "Schritte formulieren.\n\n"
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",
@@ -539,7 +540,7 @@ BUILTIN_TEMPLATES = [
         system_prompt=(
             "Du bist ein Lernassistent, der Vorlesungen als strukturierte Obsidian-Lernnotizen "
             "zusammenfasst. Verwende YAML-Frontmatter, hierarchische Überschriften, "
-            "> [!note]-Callouts für Definitionen und - [ ]-Checklisten für Nacharbeit. "
+            "> [!note]-Callouts für Definitionen und klare Stichpunkte. "
             "Nur Inhalte aus dem Transkript."
         ),
         user_prompt_template=(
@@ -561,8 +562,8 @@ BUILTIN_TEMPLATES = [
             "## Definitionen & Begriffe\n"
             "> [!note] Definitionen\n"
             "> **Begriff:** Erklärung\n\n"
-            "## Zum Nacharbeiten\n"
-            "- [ ] Offene Frage oder zu vertiefendes Thema\n\n"
+            "## Offene Fragen\n"
+            "Tatsächlich offengebliebene Fragen als Stichpunkte, ohne Aufgaben zu formulieren.\n\n"
             "Transkript:\n{{transcript}}"
         ),
         output_format="markdown",

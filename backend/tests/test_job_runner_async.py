@@ -152,7 +152,10 @@ def test_cancel_llm_job_closes_streaming_request(db_env, monkeypatch):
     started = threading.Event()
     closed = threading.Event()
 
-    async def fake_astream_chat(*_args, **_kwargs):
+    async def fake_astream_chat(messages, *_args, **_kwargs):
+        if "JSON-Array" in messages[0]["content"]:
+            yield "[]"
+            return
         started.set()
         try:
             yield "Teil"

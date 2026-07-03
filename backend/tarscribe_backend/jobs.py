@@ -570,6 +570,62 @@ def _format_topic_knowledge(hits: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
+def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
+    from . import analysis
+    from .calendar_sync import sync_action_item
+
+    stored: list[dict] = []
+    with session_scope() as s:
+        old = s.exec(
+            select(ActionItem).where(ActionItem.recording_id == recording_id)
+        ).all()
+        old_by_text = {analysis._norm_text(item.text): item for item in old}
+        for item in old:
+            s.delete(item)
+        s.flush()
+        for extracted in items:
+            previous = old_by_text.get(analysis._norm_text(extracted["text"]))
+            item = ActionItem(
+                recording_id=recording_id,
+                kind=extracted["kind"],
+                text=extracted["text"],
+                assignee=extracted.get("assignee"),
+                due=extracted.get("due"),
+                due_date=extracted.get("due_date"),
+                done=previous.done if previous else False,
+                include_in_tasks=previous.include_in_tasks if previous else False,
+            )
+            sync_action_item(s, item)
+            s.add(item)
+            stored.append(
+                {
+                    **extracted,
+                    "done": item.done,
+                }
+            )
+    return stored
+
+
+def _format_summary_tasks(items: list[dict]) -> str:
+    tasks = [item for item in items if item.get("kind") == "task"]
+    if not tasks:
+        return "## Aufgaben\n\nKeine Aufgaben erkannt."
+    lines = ["## Aufgaben", ""]
+    for item in tasks:
+        text = " ".join(str(item.get("text") or "").split())
+        details = []
+        if item.get("assignee"):
+            details.append(str(item["assignee"]).strip())
+        if item.get("due"):
+            details.append(str(item["due"]).strip())
+        elif item.get("due_date"):
+            details.append(str(item["due_date"]).strip())
+        suffix = f" — {', '.join(details)}" if details else ""
+        checked = "x" if item.get("done") else " "
+        lines.append(f"- [{checked}] {text}{suffix}")
+    return "\n".join(lines)
+
+
 def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: int) -> None:
     asyncio.run(_run_summary_async(recording_id, job_id, template_id, summary_id))
 
@@ -638,15 +694,40 @@ async def _run_summary_async(
                 content += delta
             return content
 
-        # Map step: condense long transcripts before applying the template.
+        from . import analysis
+
+        reference_date = rec_created.date().isoformat() if rec_created else None
+
+        def action_progress(frac: float) -> None:
+            _raise_if_canceled(job_id)
+            _update_job(job_id, progress=round(0.05 + 0.2 * frac, 4))
+
+        action_items = await analysis.extract_action_items_async(
+            _chat,
+            text,
+            speakers,
+            chunk_size=chunk_size,
+            progress=action_progress,
+            reference_date=reference_date,
+        )
+        action_items = _replace_action_items(recording_id, action_items)
+        task_block = _format_summary_tasks(action_items)
+
         chunks = L.chunk_text(text, size=chunk_size)
         if len(chunks) > 1:
             notes: list[str] = []
             for i, ch in enumerate(chunks):
                 _raise_if_canceled(job_id)
-                _update_job(job_id, progress=0.05 + 0.5 * (i / len(chunks)))
+                _update_job(job_id, progress=0.25 + 0.35 * (i / len(chunks)))
                 msgs = [
-                    {"role": "system", "content": "Fasse den folgenden Transkript-Abschnitt in knappen Stichpunkten zusammen, behalte Sprecher und wichtige Fakten."},
+                    {
+                        "role": "system",
+                        "content": (
+                            "Fasse den folgenden Transkript-Abschnitt in knappen Stichpunkten "
+                            "zusammen, behalte Sprecher und wichtige Fakten. Extrahiere oder "
+                            "formuliere keine Aufgaben und nächsten Schritte."
+                        ),
+                    },
                     {"role": "user", "content": ch},
                 ]
                 notes.append(await _chat(msgs))
@@ -663,6 +744,11 @@ async def _run_summary_async(
         )
         user_prompt = L.render_template(tpl_user, ctx)
         system_prompt = tpl_system or "Du bist ein hilfreicher Assistent."
+        system_prompt += (
+            "\n\nErstelle, ergänze und formuliere keine Aufgaben, To-dos oder nächsten Schritte. "
+            "Aufgaben werden außerhalb dieses Modells separat extrahiert und nachträglich "
+            "unverändert an die Zusammenfassung angehängt."
+        )
 
         # Enrich the summary with relevant knowledge from the same topic (other
         # transcripts, summaries and uploaded documents). Best-effort: any failure
@@ -700,7 +786,7 @@ async def _run_summary_async(
             {"role": "user", "content": user_prompt},
         ]
 
-        _update_job(job_id, progress=0.6)
+        _update_job(job_id, progress=0.65)
         async for delta in L.astream_chat(
             messages,
             model,
@@ -723,7 +809,18 @@ async def _run_summary_async(
                 {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": delta, "done": False}
             )
 
+        task_delta = ("\n\n" if acc.strip() else "") + task_block
+        acc += task_delta
         _save_summary_content(summary_id, acc, model)
+        hub.broadcast(
+            {
+                "type": "summary",
+                "recording_id": recording_id,
+                "summary_id": summary_id,
+                "delta": task_delta,
+                "done": False,
+            }
+        )
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
@@ -809,8 +906,6 @@ def _run_action_items(recording_id: int, job_id: int) -> None:
 
 async def _run_action_items_async(recording_id: int, job_id: int) -> None:
     from . import analysis
-    from .calendar_sync import sync_action_item
-    from .models import ActionItem
     from .settings_store import load_prefs
 
     try:
@@ -839,27 +934,7 @@ async def _run_action_items_async(recording_id: int, job_id: int) -> None:
         )
         _raise_if_canceled(job_id)
 
-        with session_scope() as s:
-            old = s.exec(
-                select(ActionItem).where(ActionItem.recording_id == recording_id)
-            ).all()
-            # Re-extraction replaces the list but keeps check-offs for unchanged texts.
-            done_texts = {analysis._norm_text(o.text) for o in old if o.done}
-            for o in old:
-                s.delete(o)
-            s.flush()
-            for it in items:
-                item = ActionItem(
-                    recording_id=recording_id,
-                    kind=it["kind"],
-                    text=it["text"],
-                    assignee=it.get("assignee"),
-                    due=it.get("due"),
-                    due_date=it.get("due_date"),
-                    done=analysis._norm_text(it["text"]) in done_texts,
-                )
-                sync_action_item(s, item)
-                s.add(item)
+        _replace_action_items(recording_id, items)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
     except (JobCanceled, asyncio.CancelledError):
         _update_job(job_id, status=JobStatus.canceled)

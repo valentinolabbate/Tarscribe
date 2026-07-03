@@ -208,6 +208,9 @@ class Summary(SQLModel, table=True):
     template_id: Optional[int] = Field(default=None, foreign_key="summary_templates.id")
     model: str
     content: str = ""
+    generated_content: Optional[str] = None
+    revision: int = 0
+    updated_at: datetime = Field(default_factory=_utcnow)
     # JSON-encoded list of topic-knowledge passages woven into this summary
     # (see jobs._run_summary). None when no extra knowledge was used.
     sources: Optional[str] = None

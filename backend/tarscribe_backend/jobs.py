@@ -45,6 +45,8 @@ _owned_async_loop_thread: threading.Thread | None = None
 _async_loop_lock = threading.Lock()
 _llm_futures: dict[int, Future] = {}
 _llm_futures_lock = threading.Lock()
+_reindex_timers: dict[int, threading.Timer] = {}
+_reindex_timers_lock = threading.Lock()
 
 
 class JobCanceled(RuntimeError):
@@ -257,6 +259,18 @@ def _save_summary_content(summary_id: int, content: str, model: str) -> None:
         if summary:
             summary.content = content
             summary.model = model
+            s.add(summary)
+
+
+def _finalize_summary_content(summary_id: int, content: str, model: str) -> None:
+    with session_scope() as s:
+        summary = s.get(Summary, summary_id)
+        if summary:
+            summary.content = content
+            summary.generated_content = content
+            summary.model = model
+            summary.revision = 0
+            summary.updated_at = datetime.now(timezone.utc)
             s.add(summary)
 
 
@@ -609,7 +623,7 @@ def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
 def _format_summary_tasks(items: list[dict]) -> str:
     tasks = [item for item in items if item.get("kind") == "task"]
     if not tasks:
-        return "## Aufgaben\n\nKeine Aufgaben erkannt."
+        return ""
     lines = ["## Aufgaben", ""]
     for item in tasks:
         text = " ".join(str(item.get("text") or "").split())
@@ -626,12 +640,36 @@ def _format_summary_tasks(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _run_summary(recording_id: int, job_id: int, template_id: int, summary_id: int) -> None:
-    asyncio.run(_run_summary_async(recording_id, job_id, template_id, summary_id))
+def _summary_clarification_block(clarification: str | None) -> str:
+    text = (clarification or "").strip()
+    if not text:
+        return ""
+    return (
+        "--- Zusätzliche Klarstellung des Nutzers ---\n"
+        f"{text}\n"
+        "Nutze diese Klarstellung, um Namen, Begriffe und missverständliche Stellen korrekt "
+        "wiederzugeben. Ergänze dadurch keine Inhalte, die nicht im Transkript stehen."
+    )
+
+
+def _run_summary(
+    recording_id: int,
+    job_id: int,
+    template_id: int,
+    summary_id: int,
+    clarification: str | None = None,
+) -> None:
+    asyncio.run(
+        _run_summary_async(recording_id, job_id, template_id, summary_id, clarification)
+    )
 
 
 async def _run_summary_async(
-    recording_id: int, job_id: int, template_id: int, summary_id: int
+    recording_id: int,
+    job_id: int,
+    template_id: int,
+    summary_id: int,
+    clarification: str | None = None,
 ) -> None:
     from . import llm as L
     from .models import SummaryTemplate, Topic
@@ -659,6 +697,21 @@ async def _run_summary_async(
             tpl_system = tpl.system_prompt
             tpl_user = tpl.user_prompt_template
             text, speakers = _assemble_transcript(s, recording_id)
+            stored_action_items = [
+                {
+                    "kind": item.kind,
+                    "text": item.text,
+                    "assignee": item.assignee,
+                    "due": item.due,
+                    "due_date": item.due_date,
+                    "done": item.done,
+                }
+                for item in s.exec(
+                    select(ActionItem)
+                    .where(ActionItem.recording_id == recording_id)
+                    .order_by(ActionItem.id)
+                ).all()
+            ]
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")
 
@@ -694,31 +747,15 @@ async def _run_summary_async(
                 content += delta
             return content
 
-        from . import analysis
-
-        reference_date = rec_created.date().isoformat() if rec_created else None
-
-        def action_progress(frac: float) -> None:
-            _raise_if_canceled(job_id)
-            _update_job(job_id, progress=round(0.05 + 0.2 * frac, 4))
-
-        action_items = await analysis.extract_action_items_async(
-            _chat,
-            text,
-            speakers,
-            chunk_size=chunk_size,
-            progress=action_progress,
-            reference_date=reference_date,
-        )
-        action_items = _replace_action_items(recording_id, action_items)
-        task_block = _format_summary_tasks(action_items)
+        clarification_block = _summary_clarification_block(clarification)
+        task_block = _format_summary_tasks(stored_action_items)
 
         chunks = L.chunk_text(text, size=chunk_size)
         if len(chunks) > 1:
             notes: list[str] = []
             for i, ch in enumerate(chunks):
                 _raise_if_canceled(job_id)
-                _update_job(job_id, progress=0.25 + 0.35 * (i / len(chunks)))
+                _update_job(job_id, progress=0.05 + 0.5 * (i / len(chunks)))
                 msgs = [
                     {
                         "role": "system",
@@ -728,7 +765,12 @@ async def _run_summary_async(
                             "formuliere keine Aufgaben und nächsten Schritte."
                         ),
                     },
-                    {"role": "user", "content": ch},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"{clarification_block}\n\n{ch}" if clarification_block else ch
+                        ),
+                    },
                 ]
                 notes.append(await _chat(msgs))
                 _raise_if_canceled(job_id)
@@ -743,6 +785,8 @@ async def _run_summary_async(
             recording_title=rec_title,
         )
         user_prompt = L.render_template(tpl_user, ctx)
+        if clarification_block:
+            user_prompt = f"{clarification_block}\n\n{user_prompt}"
         system_prompt = tpl_system or "Du bist ein hilfreicher Assistent."
         system_prompt += (
             "\n\nErstelle, ergänze und formuliere keine Aufgaben, To-dos oder nächsten Schritte. "
@@ -786,7 +830,7 @@ async def _run_summary_async(
             {"role": "user", "content": user_prompt},
         ]
 
-        _update_job(job_id, progress=0.65)
+        _update_job(job_id, progress=0.6)
         async for delta in L.astream_chat(
             messages,
             model,
@@ -809,18 +853,19 @@ async def _run_summary_async(
                 {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": delta, "done": False}
             )
 
-        task_delta = ("\n\n" if acc.strip() else "") + task_block
+        task_delta = ("\n\n" if acc.strip() else "") + task_block if task_block else ""
         acc += task_delta
-        _save_summary_content(summary_id, acc, model)
-        hub.broadcast(
-            {
-                "type": "summary",
-                "recording_id": recording_id,
-                "summary_id": summary_id,
-                "delta": task_delta,
-                "done": False,
-            }
-        )
+        _finalize_summary_content(summary_id, acc, model)
+        if task_delta:
+            hub.broadcast(
+                {
+                    "type": "summary",
+                    "recording_id": recording_id,
+                    "summary_id": summary_id,
+                    "delta": task_delta,
+                    "done": False,
+                }
+            )
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
@@ -900,11 +945,15 @@ def _llm_chat_fn_async():
     return _chat
 
 
-def _run_action_items(recording_id: int, job_id: int) -> None:
-    asyncio.run(_run_action_items_async(recording_id, job_id))
+def _run_action_items(
+    recording_id: int, job_id: int, clarification: str | None = None
+) -> None:
+    asyncio.run(_run_action_items_async(recording_id, job_id, clarification))
 
 
-async def _run_action_items_async(recording_id: int, job_id: int) -> None:
+async def _run_action_items_async(
+    recording_id: int, job_id: int, clarification: str | None = None
+) -> None:
     from . import analysis
     from .settings_store import load_prefs
 
@@ -931,6 +980,7 @@ async def _run_action_items_async(recording_id: int, job_id: int) -> None:
             chunk_size=chunk_size,
             progress=progress,
             reference_date=reference_date,
+            clarification=clarification,
         )
         _raise_if_canceled(job_id)
 
@@ -1079,13 +1129,13 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
             _update_job(job_id, status=JobStatus.failed, error=str(exc))
 
 
-def enqueue_action_items(recording_id: int) -> int:
+def enqueue_action_items(recording_id: int, clarification: str | None = None) -> int:
     with session_scope() as s:
         job = Job(recording_id=recording_id, phase=JobPhase.action_items, status=JobStatus.pending)
         s.add(job)
         s.flush()
         job_id = job.id
-    _submit_llm_job(job_id, _run_action_items_async, recording_id, job_id)
+    _submit_llm_job(job_id, _run_action_items_async, recording_id, job_id, clarification)
     return job_id
 
 
@@ -1195,13 +1245,42 @@ def schedule_reindex(recording_id: int) -> None:
         traceback.print_exc()
 
 
-def enqueue_summary(recording_id: int, template_id: int, summary_id: int) -> int:
+def schedule_reindex_debounced(recording_id: int, delay: float = 2.0) -> None:
+    def run() -> None:
+        with _reindex_timers_lock:
+            _reindex_timers.pop(recording_id, None)
+        schedule_reindex(recording_id)
+
+    with _reindex_timers_lock:
+        previous = _reindex_timers.pop(recording_id, None)
+        if previous:
+            previous.cancel()
+        timer = threading.Timer(delay, run)
+        timer.daemon = True
+        _reindex_timers[recording_id] = timer
+        timer.start()
+
+
+def enqueue_summary(
+    recording_id: int,
+    template_id: int,
+    summary_id: int,
+    clarification: str | None = None,
+) -> int:
     with session_scope() as s:
         job = Job(recording_id=recording_id, phase=JobPhase.summarize, status=JobStatus.pending)
         s.add(job)
         s.flush()
         job_id = job.id
-    _submit_llm_job(job_id, _run_summary_async, recording_id, job_id, template_id, summary_id)
+    _submit_llm_job(
+        job_id,
+        _run_summary_async,
+        recording_id,
+        job_id,
+        template_id,
+        summary_id,
+        clarification,
+    )
     return job_id
 
 

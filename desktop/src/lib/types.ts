@@ -125,6 +125,9 @@ export interface Summary {
   template_id: number | null;
   model: string;
   content: string;
+  generated_content: string | null;
+  revision: number;
+  updated_at: string | null;
   /** JSON-encoded SummarySource[] of topic knowledge woven into the summary. */
   sources: string | null;
   created_at: string;

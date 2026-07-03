@@ -132,6 +132,9 @@ def _run_lightweight_migrations() -> None:
         ("action_items", "calendar_error", "TEXT"),
         ("action_items", "calendar_exported_at", "DATETIME"),
         ("summaries", "sources", "TEXT"),
+        ("summaries", "generated_content", "TEXT"),
+        ("summaries", "revision", "INTEGER DEFAULT 0"),
+        ("summaries", "updated_at", "DATETIME"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:
@@ -150,6 +153,10 @@ def _run_lightweight_migrations() -> None:
                             ")"
                         )
                     )
+        conn.execute(text("UPDATE summaries SET revision = 0 WHERE revision IS NULL"))
+        conn.execute(
+            text("UPDATE summaries SET updated_at = created_at WHERE updated_at IS NULL")
+        )
 
     _migrate_rag_chunks_for_documents()
     _migrate_cascade_foreign_keys()

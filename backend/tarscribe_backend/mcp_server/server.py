@@ -278,6 +278,10 @@ def process_recording_pipeline(
             timeout_sec=timeout_sec,
         )
         recording_id = int(result["recording_id"])
+        if extract_action_items:
+            job = c.extract_action_items(recording_id)
+            c.wait_for_job(recording_id, int(job["job_id"]), timeout_sec)
+            result["action_items"] = c.list_recording_action_items(recording_id)
         if create_summary:
             result["summary"] = _create_summary(
                 c,
@@ -287,10 +291,6 @@ def process_recording_pipeline(
                 wait=True,
                 timeout_sec=timeout_sec,
             )
-        if extract_action_items:
-            job = c.extract_action_items(recording_id)
-            c.wait_for_job(recording_id, int(job["job_id"]), timeout_sec)
-            result["action_items"] = c.list_recording_action_items(recording_id)
         return result
 
 

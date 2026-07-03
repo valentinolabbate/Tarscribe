@@ -542,6 +542,13 @@ def analyze_recording(
                 client.wait_for_job(recording_id, int(job["job_id"]), timeout_sec, **wait_kw)
         result["chapters"] = client.get_chapters(recording_id)
 
+    if extract_action_items:
+        job = client.extract_action_items(recording_id)
+        steps.append({"step": "extract_action_items", "job_id": job.get("job_id")})
+        if wait:
+            client.wait_for_job(recording_id, int(job["job_id"]), timeout_sec, **wait_kw)
+        result["action_items"] = client.list_recording_action_items(recording_id)
+
     if create_summary:
         summary = create_summary_for_recording(
             client,
@@ -560,13 +567,6 @@ def analyze_recording(
             }
         )
         result["summary"] = summary
-
-    if extract_action_items:
-        job = client.extract_action_items(recording_id)
-        steps.append({"step": "extract_action_items", "job_id": job.get("job_id")})
-        if wait:
-            client.wait_for_job(recording_id, int(job["job_id"]), timeout_sec, **wait_kw)
-        result["action_items"] = client.list_recording_action_items(recording_id)
 
     result["context"] = get_recording_context(
         client,

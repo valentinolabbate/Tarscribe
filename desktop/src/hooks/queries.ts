@@ -292,8 +292,15 @@ export function useSummaryProgress(recordingId: number, summaryId: number | null
 export function useSummarize() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, templateId }: { id: number; templateId: number }) =>
-      api.summarize(id, templateId),
+    mutationFn: ({
+      id,
+      templateId,
+      clarification,
+    }: {
+      id: number;
+      templateId: number;
+      clarification?: string;
+    }) => api.summarize(id, templateId, clarification),
     onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["summaries", vars.id] }),
   });
 }
@@ -330,7 +337,7 @@ export function useRecordingActionItems(recordingId: number, enabled = true) {
 export function useExtractActionItems(recordingId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.extractActionItems(recordingId),
+    mutationFn: (clarification?: string) => api.extractActionItems(recordingId, clarification),
     onSuccess: (data) => {
       trackPendingJob(recordingId, data.job_id, "action_items");
       qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });

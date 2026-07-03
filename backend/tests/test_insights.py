@@ -72,6 +72,7 @@ def test_extract_action_items_dedupes_and_validates():
 
     def fake_chat(msgs):
         assert "Referenzdatum für relative Fristen: 2026-06-18" in msgs[-1]["content"]
+        assert "Das Produkt heißt Tarscribe" in msgs[-1]["content"]
         return (
             '[{"kind": "task", "text": "Bericht schreiben", "assignee": "Anna",'
             '"due": "bis Freitag", "due_date": "2026-06-19"},'
@@ -83,7 +84,13 @@ def test_extract_action_items_dedupes_and_validates():
             '{"kind": "task", "text": "", "assignee": null, "due": null}]'
         )
 
-    items = extract_action_items(fake_chat, "Transkript", ["Anna"], reference_date="2026-06-18")
+    items = extract_action_items(
+        fake_chat,
+        "Transkript",
+        ["Anna"],
+        reference_date="2026-06-18",
+        clarification="Das Produkt heißt Tarscribe.",
+    )
     texts = [i["text"] for i in items]
     assert "Bericht schreiben" in texts
     assert "Budget freigegeben" in texts
@@ -151,6 +158,20 @@ def test_action_item_crud_and_global_list(client):
     assert len(r.json()) == 1
     item_id = r.json()[0]["id"]
 
+    r = client.patch(
+        f"/api/action-items/{item_id}",
+        json={
+            "text": "Folien für Tarscribe aktualisieren",
+            "assignee": "Anna",
+            "due": "bis Freitag",
+            "due_date": "2026-06-19",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["text"] == "Folien für Tarscribe aktualisieren"
+    assert r.json()["assignee"] == "Anna"
+    assert r.json()["due_date"] == "2026-06-19"
+
     r = client.patch(f"/api/action-items/{item_id}", json={"done": True})
     assert r.status_code == 200
     assert r.json()["done"] is True
@@ -208,6 +229,22 @@ def test_extract_endpoint_enqueues_job(client, monkeypatch):
     r = client.post(f"/api/recordings/{rec_id}/action-items/extract")
     assert r.status_code == 200
     assert r.json()["job_id"] > 0
+
+
+def test_extract_endpoint_forwards_optional_clarification(client, monkeypatch):
+    import tarscribe_backend.jobs as jobs
+
+    rec_id, _ = _make_recording()
+    submitted: list[tuple] = []
+    monkeypatch.setattr(jobs, "_submit_llm_job", lambda *args: submitted.append(args))
+
+    r = client.post(
+        f"/api/recordings/{rec_id}/action-items/extract",
+        json={"clarification": "  Das Produkt heißt Tarscribe.  "},
+    )
+
+    assert r.status_code == 200
+    assert submitted[0][-1] == "Das Produkt heißt Tarscribe."
 
 
 def test_run_action_items_persists_llm_due_date(client, monkeypatch):

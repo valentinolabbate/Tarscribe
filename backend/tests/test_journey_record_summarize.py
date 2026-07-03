@@ -51,7 +51,15 @@ def client(monkeypatch):
     import tarscribe_backend.routers.llm as llm_router
     from tarscribe_backend.models import Summary
 
-    def fake_enqueue_summary(recording_id: int, template_id: int, summary_id: int) -> int:
+    summary_clarifications: list[str | None] = []
+
+    def fake_enqueue_summary(
+        recording_id: int,
+        template_id: int,
+        summary_id: int,
+        clarification: str | None = None,
+    ) -> int:
+        summary_clarifications.append(clarification)
         with Session(db.get_engine()) as session:
             summary = session.get(Summary, summary_id)
             assert summary is not None
@@ -64,6 +72,7 @@ def client(monkeypatch):
 
     test_client = TestClient(main.create_app())
     test_client.queued_asr_jobs = queued_asr_jobs
+    test_client.summary_clarifications = summary_clarifications
     return test_client
 
 
@@ -137,9 +146,11 @@ def test_live_recording_can_finish_transcribe_and_create_summary(client):
     summary_job = client.post(
         f"/api/recordings/{recording_id}/summarize",
         params={"template_id": template.json()["id"]},
+        json={"clarification": "  Das Produkt heißt Tarscribe.  "},
     )
     assert summary_job.status_code == 200
     assert summary_job.json()["job_id"] == 2000
+    assert client.summary_clarifications == ["Das Produkt heißt Tarscribe."]
 
     summary = client.get(f"/api/summaries/{summary_job.json()['summary_id']}")
     assert summary.status_code == 200

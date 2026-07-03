@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   useDeleteActionItem,
   useExtractActionItems,
@@ -8,7 +9,7 @@ import {
 import { useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem } from "../lib/types";
-import { CalendarIcon, TasksIcon, TrashIcon } from "./icons";
+import { CalendarIcon, TrashIcon } from "./icons";
 
 /** Today as a local ISO date (YYYY-MM-DD), matching the <input type="date"> format. */
 function todayIso(): string {
@@ -40,8 +41,38 @@ export function ActionItemRow({
   const syncCalendar = useSyncActionItemCalendar();
   const del = useDeleteActionItem();
   const undoDelete = useUndoableDelete();
+  const [editing, setEditing] = useState(false);
+  const [draftText, setDraftText] = useState(item.text);
+  const [draftAssignee, setDraftAssignee] = useState(item.assignee ?? "");
+  const [draftDue, setDraftDue] = useState(item.due ?? "");
+  const [draftDueDate, setDraftDueDate] = useState(item.due_date ?? "");
 
   if (undoDelete.isPending(item.id)) return null;
+
+  function startEditing() {
+    setDraftText(item.text);
+    setDraftAssignee(item.assignee ?? "");
+    setDraftDue(item.due ?? "");
+    setDraftDueDate(item.due_date ?? "");
+    setEditing(true);
+  }
+
+  function saveEditing() {
+    const text = draftText.trim();
+    if (!text) return;
+    update.mutate(
+      {
+        id: item.id,
+        patch: {
+          text,
+          assignee: draftAssignee.trim() || null,
+          due: draftDue.trim() || null,
+          due_date: draftDueDate || null,
+        },
+      },
+      { onSuccess: () => setEditing(false) },
+    );
+  }
 
   const overdue = isOverdue(item);
   const calendarLabel =
@@ -63,71 +94,135 @@ export function ActionItemRow({
         title={item.done ? "Als offen markieren" : "Als erledigt markieren"}
       />
       <div className="action-item-body">
-        <span className="action-item-text">{item.text}</span>
-        <span className="action-item-meta">
-          <span className={`action-kind ${item.kind}`}>
-            {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
-          </span>
-          {item.assignee && <span>{item.assignee}</span>}
-          {item.is_mine ? (
-            <span className="action-mine" title="Dir zugeordnet">Ich</span>
-          ) : (
-            <button
-              className={`action-import ${item.include_in_tasks ? "on" : ""}`}
-              title={
-                item.include_in_tasks
-                  ? "Aus „Meine Aufgaben“ entfernen"
-                  : "Zu „Meine Aufgaben“ hinzufügen"
-              }
-              onClick={() =>
-                update.mutate({ id: item.id, patch: { include_in_tasks: !item.include_in_tasks } })
-              }
-            >
-              {item.include_in_tasks ? "★ Meine Aufgabe" : "☆ Übernehmen"}
-            </button>
-          )}
-          {!item.due_date && item.due && <span>bis {item.due}</span>}
-          <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
-            {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}
-            <input
-              type="date"
-              value={item.due_date ?? ""}
-              onChange={(e) =>
-                update.mutate({ id: item.id, patch: { due_date: e.target.value } })
-              }
-            />
-          </label>
-          {showRecording && item.recording_title && (
-            <button
-              className="action-item-rec"
-              onClick={() => onOpenRecording?.(item.recording_id)}
-              title="Aufnahme öffnen"
-            >
-              {item.recording_title}
-            </button>
-          )}
-          {calendarLabel && (
-            item.calendar_status === "pending_approval" || item.calendar_status === "failed" ? (
-              <button
-                className={`action-calendar ${item.calendar_status}`}
-                title={item.calendar_error ?? "In CalDAV-Kalender exportieren"}
-                disabled={syncCalendar.isPending}
-                onClick={() => syncCalendar.mutate(item.id)}
-              >
-                <CalendarIcon width={12} height={12} />
-                {item.calendar_status === "failed" ? "Retry" : "In Kalender"}
+        {editing ? (
+          <form
+            className="action-item-edit"
+            onSubmit={(event) => {
+              event.preventDefault();
+              saveEditing();
+            }}
+          >
+            <label className="action-edit-text">
+              <span>Text</span>
+              <input
+                value={draftText}
+                onChange={(event) => setDraftText(event.target.value)}
+                autoFocus
+                maxLength={1000}
+              />
+            </label>
+            <div className="action-edit-fields">
+              <label>
+                <span>Verantwortlich</span>
+                <input
+                  value={draftAssignee}
+                  onChange={(event) => setDraftAssignee(event.target.value)}
+                  placeholder="Optional"
+                />
+              </label>
+              <label>
+                <span>Frist im Wortlaut</span>
+                <input
+                  value={draftDue}
+                  onChange={(event) => setDraftDue(event.target.value)}
+                  placeholder="z. B. bis Freitag"
+                />
+              </label>
+              <label>
+                <span>Datum</span>
+                <input
+                  type="date"
+                  value={draftDueDate}
+                  onChange={(event) => setDraftDueDate(event.target.value)}
+                />
+              </label>
+            </div>
+            <div className="action-edit-actions">
+              <button type="button" className="btn ghost" onClick={() => setEditing(false)}>
+                Abbrechen
               </button>
-            ) : (
-              <span
-                className={`action-calendar ${item.calendar_status}`}
-                title={item.calendar_error ?? undefined}
+              <button
+                type="submit"
+                className="btn primary"
+                disabled={!draftText.trim() || update.isPending}
               >
-                <CalendarIcon width={12} height={12} />
-                {calendarLabel}
+                {update.isPending ? "Speichert…" : "Speichern"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <span className="action-item-text">{item.text}</span>
+            <span className="action-item-meta">
+              <span className={`action-kind ${item.kind}`}>
+                {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
               </span>
-            )
-          )}
-        </span>
+              {item.assignee && <span>{item.assignee}</span>}
+              {item.is_mine ? (
+                <span className="action-mine" title="Dir zugeordnet">Ich</span>
+              ) : (
+                <button
+                  type="button"
+                  className={`action-import ${item.include_in_tasks ? "on" : ""}`}
+                  title={
+                    item.include_in_tasks
+                      ? "Aus „Meine Aufgaben“ entfernen"
+                      : "Zu „Meine Aufgaben“ hinzufügen"
+                  }
+                  onClick={() =>
+                    update.mutate({ id: item.id, patch: { include_in_tasks: !item.include_in_tasks } })
+                  }
+                >
+                  {item.include_in_tasks ? "★ Meine Aufgabe" : "☆ Übernehmen"}
+                </button>
+              )}
+              {!item.due_date && item.due && <span>{item.due}</span>}
+              <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
+                {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}
+                <input
+                  type="date"
+                  value={item.due_date ?? ""}
+                  onChange={(e) =>
+                    update.mutate({ id: item.id, patch: { due_date: e.target.value } })
+                  }
+                />
+              </label>
+              <button type="button" className="action-edit-trigger" onClick={startEditing}>
+                Bearbeiten
+              </button>
+              {showRecording && item.recording_title && (
+                <button
+                  className="action-item-rec"
+                  onClick={() => onOpenRecording?.(item.recording_id)}
+                  title="Aufnahme öffnen"
+                >
+                  {item.recording_title}
+                </button>
+              )}
+              {calendarLabel && (
+                item.calendar_status === "pending_approval" || item.calendar_status === "failed" ? (
+                  <button
+                    className={`action-calendar ${item.calendar_status}`}
+                    title={item.calendar_error ?? "In CalDAV-Kalender exportieren"}
+                    disabled={syncCalendar.isPending}
+                    onClick={() => syncCalendar.mutate(item.id)}
+                  >
+                    <CalendarIcon width={12} height={12} />
+                    {item.calendar_status === "failed" ? "Retry" : "In Kalender"}
+                  </button>
+                ) : (
+                  <span
+                    className={`action-calendar ${item.calendar_status}`}
+                    title={item.calendar_error ?? undefined}
+                  >
+                    <CalendarIcon width={12} height={12} />
+                    {calendarLabel}
+                  </span>
+                )
+              )}
+            </span>
+          </>
+        )}
       </div>
       <button
         className="topic-del"
@@ -151,6 +246,7 @@ export function ActionItemsPanel({ recordingId }: { recordingId: number }) {
   const { data: items } = useRecordingActionItems(recordingId);
   const extract = useExtractActionItems(recordingId);
   const job = useJobFor(recordingId);
+  const [clarification, setClarification] = useState("");
   const extracting =
     extract.isPending ||
     (job?.phase === "action_items" && (job.status === "pending" || job.status === "running"));
@@ -159,26 +255,31 @@ export function ActionItemsPanel({ recordingId }: { recordingId: number }) {
 
   return (
     <div className="action-items-panel">
-      <div className="detail-panel-head" style={{ marginTop: 18 }}>
-        <div>
-          <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <TasksIcon width={18} height={18} /> Aufgaben & Entscheidungen
-          </h2>
-          <p>
-            {items && items.length > 0
-              ? `${open} offen · ${items.length} insgesamt`
-              : "Lass das konfigurierte Chat-Modell Action-Items und Beschlüsse aus dem Transkript ziehen."}
-          </p>
-        </div>
+      <div className="analysis-action-row">
+        <span className="rec-sub">
+          {items && items.length > 0
+            ? `${open} offen · ${items.length} insgesamt`
+            : "Noch keine Aufgaben extrahiert."}
+        </span>
         <button
           className="btn"
           disabled={extracting}
-          onClick={() => extract.mutate()}
+          onClick={() => extract.mutate(clarification.trim() || undefined)}
           title="Erneutes Extrahieren ersetzt die Liste; Abhaken bleibt bei unverändertem Text erhalten."
         >
           {extracting ? "Extrahiere…" : items && items.length > 0 ? "Neu extrahieren" : "Extrahieren"}
         </button>
       </div>
+      <label className="analysis-clarification">
+        <span>Klärung zur Erkennung <small>optional</small></span>
+        <textarea
+          value={clarification}
+          onChange={(event) => setClarification(event.target.value)}
+          maxLength={4000}
+          rows={2}
+          placeholder="z. B. Das Produkt heißt Tarscribe, nicht Tarscript."
+        />
+      </label>
       {job?.phase === "action_items" && job.status === "failed" && (
         <div className="detail-error">{job.error}</div>
       )}

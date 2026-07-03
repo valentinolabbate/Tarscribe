@@ -613,10 +613,14 @@ export const api = {
   },
 
   // Insights: Action-Items, Kapitel, Sprecher-Statistiken
-  extractActionItems: (recordingId: number) =>
+  extractActionItems: (recordingId: number, clarification?: string) =>
     request<{ job_id: number; status: string }>(
       `/api/recordings/${recordingId}/action-items/extract`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clarification: clarification?.trim() || null }),
+      },
     ),
   listRecordingActionItems: (recordingId: number) =>
     request<ActionItem[]>(`/api/recordings/${recordingId}/action-items`),
@@ -686,14 +690,30 @@ export const api = {
   },
 
   // Summaries
-  summarize: (recordingId: number, templateId: number) =>
+  summarize: (recordingId: number, templateId: number, clarification?: string) =>
     request<{ job_id: number; summary_id: number }>(
       `/api/recordings/${recordingId}/summarize?template_id=${templateId}`,
-      { method: "POST" },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clarification: clarification?.trim() || null }),
+      },
     ),
   listSummaries: (recordingId: number) =>
     request<Summary[]>(`/api/recordings/${recordingId}/summaries`),
   getSummary: (id: number) => request<Summary>(`/api/summaries/${id}`),
+  updateSummary: (id: number, content: string, revision: number) =>
+    request<Summary>(`/api/summaries/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, revision }),
+    }),
+  async downloadSummaryPdf(id: number, title: string): Promise<void> {
+    await downloadBlob(
+      `/api/summaries/${id}/export.pdf`,
+      `${title} - Zusammenfassung.pdf`,
+    );
+  },
   deleteSummary: (id: number) => request<void>(`/api/summaries/${id}`, { method: "DELETE" }),
   async downloadExport(id: number, format: string, title: string): Promise<void> {
     await downloadBlob(`/api/recordings/${id}/export?format=${format}`, `${title}.${format}`);

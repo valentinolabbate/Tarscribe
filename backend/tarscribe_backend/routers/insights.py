@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..calendar_sync import sync_action_item
@@ -102,6 +102,10 @@ class ActionItemPatch(BaseModel):
     include_in_tasks: bool | None = None
 
 
+class ActionItemExtractIn(BaseModel):
+    clarification: str | None = Field(default=None, max_length=4000)
+
+
 def _norm_name(s: str) -> str:
     return re.sub(r"\W+", " ", s.lower()).strip()
 
@@ -167,11 +171,16 @@ def _item_dict(
 
 
 @router.post("/recordings/{recording_id}/action-items/extract")
-def extract_action_items(recording_id: int, session: Session = Depends(get_session)) -> dict:
+def extract_action_items(
+    recording_id: int,
+    payload: ActionItemExtractIn | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
     _get_recording(session, recording_id)
     from ..jobs import enqueue_action_items
 
-    job_id = enqueue_action_items(recording_id)
+    clarification = (payload.clarification or "").strip() if payload else ""
+    job_id = enqueue_action_items(recording_id, clarification or None)
     return {"job_id": job_id, "status": "pending"}
 
 

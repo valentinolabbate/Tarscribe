@@ -824,7 +824,9 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
 
     r = client.get(f"/api/summaries/{summary_id}")
     assert r.status_code == 200
-    assert r.json()["content"] == "Hallo Welt\n\n## Aufgaben\n\nKeine Aufgaben erkannt."
+    assert r.json()["content"] == "Hallo Welt"
+    assert r.json()["generated_content"] == "Hallo Welt"
+    assert r.json()["revision"] == 0
     job_payload = client.get(f"/api/recordings/{recording_id}/jobs").json()[0]
     assert job_payload["job_id"] == job_id
     assert "id" not in job_payload
@@ -835,7 +837,77 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
         assert s.get(Job, job_id).status == JobStatus.done
 
 
-def test_summary_appends_separately_extracted_tasks_without_sending_them_to_summary_llm(
+def test_summary_editor_saves_revisions_and_exports_current_pdf(client, monkeypatch):
+    from io import BytesIO
+
+    from pypdf import PdfReader
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.routers.llm as llm_router
+    from tarscribe_backend.models import Recording, Summary, Topic
+
+    with Session(db.get_engine()) as session:
+        topic = Topic(name="PDF")
+        session.add(topic)
+        session.flush()
+        recording = Recording(
+            topic_id=topic.id,
+            title="München Planung",
+            audio_path="/tmp/pdf.wav",
+        )
+        session.add(recording)
+        session.flush()
+        summary = Summary(
+            recording_id=recording.id,
+            model="test",
+            content="# Entwurf\n\nAlter Inhalt",
+            generated_content="# Entwurf\n\nAlter Inhalt",
+        )
+        session.add(summary)
+        session.commit()
+        summary_id = summary.id
+
+    monkeypatch.setattr(llm_router, "schedule_reindex_debounced", lambda *_args, **_kwargs: None)
+    edited = (
+        "---\n"
+        'title: "München – Planung"\n'
+        "date: 2026-07-03\n"
+        "---\n\n"
+        "## Überblick\n\n"
+        "Überarbeiteter Inhalt mit Umlauten.\n\n"
+        "## Aufgaben\n\n"
+        "- [ ] Angebot prüfen\n"
+    )
+
+    saved = client.patch(
+        f"/api/summaries/{summary_id}",
+        json={"content": edited, "revision": 0},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["content"] == edited
+    assert saved.json()["generated_content"] == "# Entwurf\n\nAlter Inhalt"
+    assert saved.json()["revision"] == 1
+
+    stale = client.patch(
+        f"/api/summaries/{summary_id}",
+        json={"content": "Veraltet", "revision": 0},
+    )
+    assert stale.status_code == 409
+
+    exported = client.get(f"/api/summaries/{summary_id}/export.pdf")
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "application/pdf"
+    assert exported.content.startswith(b"%PDF")
+    reader = PdfReader(BytesIO(exported.content))
+    text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    assert "München" in text
+    assert "Überarbeiteter Inhalt" in text
+    assert "Angebot prüfen" in text
+    assert "•" in text
+
+
+def test_summary_appends_existing_tasks_without_sending_them_to_summary_llm(
     client, monkeypatch
 ):
     from sqlmodel import Session, select
@@ -875,6 +947,15 @@ def test_summary_appends_separately_extracted_tasks_without_sending_them_to_summ
                 text="Anna schreibt den Bericht bis Freitag.",
             )
         )
+        s.add(
+            ActionItem(
+                recording_id=recording.id,
+                kind="task",
+                text="Bericht schreiben",
+                assignee="Anna",
+                due="bis Freitag",
+            )
+        )
         template = SummaryTemplate(name="Test", user_prompt_template="{{transcript}}")
         s.add(template)
         s.flush()
@@ -891,12 +972,6 @@ def test_summary_appends_separately_extracted_tasks_without_sending_them_to_summ
     summary_messages: list[list[dict]] = []
 
     async def fake_astream_chat(messages, *_args, **_kwargs):
-        if "JSON-Array" in messages[0]["content"]:
-            yield (
-                '[{"kind":"task","text":"Bericht schreiben","assignee":"Anna",'
-                '"due":"bis Freitag","due_date":null}]'
-            )
-            return
         summary_messages.append(messages)
         yield "Nur die Zusammenfassung."
 
@@ -908,14 +983,21 @@ def test_summary_appends_separately_extracted_tasks_without_sending_them_to_summ
     monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
 
-    jobs._run_summary(recording_id, job_id, template_id, summary_id)
+    jobs._run_summary(
+        recording_id,
+        job_id,
+        template_id,
+        summary_id,
+        "Das Produkt heißt Tarscribe.",
+    )
 
     with Session(db.get_engine()) as s:
         content = s.get(Summary, summary_id).content
         items = list(s.exec(select(ActionItem).where(ActionItem.recording_id == recording_id)))
 
-    assert summary_messages
+    assert len(summary_messages) == 1
     assert all("Bericht schreiben" not in message["content"] for message in summary_messages[0])
+    assert "Das Produkt heißt Tarscribe." in summary_messages[0][1]["content"]
     assert content == (
         "Nur die Zusammenfassung.\n\n"
         "## Aufgaben\n\n"

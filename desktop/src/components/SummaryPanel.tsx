@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -14,8 +14,12 @@ import {
 import { trackSummaryStart, useSummaryStream } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { SummarySource, SummaryTemplate } from "../lib/types";
-import { ChevronIcon, TrashIcon } from "./icons";
+import { TrashIcon } from "./icons";
 import { useToast } from "./Toast";
+
+const SummaryEditorModal = lazy(() =>
+  import("./SummaryEditorModal").then((module) => ({ default: module.SummaryEditorModal })),
+);
 
 // Remember the last picked template across recordings and sessions.
 const LAST_TEMPLATE_KEY = "tarscribe:lastSummaryTemplateId";
@@ -85,9 +89,11 @@ function SummarySources({ raw }: { raw: string | null }) {
 
 export function SummaryPanel({
   recordingId,
+  recordingTitle,
   onOpenSettings,
 }: {
   recordingId: number;
+  recordingTitle: string;
   onOpenSettings?: () => void;
 }) {
   const toast = useToast();
@@ -104,16 +110,9 @@ export function SummaryPanel({
   });
   const [activeSummaryId, setActiveSummaryId] = useState<number | null>(null);
   const [activeJobId, setActiveJobId] = useState<number | null>(null);
-  // Saved summaries are collapsed by default; track which the user has opened.
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-
-  function toggleExpanded(id: number) {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
+  const [clarification, setClarification] = useState("");
+  const [editorSummaryId, setEditorSummaryId] = useState<number | null>(null);
+  const autoOpenedRef = useRef<number | null>(null);
   const stream = useSummaryStream(activeSummaryId);
   const { data: progress } = useSummaryProgress(recordingId, activeSummaryId, activeJobId);
 
@@ -140,8 +139,13 @@ export function SummaryPanel({
 
   async function run() {
     if (!effectiveTemplate) return;
-    const res = await summarize.mutateAsync({ id: recordingId, templateId: effectiveTemplate });
+    const res = await summarize.mutateAsync({
+      id: recordingId,
+      templateId: effectiveTemplate,
+      clarification: clarification.trim() || undefined,
+    });
     trackSummaryStart(res.summary_id);
+    autoOpenedRef.current = null;
     setActiveSummaryId(res.summary_id);
     setActiveJobId(res.job_id);
   }
@@ -156,11 +160,19 @@ export function SummaryPanel({
   const streaming = activeSummaryId != null && !stream?.done && !jobDone;
   const streamError = stream?.error ?? (progress?.job?.status === "failed" ? progress.job.error : null);
 
+  useEffect(() => {
+    if (activeSummaryId == null || autoOpenedRef.current === activeSummaryId) return;
+    const done = stream?.done || progress?.job?.status === "done";
+    if (!done || streamError) return;
+    autoOpenedRef.current = activeSummaryId;
+    if (document.visibilityState === "visible" && document.hasFocus()) {
+      setEditorSummaryId(activeSummaryId);
+    }
+  }, [activeSummaryId, progress?.job?.status, stream?.done, streamError]);
+
   return (
     <div className="summary-panel">
       <div className="toolbar">
-        <strong style={{ fontSize: 14 }}>Zusammenfassung</strong>
-        <div className="spacer" />
         <select
           className="tmpl-sel"
           value={effectiveTemplate ?? ""}
@@ -182,6 +194,17 @@ export function SummaryPanel({
           {summarize.isPending ? "Startet…" : streaming ? "Generiere…" : "Zusammenfassen"}
         </button>
       </div>
+
+      <label className="analysis-clarification">
+        <span>Klärung für die Zusammenfassung <small>optional</small></span>
+        <textarea
+          value={clarification}
+          onChange={(event) => setClarification(event.target.value)}
+          maxLength={4000}
+          rows={2}
+          placeholder="z. B. Das Produkt heißt Tarscribe, nicht Tarscript."
+        />
+      </label>
 
       {activeTemplate && (
         <div className="summary-tmpl-desc rec-sub">{describeTemplate(activeTemplate)}</div>
@@ -227,29 +250,34 @@ export function SummaryPanel({
             </div>
           )}
           {!streaming && !streamError && (
-            <SummarySources raw={summaries?.find((s) => s.id === activeSummaryId)?.sources ?? null} />
+            <>
+              <div className="summary-finished-actions">
+                <button className="btn primary" onClick={() => setEditorSummaryId(activeSummaryId)}>
+                  Im Editor öffnen
+                </button>
+              </div>
+              <SummarySources raw={summaries?.find((s) => s.id === activeSummaryId)?.sources ?? null} />
+            </>
           )}
         </div>
       )}
 
-      {/* Saved summaries — collapsed by default, click the header to expand */}
       {summaries
         ?.filter((s) => s.content && s.id !== activeSummaryId && !undoDelete.isPending(s.id))
-        .map((s) => {
-          const open = expandedIds.has(s.id);
-          return (
-            <div className={`summary-card${open ? " open" : ""}`} key={s.id}>
+        .map((s) => (
+            <div className="summary-card summary-card-saved" key={s.id}>
               <div className="summary-head">
                 <button
                   type="button"
                   className="summary-toggle"
-                  aria-expanded={open}
-                  title={open ? "Einklappen" : "Ausklappen"}
-                  onClick={() => toggleExpanded(s.id)}
+                  title="Im Editor öffnen"
+                  onClick={() => setEditorSummaryId(s.id)}
                 >
-                  <ChevronIcon className="summary-chevron" width={14} height={14} />
                   <span className="rec-sub">{s.model}</span>
-                  {!open && <span className="summary-preview">{previewLine(s.content)}</span>}
+                  <span className="summary-preview">{previewLine(s.content)}</span>
+                </button>
+                <button className="btn ghost" onClick={() => setEditorSummaryId(s.id)}>
+                  Öffnen
                 </button>
                 <button
                   className="btn ghost"
@@ -270,15 +298,18 @@ export function SummaryPanel({
                   <TrashIcon width={15} height={15} />
                 </button>
               </div>
-              {open && (
-                <div className="summary-text markdown">
-                  <Markdown>{s.content}</Markdown>
-                  <SummarySources raw={s.sources} />
-                </div>
-              )}
             </div>
-          );
-        })}
+        ))}
+      {editorSummaryId != null && (
+        <Suspense fallback={<div className="modal-backdrop summary-editor-backdrop" />}>
+          <SummaryEditorModal
+            summaryId={editorSummaryId}
+            recordingId={recordingId}
+            recordingTitle={recordingTitle}
+            onClose={() => setEditorSummaryId(null)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

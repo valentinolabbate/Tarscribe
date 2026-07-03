@@ -67,6 +67,7 @@ _ITEMS_SYSTEM = (
 _ITEMS_USER = """Extrahiere alle konkreten Aufgaben und getroffenen Entscheidungen.
 
 Referenzdatum für relative Fristen: {reference_date}
+{clarification_block}
 
 Format: JSON-Array von Objekten mit genau diesen Feldern:
 - "kind": "task" für eine Aufgabe, "decision" für eine Entscheidung
@@ -85,6 +86,18 @@ Gib [] zurück, wenn nichts gefunden wird.
 
 Transkript:
 {chunk}"""
+
+
+def _clarification_block(clarification: str | None) -> str:
+    text = (clarification or "").strip()
+    if not text:
+        return ""
+    return (
+        "\nZusätzliche Klarstellung des Nutzers:\n"
+        f"{text}\n"
+        "Nutze diese Klarstellung nur, um Namen, Begriffe und missverständliche Stellen korrekt "
+        "zu verstehen. Leite daraus keine zusätzlichen Aufgaben oder Entscheidungen ab."
+    )
 
 
 def _norm_text(s: str) -> str:
@@ -117,6 +130,7 @@ def extract_action_items(
     chunk_size: int = 48000,
     progress=None,
     reference_date: date | datetime | str | None = None,
+    clarification: str | None = None,
 ) -> list[dict]:
     """Run extraction over the (possibly chunked) transcript; dedupe by text."""
     from .llm import chunk_text
@@ -137,6 +151,7 @@ def extract_action_items(
                 "role": "user",
                 "content": _ITEMS_USER.format(
                     reference_date=reference_date_text,
+                    clarification_block=_clarification_block(clarification),
                     speakers_hint=speakers_hint,
                     chunk=chunk,
                 ),
@@ -161,6 +176,7 @@ async def extract_action_items_async(
     chunk_size: int = 48000,
     progress=None,
     reference_date: date | datetime | str | None = None,
+    clarification: str | None = None,
 ) -> list[dict]:
     from .llm import chunk_text
 
@@ -179,6 +195,7 @@ async def extract_action_items_async(
                     "role": "user",
                     "content": _ITEMS_USER.format(
                         reference_date=reference_date_text,
+                        clarification_block=_clarification_block(clarification),
                         speakers_hint=speakers_hint,
                         chunk=chunk,
                     ),

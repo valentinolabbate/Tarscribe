@@ -274,7 +274,11 @@ export function RecordingDetail({
             )}
 
             {activeTab === "summary" && (
-              <SummaryWorkspace recordingId={recording.id} onOpenSettings={onOpenSettings} />
+              <SummaryWorkspace
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                onOpenSettings={onOpenSettings}
+              />
             )}
 
             {activeTab === "ask" && (

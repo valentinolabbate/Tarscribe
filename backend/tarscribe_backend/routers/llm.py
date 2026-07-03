@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import unicodedata
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from .. import llm as L
 from .. import settings_store
 from ..db import get_session
-from ..jobs import enqueue_summary
+from ..jobs import enqueue_summary, schedule_reindex_debounced
 from ..models import Recording, Summary, SummaryTemplate
 
 router = APIRouter(tags=["llm"])
@@ -29,6 +34,15 @@ class LlmConfigIn(BaseModel):
 class LlmApiKeyIn(BaseModel):
     api_key: str
     base_url: str | None = None
+
+
+class SummarizeIn(BaseModel):
+    clarification: str | None = Field(default=None, max_length=4000)
+
+
+class SummaryUpdateIn(BaseModel):
+    content: str = Field(max_length=1_000_000)
+    revision: int = Field(ge=0)
 
 
 @router.get("/api/llm/config")
@@ -93,7 +107,10 @@ def delete_api_key() -> dict:
 
 @router.post("/api/recordings/{recording_id}/summarize")
 def summarize(
-    recording_id: int, template_id: int, session: Session = Depends(get_session)
+    recording_id: int,
+    template_id: int,
+    payload: SummarizeIn | None = None,
+    session: Session = Depends(get_session),
 ) -> dict:
     rec = session.get(Recording, recording_id)
     if not rec:
@@ -108,7 +125,8 @@ def summarize(
     session.commit()
     session.refresh(summary)
 
-    job_id = enqueue_summary(recording_id, template_id, summary.id)
+    clarification = (payload.clarification or "").strip() if payload else ""
+    job_id = enqueue_summary(recording_id, template_id, summary.id, clarification or None)
     return {"job_id": job_id, "summary_id": summary.id}
 
 
@@ -129,6 +147,65 @@ def get_summary(summary_id: int, session: Session = Depends(get_session)) -> Sum
     if not summary:
         raise HTTPException(404, "Zusammenfassung nicht gefunden")
     return summary
+
+
+@router.patch("/api/summaries/{summary_id}")
+def update_summary(
+    summary_id: int,
+    payload: SummaryUpdateIn,
+    session: Session = Depends(get_session),
+) -> Summary:
+    summary = session.get(Summary, summary_id)
+    if not summary:
+        raise HTTPException(404, "Zusammenfassung nicht gefunden")
+    if summary.revision != payload.revision:
+        raise HTTPException(
+            409,
+            "Die Zusammenfassung wurde zwischenzeitlich geändert. Bitte neu laden.",
+        )
+    if summary.generated_content is None:
+        summary.generated_content = summary.content
+    summary.content = payload.content
+    summary.revision += 1
+    summary.updated_at = datetime.now(timezone.utc)
+    session.add(summary)
+    session.commit()
+    session.refresh(summary)
+    schedule_reindex_debounced(summary.recording_id)
+    return summary
+
+
+@router.get("/api/summaries/{summary_id}/export.pdf")
+def export_summary_pdf(
+    summary_id: int,
+    session: Session = Depends(get_session),
+) -> Response:
+    summary = session.get(Summary, summary_id)
+    if not summary:
+        raise HTTPException(404, "Zusammenfassung nicht gefunden")
+    if not summary.content.strip():
+        raise HTTPException(409, "Die Zusammenfassung ist noch leer")
+    recording = session.get(Recording, summary.recording_id)
+    if not recording:
+        raise HTTPException(404, "Aufnahme nicht gefunden")
+    from ..summary_pdf import render_summary_pdf
+
+    body = render_summary_pdf(summary.content, recording.title)
+    display_name = "".join(
+        char if char.isalnum() or char in " -_" else "_" for char in recording.title
+    ).strip() or "Zusammenfassung"
+    display_name = f"{display_name} - Zusammenfassung.pdf"
+    safe = unicodedata.normalize("NFKD", display_name).encode("ascii", "ignore").decode()
+    safe = safe.replace('"', "_") or "Zusammenfassung.pdf"
+    return Response(
+        body,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(display_name)}'
+            )
+        },
+    )
 
 
 @router.delete("/api/summaries/{summary_id}", status_code=204)

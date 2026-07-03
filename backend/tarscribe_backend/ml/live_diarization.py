@@ -286,7 +286,7 @@ def assign_speakers_to_words(
     if not segments:
         return words
 
-    result = []
+    speakers: list[str | None] = []
     for word in words:
         w0 = word.get("start", 0.0)
         w1 = word.get("end", 0.0)
@@ -297,5 +297,11 @@ def assign_speakers_to_words(
             if ov > best_ov:
                 best_ov = ov
                 best_spk = seg.speaker_id
-        result.append({**word, "speaker_id": best_spk})
-    return result
+        speakers.append(best_spk)
+
+    if all(speaker is not None for speaker in speakers):
+        from .alignment import stabilize_speaker_boundaries
+
+        speakers = stabilize_speaker_boundaries(words, [str(speaker) for speaker in speakers])
+
+    return [{**word, "speaker_id": speaker} for word, speaker in zip(words, speakers)]

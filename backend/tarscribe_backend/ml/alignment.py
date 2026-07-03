@@ -6,8 +6,33 @@ diarization run or manual speaker labels change.
 
 from __future__ import annotations
 
+import re as regex
 from bisect import bisect_right
 from dataclasses import dataclass
+
+
+_TERMINAL_PUNCTUATION = regex.compile(r"[.!?…]+(?:[\"')\]}»”’]+)?$")
+_BOUNDARY_MAX_WORDS = 3
+_BOUNDARY_MAX_SECONDS = 1.2
+_PAUSE_BOUNDARY_SECONDS = 0.6
+_BACKCHANNELS = {
+    "ach so",
+    "alles klar",
+    "genau",
+    "hm",
+    "ja",
+    "ja ich weiß",
+    "klar",
+    "mhm",
+    "nein",
+    "okay",
+    "okay ja",
+    "richtig",
+    "stimmt",
+    "verstehe",
+    "yeah",
+    "yes",
+}
 
 
 @dataclass
@@ -53,6 +78,77 @@ def assign_speaker(word_start: float, word_end: float, seg_starts: list[float], 
     return best_label or nearest_label
 
 
+def _value(word, key: str):
+    if isinstance(word, dict):
+        return word.get(key)
+    return getattr(word, key)
+
+
+def _is_phrase_boundary(words, index: int) -> bool:
+    previous = words[index - 1]
+    current = words[index]
+    text = str(_value(previous, "text") or "").strip()
+    gap = float(_value(current, "start") or 0.0) - float(_value(previous, "end") or 0.0)
+    return bool(_TERMINAL_PUNCTUATION.search(text)) or gap >= _PAUSE_BOUNDARY_SECONDS
+
+
+def _is_backchannel(words) -> bool:
+    text = "".join(str(_value(word, "text") or "") for word in words).casefold()
+    normalized = " ".join(regex.findall(r"[a-zäöüß]+", text))
+    return normalized in _BACKCHANNELS
+
+
+def stabilize_speaker_boundaries(words, speakers: list[str]) -> list[str]:
+    if len(words) != len(speakers) or len(words) < 2:
+        return list(speakers)
+
+    ranges: list[tuple[int, int]] = []
+    start = 0
+    for index in range(1, len(words)):
+        if _is_phrase_boundary(words, index):
+            ranges.append((start, index))
+            start = index
+    ranges.append((start, len(words)))
+
+    result = list(speakers)
+    for start, end in ranges:
+        changes = [index for index in range(start + 1, end) if speakers[index] != speakers[index - 1]]
+        if len(changes) != 1:
+            continue
+        cut = changes[0]
+        prefix_words = words[start:cut]
+        suffix_words = words[cut:end]
+        prefix_duration = float(_value(prefix_words[-1], "end") or 0.0) - float(
+            _value(prefix_words[0], "start") or 0.0
+        )
+        suffix_duration = float(_value(suffix_words[-1], "end") or 0.0) - float(
+            _value(suffix_words[0], "start") or 0.0
+        )
+        prefix_backchannel = _is_backchannel(prefix_words)
+        suffix_backchannel = _is_backchannel(suffix_words)
+        if prefix_backchannel or suffix_backchannel:
+            continue
+        prefix_is_edge = (
+            len(prefix_words) <= _BOUNDARY_MAX_WORDS
+            and prefix_duration <= _BOUNDARY_MAX_SECONDS
+        )
+        suffix_is_edge = (
+            len(suffix_words) <= _BOUNDARY_MAX_WORDS
+            and suffix_duration <= _BOUNDARY_MAX_SECONDS
+        )
+        if prefix_is_edge and not suffix_is_edge:
+            result[start:cut] = [speakers[cut]] * len(prefix_words)
+        elif suffix_is_edge and not prefix_is_edge:
+            result[cut:end] = [speakers[cut - 1]] * len(suffix_words)
+        elif prefix_is_edge and suffix_is_edge:
+            if suffix_duration >= prefix_duration * 1.5:
+                result[start:cut] = [speakers[cut]] * len(prefix_words)
+            elif prefix_duration >= suffix_duration * 1.5:
+                result[cut:end] = [speakers[cut - 1]] * len(suffix_words)
+
+    return result
+
+
 def word_speakers(
     words,
     segments,
@@ -63,16 +159,17 @@ def word_speakers(
     reassigns = reassigns or []
     relabel = relabel or {}
     seg_starts = [s.start for s in segments]
-    out: list[str] = []
-    for w in words:
-        spk = assign_speaker(w.start, w.end, seg_starts, segments)
+    out = [assign_speaker(w.start, w.end, seg_starts, segments) for w in words]
+    out = stabilize_speaker_boundaries(words, out)
+    effective: list[str] = []
+    for w, spk in zip(words, out):
         mid = (w.start + w.end) / 2
         for rs, re, label in reassigns:
             if rs <= mid <= re:
                 spk = label
                 break
-        out.append(relabel.get(spk, spk))
-    return out
+        effective.append(relabel.get(spk, spk))
+    return effective
 
 
 def chunk_cues(words, speakers, max_dur: float = 6.0, max_words: int = 14):
@@ -120,10 +217,11 @@ def build_utterances(
     reassigns = reassigns or []
     relabel = relabel or {}
     seg_starts = [s.start for s in segments]
+    speakers = [assign_speaker(w.start, w.end, seg_starts, segments) for w in words]
+    speakers = stabilize_speaker_boundaries(words, speakers)
     utterances: list[Utterance] = []
     cur: Utterance | None = None
-    for w in words:
-        spk = assign_speaker(w.start, w.end, seg_starts, segments)
+    for w, spk in zip(words, speakers):
         mid = (w.start + w.end) / 2
         for rs, re, label in reassigns:
             if rs <= mid <= re:

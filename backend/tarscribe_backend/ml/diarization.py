@@ -143,7 +143,9 @@ class DiarizationBackend:
 
         # Newer pipelines (e.g. community-1) return a DiarizeOutput wrapper; the
         # classic pipelines return an Annotation directly.
-        annotation = getattr(output, "speaker_diarization", output)
+        annotation = getattr(output, "exclusive_speaker_diarization", None)
+        if annotation is None:
+            annotation = getattr(output, "speaker_diarization", output)
 
         segments: list[SpeakerSegment] = []
         for turn, _, speaker in annotation.itertracks(yield_label=True):

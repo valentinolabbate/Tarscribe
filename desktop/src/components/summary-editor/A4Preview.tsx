@@ -58,7 +58,12 @@ function paginate(source: HTMLElement): string[] {
       fragment.textContent = previous ? `${previous} ${word}` : word;
       if (fits()) continue;
       fragment.textContent = previous;
-      if (previous) finishPage();
+      if (previous) {
+        finishPage();
+      } else {
+        fragment.remove();
+        if (page.children.length > 0) finishPage();
+      }
       fragment = block.cloneNode(false) as HTMLElement;
       fragment.textContent = word;
       page.appendChild(fragment);
@@ -73,11 +78,26 @@ function paginate(source: HTMLElement): string[] {
       list.appendChild(item);
       if (fits()) continue;
       item.remove();
-      if (list.children.length > 0) finishPage();
+      if (list.children.length > 0) {
+        finishPage();
+      } else {
+        list.remove();
+        if (page.children.length > 0) finishPage();
+      }
       list = block.cloneNode(false) as HTMLElement;
       list.appendChild(item);
       page.appendChild(list);
     }
+  };
+
+  const contentProbeFor = (block: Element) => {
+    const probe = block.cloneNode(true) as HTMLElement;
+    if (block.tagName === "P" || block.tagName === "BLOCKQUOTE") {
+      probe.textContent = (block.textContent ?? "").split(/\s+/).slice(0, 24).join(" ");
+    } else if (block.tagName === "UL" || block.tagName === "OL") {
+      Array.from(probe.children).slice(1).forEach((child) => child.remove());
+    }
+    return probe;
   };
 
   const children = Array.from(source.children);
@@ -86,7 +106,7 @@ function paginate(source: HTMLElement): string[] {
     const nextChild = children[childIndex + 1];
     if (/^H[1-6]$/.test(child.tagName) && nextChild && page.children.length > 0) {
       const headingProbe = child.cloneNode(true) as HTMLElement;
-      const contentProbe = nextChild.cloneNode(true) as HTMLElement;
+      const contentProbe = contentProbeFor(nextChild);
       page.append(headingProbe, contentProbe);
       const pairFits = fits();
       headingProbe.remove();
@@ -97,6 +117,14 @@ function paginate(source: HTMLElement): string[] {
     page.appendChild(block);
     if (fits()) continue;
     block.remove();
+    if (block.tagName === "P") {
+      appendLongText(block);
+      continue;
+    }
+    if (block.tagName === "UL" || block.tagName === "OL") {
+      appendList(block);
+      continue;
+    }
     if (page.children.length > 0) finishPage();
     page.appendChild(block);
     if (fits()) continue;

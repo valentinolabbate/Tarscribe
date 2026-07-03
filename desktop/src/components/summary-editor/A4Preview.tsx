@@ -80,7 +80,19 @@ function paginate(source: HTMLElement): string[] {
     }
   };
 
-  for (const child of Array.from(source.children)) {
+  const children = Array.from(source.children);
+  for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+    const child = children[childIndex];
+    const nextChild = children[childIndex + 1];
+    if (/^H[1-6]$/.test(child.tagName) && nextChild && page.children.length > 0) {
+      const headingProbe = child.cloneNode(true) as HTMLElement;
+      const contentProbe = nextChild.cloneNode(true) as HTMLElement;
+      page.append(headingProbe, contentProbe);
+      const pairFits = fits();
+      headingProbe.remove();
+      contentProbe.remove();
+      if (!pairFits) finishPage();
+    }
     const block = child.cloneNode(true) as HTMLElement;
     page.appendChild(block);
     if (fits()) continue;

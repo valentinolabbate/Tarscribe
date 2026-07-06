@@ -63,6 +63,17 @@ DEFAULT_PREFS: dict[str, Any] = {
     "meeting_detection_enabled": False,
     "meeting_detection_apps": ["zoom.us", "Microsoft Teams", "Webex", "Cisco Webex Meetings"],
     "caldav": {"url": "", "username": ""},
+    # Agentic RAG: when on (and RAG is enabled and the chat model supports tools),
+    # the LLM may iteratively search the knowledge base via native OpenAI tool
+    # calls before generating summaries, action items, chapters, dictation or
+    # digests. Falls back to one-shot RAG enrichment when the model lacks tool
+    # support.
+    "agent_rag_enabled": False,
+    "agent_rag": {
+        "max_rounds": 5,
+        "max_context_tokens": 12000,
+        "top_k": 6,
+    },
 }
 
 

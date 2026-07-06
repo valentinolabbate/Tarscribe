@@ -794,36 +794,76 @@ async def _run_summary_async(
             "unverändert an die Zusammenfassung angehängt."
         )
 
-        # Enrich the summary with relevant knowledge from the same topic (other
-        # transcripts, summaries and uploaded documents). Best-effort: any failure
-        # (RAG off, embedding endpoint down, no hits) just summarizes as before.
-        if use_topic_knowledge:
-            from . import rag as R
+        # Enrich the summary with relevant knowledge. Two strategies:
+        #  1. Agentic RAG (opt-in): the LLM iteratively calls search_knowledge
+        #     via native OpenAI tools until it has enough context.
+        #  2. One-shot RAG (default): retrieve topic knowledge in a single call.
+        # Both are best-effort — any failure degrades to a plain summary.
+        from . import agent as AG
+        from . import rag as R
 
-            if R.rag_enabled():
-                try:
-                    with session_scope() as s:
-                        hits = R.retrieve_topic_knowledge(
-                            s, text, topic_id, exclude_recording_id=recording_id
-                        )
-                    block = _format_topic_knowledge(hits)
-                    if block:
-                        _save_summary_sources(summary_id, hits)
-                        system_prompt += (
-                            "\n\nDir steht zusätzlicher Kontext aus demselben Themenbereich "
-                            "zur Verfügung (Dateien, andere Transkripte und Zusammenfassungen). "
-                            "Das aktuelle Transkript bleibt immer die Primärquelle. Nutze den "
-                            "Zusatzkontext nur, wo er inhaltlich eindeutig zur Aufnahme passt, um "
-                            "die Zusammenfassung präziser und vollständiger zu machen. Erfinde "
-                            "nichts, übernimm nichts Unpassendes und lehne die Aufgabe nie wegen "
-                            "abweichendem Zusatzkontext ab."
-                        )
-                        user_prompt += (
-                            "\n\n--- Optionaler, nachrangiger Kontext aus dem Themenbereich ---\n"
-                            + block
-                        )
-                except Exception:  # noqa: BLE001 - never fail a summary over enrichment
-                    traceback.print_exc()
+        agent_cfg = AG.get_agent_rag_config()
+        agent_done = False
+        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+            try:
+                research_notes = ""
+                research_sources: list[dict] = []
+                with session_scope() as s:
+                    research_notes, research_sources = await AG.research_context(
+                        session=s,
+                        topic_id=topic_id,
+                        recording_id=recording_id,
+                        task_description="Zusammenfassung des Transkripts erstellen",
+                        messages_seed=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        cfg=agent_cfg,
+                        job_id=job_id,
+                        raise_if_canceled=_raise_if_canceled,
+                    )
+                if research_sources:
+                    _save_summary_sources(summary_id, research_sources)
+                if research_notes:
+                    system_prompt += (
+                        "\n\nDir steht recherchierter Kontext aus der Wissensbasis "
+                        "zur Verfügung. Das aktuelle Transkript bleibt immer die "
+                        "Primärquelle. Nutze den Zusatzkontext nur, wo er inhaltlich "
+                        "eindeutig zur Aufnahme passt. Erfinde nichts, übernimm nichts "
+                        "Unpassendes und lehne die Aufgabe nie wegen abweichendem "
+                        "Zusatzkontext ab.\n\n--- Recherchierter Kontext ---\n"
+                        + research_notes
+                    )
+                agent_done = True
+            except AG.ToolSupportError:
+                traceback.print_exc()
+            except Exception:  # noqa: BLE001 - never fail a summary over enrichment
+                traceback.print_exc()
+
+        if not agent_done and use_topic_knowledge and R.rag_enabled():
+            try:
+                with session_scope() as s:
+                    hits = R.retrieve_topic_knowledge(
+                        s, text, topic_id, exclude_recording_id=recording_id
+                    )
+                block = _format_topic_knowledge(hits)
+                if block:
+                    _save_summary_sources(summary_id, hits)
+                    system_prompt += (
+                        "\n\nDir steht zusätzlicher Kontext aus demselben Themenbereich "
+                        "zur Verfügung (Dateien, andere Transkripte und Zusammenfassungen). "
+                        "Das aktuelle Transkript bleibt immer die Primärquelle. Nutze den "
+                        "Zusatzkontext nur, wo er inhaltlich eindeutig zur Aufnahme passt, um "
+                        "die Zusammenfassung präziser und vollständiger zu machen. Erfinde "
+                        "nichts, übernimm nichts Unpassendes und lehne die Aufgabe nie wegen "
+                        "abweichendem Zusatzkontext ab."
+                    )
+                    user_prompt += (
+                        "\n\n--- Optionaler, nachrangiger Kontext aus dem Themenbereich ---\n"
+                        + block
+                    )
+            except Exception:  # noqa: BLE001 - never fail a summary over enrichment
+                traceback.print_exc()
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -954,18 +994,32 @@ def _run_action_items(
 async def _run_action_items_async(
     recording_id: int, job_id: int, clarification: str | None = None
 ) -> None:
+    from . import agent as AG
     from . import analysis
     from .settings_store import load_prefs
 
     try:
         _start_job(job_id, progress=0.05)
-        chat = _llm_chat_fn_async()
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
             reference_date = rec.created_at.date().isoformat() if rec and rec.created_at else None
             text, speakers = _assemble_transcript(s, recording_id)
+            topic_id = rec.topic_id if rec else None
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")
+
+        agent_cfg = AG.get_agent_rag_config()
+        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+            chat = AG.make_agent_chat_async(
+                session_factory=session_scope,
+                topic_id=topic_id,
+                recording_id=recording_id,
+                cfg=agent_cfg,
+                job_id=job_id,
+                raise_if_canceled=_raise_if_canceled,
+            )
+        else:
+            chat = _llm_chat_fn_async()
 
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
 
@@ -997,6 +1051,7 @@ async def _run_action_items_async(
 
 
 def _maybe_postprocess_dictation(recording_id: int) -> None:
+    from . import agent as AG
     from . import analysis
     from .calendar_sync import sync_action_item
     from .settings_store import load_prefs
@@ -1007,6 +1062,7 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
             return
         reference_date = rec.created_at.date().isoformat() if rec.created_at else None
         text, _speakers = _assemble_transcript(s, recording_id)
+        topic_id = rec.topic_id
         topics = [
             (topic.id, topic.name)
             for topic in s.exec(select(Topic).order_by(Topic.created_at)).all()
@@ -1015,10 +1071,22 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
     if not text:
         return
 
-    try:
-        chat = _llm_chat_fn()
-    except Exception:
-        return
+    agent_cfg = AG.get_agent_rag_config()
+    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        try:
+            chat = AG.make_agent_chat_sync(
+                session_factory=session_scope,
+                topic_id=topic_id,
+                recording_id=recording_id,
+                cfg=agent_cfg,
+            )
+        except Exception:
+            chat = _llm_chat_fn()
+    else:
+        try:
+            chat = _llm_chat_fn()
+        except Exception:
+            return
 
     topic_names = [name for _topic_id, name in topics]
     topic_by_name = {name.casefold(): topic_id for topic_id, name in topics}
@@ -1076,6 +1144,7 @@ def _run_chapters(recording_id: int, job_id: int) -> None:
 
 
 async def _run_chapters_async(recording_id: int, job_id: int) -> None:
+    from . import agent as AG
     from . import analysis
     from .models import Chapter
     from .rag import load_utterances
@@ -1083,15 +1152,28 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
 
     try:
         _start_job(job_id, progress=0.1)
-        chat = _llm_chat_fn_async()
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
             if not rec:
                 raise RuntimeError("Aufnahme nicht gefunden")
             duration = rec.duration_sec
+            topic_id = rec.topic_id
             utts = load_utterances(s, recording_id)
         if not utts:
             raise RuntimeError("Kein Transkript vorhanden")
+
+        agent_cfg = AG.get_agent_rag_config()
+        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+            chat = AG.make_agent_chat_async(
+                session_factory=session_scope,
+                topic_id=topic_id,
+                recording_id=recording_id,
+                cfg=agent_cfg,
+                job_id=job_id,
+                raise_if_canceled=_raise_if_canceled,
+            )
+        else:
+            chat = _llm_chat_fn_async()
 
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
         _update_job(job_id, progress=0.3)

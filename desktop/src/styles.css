@@ -118,6 +118,18 @@ button {
   width: 22px;
   height: 22px;
 }
+.brand .brand-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.brand .brand-name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
 .brand span {
   display: block;
   margin-top: 1px;

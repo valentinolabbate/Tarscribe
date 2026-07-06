@@ -1,5 +1,5 @@
 import type { Topic } from "../../lib/types";
-import { ActivityIcon, HomeIcon, LogoIcon, PlusIcon, SettingsIcon, TasksIcon } from "../icons";
+import { ActivityIcon, HomeIcon, PlusIcon, SettingsIcon, TasksIcon } from "../icons";
 import { TopicRow } from "./TopicRow";
 
 export function Sidebar({
@@ -32,12 +32,8 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-mark">
-          <LogoIcon className="logo" />
-        </div>
-        <div>
-          <div>Tarscribe</div>
-        </div>
+        <img src="logo.png" alt="Tarscribe" className="brand-logo" />
+        <div className="brand-name">Tarscribe</div>
       </div>
 
       <button className={`topic-item ${showHome ? "active" : ""}`} onClick={onHome}>

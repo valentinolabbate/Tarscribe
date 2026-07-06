@@ -718,6 +718,7 @@ def _generate_digest_markdown(
     context: str,
     chunk_size: int,
 ) -> tuple[str, str]:
+    from .. import agent as AG
     from .. import llm as L
 
     cfg = L.get_llm_config()
@@ -754,16 +755,46 @@ Regeln:
 Quellen:
 {context}"""
 
+    system_content = (
+        "Du schreibst deutschsprachige Wochen-Digests aus Meeting- und Notizdaten. "
+        "Du bist nüchtern, konkret und zitierst keine erfundenen Fakten."
+    )
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "Du schreibst deutschsprachige Wochen-Digests aus Meeting- und Notizdaten. "
-                "Du bist nüchtern, konkret und zitierst keine erfundenen Fakten."
-            ),
-        },
+        {"role": "system", "content": system_content},
         {"role": "user", "content": user},
     ]
+
+    # Agentic RAG: let the LLM iteratively search the knowledge base before
+    # generating the digest. Falls back to plain digest on any failure.
+    agent_cfg = AG.get_agent_rag_config()
+    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        try:
+            from ..db import session_scope
+
+            with session_scope() as s:
+                research_notes, _sources = AG.research_context_sync(
+                    session=s,
+                    topic_id=None,
+                    recording_id=None,
+                    task_description=(
+                        f"Wochen-Digest für {date_from.strftime('%d.%m.%Y')} bis "
+                        f"{date_to.strftime('%d.%m.%Y')} aus {recording_count} Aufnahmen"
+                    ),
+                    messages_seed=messages,
+                    cfg=agent_cfg,
+                )
+            if research_notes:
+                messages[0] = {
+                    **messages[0],
+                    "content": system_content
+                    + "\n\n--- Recherchierter Kontext ---\n"
+                    + research_notes,
+                }
+        except AG.ToolSupportError:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         content = "".join(
             L.stream_chat(

@@ -68,12 +68,15 @@ def _chat_payload(
     max_tokens: int | None,
     reasoning_effort: str | None,
     provider: str | None,
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
+    stream: bool = True,
 ) -> dict:
     payload: dict = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
-        "stream": True,
+        "stream": stream,
     }
     if top_p is not None:
         payload["top_p"] = top_p
@@ -86,6 +89,10 @@ def _chat_payload(
             payload["reasoning"] = {"effort": reasoning_effort}
         else:
             payload["reasoning_effort"] = reasoning_effort
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     return payload
 
 
@@ -178,6 +185,106 @@ async def astream_chat(
                 delta = _parse_stream_line(line)
                 if delta:
                     yield delta
+
+
+async def achat_complete(
+    messages: list[dict],
+    model: str,
+    base_url: str,
+    temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
+    timeout: float | None = 300,
+) -> dict:
+    """Non-streaming async completion. Returns the full choice dict:
+    {"message": {"role","content","tool_calls"}, "finish_reason"}.
+    Used by the agentic RAG loop where we need the complete response
+    (incl. tool_calls) in one shot rather than incremental deltas.
+    """
+    payload = _chat_payload(
+        messages,
+        model,
+        temperature,
+        top_p,
+        top_k,
+        max_tokens,
+        reasoning_effort,
+        provider,
+        tools=tools,
+        tool_choice=tool_choice,
+        stream=False,
+    )
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(
+            f"{base_url}/chat/completions",
+            json=payload,
+            headers=_auth_headers(api_key),
+        )
+        r.raise_for_status()
+        data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return {"message": {"role": "assistant", "content": "", "tool_calls": None}, "finish_reason": None}
+    choice = choices[0]
+    return {
+        "message": choice.get("message") or {"role": "assistant", "content": "", "tool_calls": None},
+        "finish_reason": choice.get("finish_reason"),
+    }
+
+
+def chat_complete(
+    messages: list[dict],
+    model: str,
+    base_url: str,
+    temperature: float = 0.3,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    max_tokens: int | None = None,
+    api_key: str | None = None,
+    reasoning_effort: str | None = None,
+    provider: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | dict | None = None,
+    timeout: float | None = 300,
+) -> dict:
+    """Sync non-streaming completion. Same return shape as ``achat_complete``.
+    Used by sync callers (e.g. digest generation).
+    """
+    payload = _chat_payload(
+        messages,
+        model,
+        temperature,
+        top_p,
+        top_k,
+        max_tokens,
+        reasoning_effort,
+        provider,
+        tools=tools,
+        tool_choice=tool_choice,
+        stream=False,
+    )
+    r = httpx.post(
+        f"{base_url}/chat/completions",
+        json=payload,
+        headers=_auth_headers(api_key),
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    data = r.json()
+    choices = data.get("choices") or []
+    if not choices:
+        return {"message": {"role": "assistant", "content": "", "tool_calls": None}, "finish_reason": None}
+    choice = choices[0]
+    return {
+        "message": choice.get("message") or {"role": "assistant", "content": "", "tool_calls": None},
+        "finish_reason": choice.get("finish_reason"),
+    }
 
 
 def render_template(template_str: str, context: dict[str, str]) -> str:

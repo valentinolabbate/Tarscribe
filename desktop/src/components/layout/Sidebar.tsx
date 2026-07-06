@@ -37,7 +37,6 @@ export function Sidebar({
         </div>
         <div>
           <div>Tarscribe</div>
-          <span>Lokal & privat</span>
         </div>
       </div>
 
@@ -47,14 +46,6 @@ export function Sidebar({
 
       <button className={`topic-item ${showTasks ? "active" : ""}`} onClick={onTasks}>
         <TasksIcon width={16} height={16} /> Aufgaben
-      </button>
-
-      <button
-        className={`topic-item debug-jobs-nav ${showJobs ? "active" : ""}`}
-        title="Laufende Jobs"
-        onClick={onJobs}
-      >
-        <ActivityIcon width={16} height={16} /> Jobs
       </button>
 
       <div className="section-label">
@@ -86,13 +77,13 @@ export function Sidebar({
       )}
 
       <div style={{ flex: 1 }} />
-      <div className="sidebar-status">
+      <div className="sidebar-status" title="Audio, Transkripte und Chat bleiben auf diesem Mac.">
         <span className="sidebar-status-dot" />
-        <div>
-          <strong>Lokaler Arbeitsbereich</strong>
-          <span>Audio, Transkripte und Chat bleiben auf diesem Mac.</span>
-        </div>
+        <strong>Lokal bereit</strong>
       </div>
+      <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={onJobs}>
+        <ActivityIcon width={16} height={16} /> Verarbeitung
+      </button>
       <button className="topic-item" onClick={onSettings}>
         <SettingsIcon width={16} height={16} /> Einstellungen
       </button>

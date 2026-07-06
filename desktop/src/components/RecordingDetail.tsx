@@ -91,25 +91,27 @@ export function RecordingDetail({
       : null;
   const labels = diar?.speakers.map((s) => s.label) ?? [];
   const summaryCount = summaries?.filter((summary) => summary.content).length ?? 0;
+  const wordCount = transcript?.words.length ?? 0;
+  const wordLabel = `${wordCount} ${wordCount === 1 ? "Wort" : "Wörter"}`;
   const transcriptMeta = diar
-    ? `${diar.utterances.length} Abschnitte`
+    ? `${diar.utterances.length} ${diar.utterances.length === 1 ? "Abschnitt" : "Abschnitte"}`
     : transcript
-      ? `${sentences.length} Abschnitte · ${transcript.words.length} Wörter`
-      : "Noch nicht erstellt";
+      ? `${sentences.length} ${sentences.length === 1 ? "Abschnitt" : "Abschnitte"} · ${wordLabel}`
+      : "";
 
   const tabs = useMemo(
     () => [
-      { id: "transcript" as const, label: "Transkript", meta: transcriptMeta },
+      { id: "transcript" as const, label: "Transkript", meta: transcript ? wordLabel : "" },
       {
         id: "summary" as const,
         label: "Zusammenfassung",
-        meta: summaryCount > 0 ? `${summaryCount} gespeichert` : "Erstellen",
+        meta: summaryCount > 0 ? `${summaryCount}` : "",
       },
-      { id: "ask" as const, label: "Fragen", meta: "Suche & Chat" },
+      { id: "ask" as const, label: "Fragen", meta: "" },
       {
         id: "speakers" as const,
         label: "Sprecher",
-        meta: diar ? `${diar.speakers.length} erkannt` : "Optional",
+        meta: diar ? `${diar.speakers.length}` : "",
       },
     ],
     [diar, summaryCount, transcriptMeta],

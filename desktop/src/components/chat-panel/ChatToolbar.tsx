@@ -60,8 +60,8 @@ export function ChatToolbar({
       <div className="chat-panel-title">
         <ChatIcon width={18} height={18} />
         <div>
-          <strong>{panelTitle}</strong>
-          <span>{scopeLabel}</span>
+          <strong>{mode === "search" ? (scoped ? "Aufnahme durchsuchen" : "Archivsuche") : panelTitle}</strong>
+          {scopeLabel && <span>{scopeLabel}</span>}
         </div>
       </div>
       <div className="seg chat-mode-toggle">

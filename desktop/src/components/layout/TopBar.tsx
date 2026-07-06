@@ -1,4 +1,4 @@
-import { useHardware, useUpdateTopic } from "../../hooks/queries";
+import { useUpdateTopic } from "../../hooks/queries";
 import type { Recording, Topic } from "../../lib/types";
 import { GlobalRecordingIndicator } from "../GlobalRecordingIndicator";
 import { CalendarIcon, FolderIcon } from "../icons";
@@ -29,22 +29,6 @@ function TopicCalendarControl({ topic }: { topic: Topic }) {
   );
 }
 
-function HardwarePill() {
-  const { data: hardware } = useHardware();
-  if (!hardware) return null;
-  const device = hardware.has_cuda
-    ? `CUDA · ${hardware.cuda_device ?? "GPU"}`
-    : hardware.is_apple_silicon
-      ? `Apple Silicon · Diarisierung: ${hardware.has_mps ? "MPS" : "CPU"}`
-      : "CPU";
-  return (
-    <span className="hw-pill" title={`${device} · ASR: ${hardware.recommended_asr}`}>
-      <span className="hw-dot" />
-      Lokal bereit
-    </span>
-  );
-}
-
 export function TopBar({
   showJobs,
   showTasks,
@@ -62,31 +46,21 @@ export function TopBar({
   showRecordingIndicator: boolean;
   onTopicExport: () => void;
 }) {
-  const eyebrow = showJobs
-    ? "Debug"
+  const title = showJobs
+    ? "Verarbeitung"
     : showTasks
       ? "Aufgaben"
       : showHome
-        ? "Start"
+        ? "Arbeitsbereich"
         : openRecording
-          ? "Aufnahme"
-          : "Themenbereich";
-  const title = showJobs
-    ? "Jobs"
-    : showTasks
-      ? "Aufgaben-Zentrale"
-      : showHome
-        ? "Tarscribe"
-        : openRecording
-          ? openRecording.title
+          ? currentTopic?.name ?? "Aufnahme"
           : currentTopic
-            ? currentTopic.name
+            ? "Bibliothek"
             : "Tarscribe";
 
   return (
     <div className="topbar">
       <div className="topbar-title">
-        <span className="topbar-eyebrow">{eyebrow}</span>
         <h1>{title}</h1>
       </div>
       <div className="spacer" />
@@ -108,7 +82,6 @@ export function TopBar({
           <TopicCalendarControl topic={currentTopic} />
         </>
       )}
-      <HardwarePill />
     </div>
   );
 }

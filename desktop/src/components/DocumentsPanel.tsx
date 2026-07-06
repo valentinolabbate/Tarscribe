@@ -71,8 +71,8 @@ export function DocumentsPanel({
       </div>
       <p className="documents-hint">
         {compact
-          ? "Optionaler Kontext für Suche und Chat in dieser Aufnahme."
-          : "PDF, Word, Text oder Markdown – wird durchsuchbar und im Wissens-Chat genutzt."}
+          ? "Kontext für Suche und Chat in dieser Aufnahme."
+          : "PDF, Word, Text oder Markdown werden im Archiv durchsuchbar."}
       </p>
 
       <input
@@ -95,16 +95,8 @@ export function DocumentsPanel({
           <span>Noch keine Dokumente angehängt.</span>
         </div>
       ) : items.length === 0 ? (
-        <div className="documents-empty empty-next">
-          <strong>Nächster Schritt</strong>
-          <span>Lade Referenzmaterial hoch, um es durchsuchbar und im Chat nutzbar zu machen.</span>
-          <button
-            className="btn ghost"
-            onClick={() => fileInput.current?.click()}
-            disabled={busy || upload.isPending}
-          >
-            <UploadIcon width={16} height={16} /> Dokument hochladen
-          </button>
+        <div className="documents-empty empty-next compact-empty">
+          <span>Noch keine Dokumente.</span>
         </div>
       ) : (
         <ul className="documents-list">

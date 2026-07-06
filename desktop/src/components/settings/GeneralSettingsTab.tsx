@@ -27,7 +27,6 @@ export function GeneralSettingsTab({
     <>
       <div className="settings-section-title">
         <span>Aufnahme</span>
-        <small>Quelle, Mikrofon und Sprache für neue Aufnahmen.</small>
       </div>
       <div className="field">
         <label>Aufnahmequelle</label>
@@ -49,7 +48,7 @@ export function GeneralSettingsTab({
         </select>
         <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
           {systemAudioCapability?.supported
-            ? `macOS ${systemAudioCapability.current_macos_version}: Systemaudio kann ohne zusätzlich installierte Programme aufgenommen werden.`
+            ? "Systemaudio ist verfügbar."
             : systemAudioCapability?.reason ?? "Prüfe native Systemaudio-Unterstützung…"}
         </div>
       </div>
@@ -73,7 +72,7 @@ export function GeneralSettingsTab({
         </select>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
           <button className="btn" onClick={refreshRecordingDevices}>
-            Geräte aktualisieren
+            Aktualisieren
           </button>
         </div>
       </div>
@@ -98,8 +97,7 @@ export function GeneralSettingsTab({
       </div>
 
       <div className="settings-section-title">
-        <span>Automationen</span>
-        <small>Kurze Wege für Diktat und Meeting-Erkennung.</small>
+        <span>Kurzbefehle</span>
       </div>
       <div className="field">
         <label>Diktat-Hotkey</label>
@@ -112,56 +110,58 @@ export function GeneralSettingsTab({
           spellCheck={false}
         />
         <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-          Format: <code>Alt+Meta+D</code>, <code>Shift+Meta+N</code> oder <code>Control+Alt+M</code>.
-          Meta entspricht auf dem Mac der Command-Taste.
+          Beispiel: <code>Alt+Meta+D</code>. Meta entspricht der Command-Taste.
         </div>
       </div>
 
-      <div className="field">
-        <label>Meeting-Erkennung</label>
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={settings.meeting_detection_enabled}
+      <details className="settings-advanced">
+        <summary>
+          <span>Meeting-Erkennung</span>
+          <small>Optional</small>
+        </summary>
+        <div className="settings-advanced-body">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={settings.meeting_detection_enabled}
+              onChange={(event) =>
+                saveMeetingDetection({
+                  meeting_detection_enabled: event.target.checked,
+                  meeting_detection_apps: settings.meeting_detection_apps,
+                })
+              }
+            />
+            <span>Bei aktiven Meeting-Apps eine Aufnahme anbieten</span>
+          </label>
+          <label className="settings-inline-label">Erkannte Apps</label>
+          <textarea
+            value={(settings.meeting_detection_apps ?? []).join("\n")}
             onChange={(event) =>
-              saveMeetingDetection({
-                meeting_detection_enabled: event.target.checked,
-                meeting_detection_apps: settings.meeting_detection_apps,
+              setSettings({
+                ...settings,
+                meeting_detection_apps: event.target.value
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean),
               })
             }
+            onBlur={(event) =>
+              saveMeetingDetection({
+                meeting_detection_enabled: settings.meeting_detection_enabled,
+                meeting_detection_apps: event.target.value
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean),
+              })
+            }
+            rows={4}
+            spellCheck={false}
           />
-          <span>Aufnahme anbieten, wenn eine Meeting-App aktiv das Mikrofon nutzt</span>
-        </label>
-        <textarea
-          value={(settings.meeting_detection_apps ?? []).join("\n")}
-          onChange={(event) =>
-            setSettings({
-              ...settings,
-              meeting_detection_apps: event.target.value
-                .split("\n")
-                .map((line) => line.trim())
-                .filter(Boolean),
-            })
-          }
-          onBlur={(event) =>
-            saveMeetingDetection({
-              meeting_detection_enabled: settings.meeting_detection_enabled,
-              meeting_detection_apps: event.target.value
-                .split("\n")
-                .map((line) => line.trim())
-                .filter(Boolean),
-            })
-          }
-          rows={4}
-          spellCheck={false}
-        />
-        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-          Ein App-Name pro Zeile, z. B. <code>zoom.us</code> oder <code>Microsoft Teams</code>.
-          Die Aufnahme wird nur vorgeschlagen, wenn die App gerade das Mikrofon nutzt – im
-          Hintergrund laufende Apps lösen keinen Hinweis mehr aus. Für Browser-Meetings die
-          Browser-App ergänzen (z. B. <code>Google Chrome</code>).
+          <div className="rec-sub">
+            Ein App-Name pro Zeile. Für Browser-Meetings zusätzlich den Browser eintragen.
+          </div>
         </div>
-      </div>
+      </details>
 
       {statusEl}
     </>

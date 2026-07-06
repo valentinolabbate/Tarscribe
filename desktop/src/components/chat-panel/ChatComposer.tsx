@@ -36,9 +36,9 @@ export function ChatComposer({
         }}
         placeholder={
           mode === "search"
-            ? "Suchbegriff oder Frage… (Enter zum Suchen)"
+            ? "Suchbegriff oder Frage…"
             : chatAvailable
-              ? "Frage stellen… (Enter zum Senden, Shift+Enter = Zeilenumbruch)"
+              ? "Frage stellen…"
               : "Erst ein Chat-Modell in den Einstellungen wählen"
         }
         rows={2}

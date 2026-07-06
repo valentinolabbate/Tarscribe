@@ -54,13 +54,24 @@ mkdir -p "$OUT_DIR"
 rm -f "$DMG_PATH"
 
 echo "Erstelle DMG (${VERSION}, ${ARCH_TAG})…"
-hdiutil create \
-  -volname "Tarscribe $VERSION" \
-  -srcfolder "$STAGING" \
-  -ov \
-  -format UDZO \
-  -imagekey zlib-level=9 \
-  "$DMG_PATH"
+for attempt in 1 2 3; do
+  if hdiutil create \
+    -volname "Tarscribe $VERSION" \
+    -srcfolder "$STAGING" \
+    -ov \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    "$DMG_PATH"; then
+    break
+  fi
+  if [[ "$attempt" == "3" ]]; then
+    echo "Fehler: DMG konnte nach drei Versuchen nicht erstellt werden."
+    exit 1
+  fi
+  echo "DMG-Erstellung belegt, neuer Versuch…"
+  rm -f "$DMG_PATH"
+  sleep 3
+done
 
 echo ""
 echo "Fertig: $DMG_PATH"

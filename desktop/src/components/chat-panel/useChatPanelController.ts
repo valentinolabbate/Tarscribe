@@ -330,12 +330,12 @@ export function useChatPanelController({
   const chatEmptyPrompts = scoped
     ? ["Fasse diese Aufnahme kurz zusammen", "Welche Aufgaben entstanden hier?", "Welche Fragen bleiben offen?"]
     : ["Was waren die wichtigsten Entscheidungen?", "Welche Aufgaben sind offen?", "Was hat sich letzte Woche geändert?"];
-  const panelTitle = scoped ? "Fragen zur Aufnahme" : "Wissens-Chat";
+  const panelTitle = scoped ? "Aufnahme" : "Archiv";
   const scopeLabel = scoped
     ? scopedRecordingTitle ?? "Aufnahme"
-    : status
+    : status && status.chunks > 0
       ? `${status.chunks} Passagen · ${status.recordings_indexed} Aufnahmen`
-      : "Index wird geladen...";
+      : "";
 
   return {
     scoped,

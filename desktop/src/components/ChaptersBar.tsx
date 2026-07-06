@@ -43,9 +43,9 @@ export function ChaptersBar({
     return (
       <div className="chapters-bar empty">
         <ChaptersIcon width={15} height={15} />
-        <span>Kapitel gliedern lange Aufnahmen nach Themen.</span>
+        <span>Kapitel</span>
         <button className="btn ghost" disabled={generating} onClick={() => generate.mutate()}>
-          {generating ? "Erkenne Kapitel…" : "Kapitel erkennen"}
+          {generating ? "Wird erkannt…" : "Erkennen"}
         </button>
         {job?.phase === "chapters" && job.status === "failed" && (
           <span className="chapters-error">{job.error}</span>

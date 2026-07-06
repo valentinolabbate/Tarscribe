@@ -19,7 +19,7 @@ export function DetailTabs({
           type="button"
         >
           <span>{tab.label}</span>
-          <small>{tab.meta}</small>
+          {tab.meta && <small>{tab.meta}</small>}
         </button>
       ))}
     </nav>

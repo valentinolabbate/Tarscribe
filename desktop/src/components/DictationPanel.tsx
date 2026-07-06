@@ -14,9 +14,8 @@ export function DictationPanel({
     <section className={`start-card dictation-panel ${active ? "active" : ""}`} aria-label="Diktat-Inbox">
       <div className="start-card-head">
         <div>
-          <span className="page-kicker">Diktat-Inbox</span>
-          <h3>Gedanke reinsprechen</h3>
-          <p>Wird transkribiert und automatisch auf Aufgaben geprüft.</p>
+          <h3>Diktat</h3>
+          <p>Gedanke festhalten</p>
         </div>
       </div>
       <div className="dictation-control">
@@ -51,7 +50,7 @@ export function DictationPanel({
           </button>
         </div>
       </div>
-      <span className="dictation-shortcut">{shortcutLabel} startet oder speichert das Diktat</span>
+      <span className="dictation-shortcut" title="Startet oder speichert das Diktat">{shortcutLabel}</span>
     </section>
   );
 }

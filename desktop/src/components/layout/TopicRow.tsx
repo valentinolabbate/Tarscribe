@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useDeleteTopic, useUpdateTopic } from "../../hooks/queries";
 import { useRecording } from "../../hooks/useRecording";
 import type { Topic } from "../../lib/types";
-import { ChevronDownIcon, ChevronUpIcon, TrashIcon } from "../icons";
+import { ChevronDownIcon, ChevronUpIcon, MoreIcon, TrashIcon } from "../icons";
 
 export function TopicRow({
   topic,
@@ -84,49 +84,46 @@ export function TopicRow({
           ))}
         </span>
       )}
-      <span className="topic-actions">
-        <span className="topic-reorder" aria-label="Sortieren">
+      <details className="topic-actions" onClick={(event) => event.stopPropagation()}>
+        <summary title="Themenbereich verwalten" aria-label={`${topic.name} verwalten`}>
+          <MoreIcon width={15} height={15} />
+        </summary>
+        <div className="topic-menu">
+          <button type="button" onClick={() => setEditing(true)}>
+            Umbenennen
+          </button>
           <button
-            className="topic-move"
-            title="Nach oben"
-            aria-label="Nach oben verschieben"
+            type="button"
             disabled={!canMoveUp}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMoveUp();
-            }}
+            onClick={onMoveUp}
           >
             <ChevronUpIcon width={13} height={13} />
+            Nach oben
           </button>
           <button
-            className="topic-move"
-            title="Nach unten"
-            aria-label="Nach unten verschieben"
+            type="button"
             disabled={!canMoveDown}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMoveDown();
-            }}
+            onClick={onMoveDown}
           >
             <ChevronDownIcon width={13} height={13} />
+            Nach unten
           </button>
-        </span>
-        <button
-          className="topic-del"
-          title={
-            recording.topicId === topic.id
-              ? "Während einer laufenden Aufnahme nicht löschbar"
-              : "Themenbereich löschen"
-          }
-          disabled={recording.topicId === topic.id}
-          onClick={(event) => {
-            event.stopPropagation();
-            del.mutate(topic.id);
-          }}
-        >
-          <TrashIcon width={13} height={13} />
-        </button>
-      </span>
+          <button
+            className="danger"
+            type="button"
+            title={
+              recording.topicId === topic.id
+                ? "Während einer laufenden Aufnahme nicht löschbar"
+                : "Themenbereich löschen"
+            }
+            disabled={recording.topicId === topic.id}
+            onClick={() => del.mutate(topic.id)}
+          >
+            <TrashIcon width={13} height={13} />
+            Löschen
+          </button>
+        </div>
+      </details>
     </div>
   );
 }

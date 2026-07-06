@@ -113,10 +113,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-titlebar">
-          <div>
-            <h2>Einstellungen</h2>
-            <p>Alles, was Tarscribe dauerhaft für Aufnahme, Modelle und Exporte nutzt.</p>
-          </div>
+          <h2>Einstellungen</h2>
         </div>
 
         <div className="settings-layout">
@@ -133,7 +130,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 <span className="settings-nav-icon">{t.icon}</span>
                 <span className="settings-nav-copy">
                   <strong>{t.label}</strong>
-                  <small>{t.description}</small>
                 </span>
               </button>
             ))}

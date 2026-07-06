@@ -1,6 +1,8 @@
 import ReactMarkdown from "react-markdown";
+import { useState } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { DictationPanel } from "./DictationPanel";
+import { RecordControl } from "./RecordControl";
 import {
   useCreateDigest,
   useDigests,
@@ -36,29 +38,14 @@ function DigestPanel() {
   }
 
   return (
-    <section className="start-card digest-panel" aria-label="Wochen-Digest">
+    <section className="start-card digest-panel compact-insight" aria-label="Wochen-Digest">
       <div className="start-card-head">
         <div>
-          <span className="page-kicker">Deine Woche</span>
           <h3>Wochen-Digest</h3>
-          <p>Themen, Entscheidungen und offene Aufgaben deiner Woche.</p>
         </div>
         <div className="start-card-actions">
-          {latest && (
-            <button
-              className="btn ghost"
-              onClick={() => navigator.clipboard.writeText(latest.content_markdown)}
-            >
-              Kopieren
-            </button>
-          )}
-          {latest && (
-            <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
-              {sendDigest.isPending ? "Exportiere..." : "Exportieren"}
-            </button>
-          )}
           <button
-            className="btn primary"
+            className="btn"
             disabled={createDigest.isPending}
             onClick={() => createDigest.mutate(7)}
           >
@@ -67,42 +54,36 @@ function DigestPanel() {
         </div>
       </div>
 
-      {isLoading && <div className="digest-empty">Digests werden geladen...</div>}
+      {isLoading && <div className="start-card-note">Wird geladen…</div>}
       {createDigest.isPending && (
-        <div className="digest-empty">Der Digest wird mit deinem konfigurierten Chat-Modell erstellt.</div>
+        <div className="start-card-note">Digest wird erstellt…</div>
       )}
       {!isLoading && !createDigest.isPending && latest && stale && (
-        <div className="digest-reminder">
-          {latestAgeDays == null
-            ? "Noch kein Wochenrückblick vorhanden."
-            : `Letzter Digest vor ${latestAgeDays} Tagen erstellt.`}{" "}
-          Ein neuer Rückblick ist fällig.
-        </div>
+        <div className="start-card-note due">Vor {latestAgeDays} Tagen erstellt</div>
       )}
       {!isLoading && !createDigest.isPending && !latest && (
-        <div className="digest-empty empty-next">
-          <strong>Nächster Schritt</strong>
-          <span>Erstelle einen 7-Tage-Rückblick, sobald Aufnahmen transkribiert sind.</span>
-          <button
-            className="btn ghost"
-            disabled={createDigest.isPending}
-            onClick={() => createDigest.mutate(7)}
-          >
-            Rückblick erstellen
-          </button>
-        </div>
+        <div className="start-card-note">Entscheidungen und Aufgaben der letzten sieben Tage.</div>
       )}
       {latest && !createDigest.isPending && (
-        <article className="digest-body">
-          <div className="digest-meta">
+        <details className="start-card-disclosure">
+          <summary>
             <span>{range}</span>
-            <span>{latest.recording_count} Quellen</span>
-            {latest.model && <span>{latest.model}</span>}
+            <small>{latest.recording_count} Quellen</small>
+          </summary>
+          <div className="start-disclosure-actions">
+            <button className="btn ghost" onClick={() => navigator.clipboard.writeText(latest.content_markdown)}>
+              Kopieren
+            </button>
+            <button className="btn ghost" onClick={exportLatest} disabled={sendDigest.isPending}>
+              {sendDigest.isPending ? "Exportiere…" : "Exportieren"}
+            </button>
           </div>
-          <div className="digest-markdown markdown">
-            <ReactMarkdown>{latest.content_markdown}</ReactMarkdown>
-          </div>
-        </article>
+          <article className="digest-body">
+            <div className="digest-markdown markdown">
+              <ReactMarkdown>{latest.content_markdown}</ReactMarkdown>
+            </div>
+          </article>
+        </details>
       )}
     </section>
   );
@@ -128,54 +109,50 @@ function ThreadsPanel({
   }
 
   return (
-    <section className="start-card threads-panel" aria-label="Themen-Threads">
+    <section className="start-card threads-panel compact-insight" aria-label="Themen-Threads">
       <div className="start-card-head">
         <div>
-          <span className="page-kicker">Projektgedächtnis</span>
           <h3>Themen-Threads</h3>
-          <p>Verbundene Kapitel über mehrere Aufnahmen hinweg.</p>
         </div>
         <button className="btn ghost" onClick={rebuildThreads} disabled={rebuild.isPending}>
           {rebuild.isPending ? "Aktualisiere..." : "Aktualisieren"}
         </button>
       </div>
-      {isLoading && <div className="digest-empty">Threads werden geladen...</div>}
+      {isLoading && <div className="start-card-note">Wird geladen…</div>}
       {!isLoading && visible.length === 0 && (
-        <div className="digest-empty empty-next">
-          <strong>Nächster Schritt</strong>
-          <span>Erzeuge Kapitel in mehreren Aufnahmen und aktualisiere dann das Projektgedächtnis.</span>
-          <button className="btn ghost" onClick={rebuildThreads} disabled={rebuild.isPending}>
-            {rebuild.isPending ? "Aktualisiere..." : "Threads suchen"}
-          </button>
-        </div>
+        <div className="start-card-note">Verbindungen zwischen deinen Aufnahmen.</div>
       )}
       {visible.length > 0 && (
-        <div className="thread-list">
-          {visible.map((thread: TopicThread) => (
-            <article className="thread-card" key={thread.id}>
-              <div className="thread-card-head">
-                <strong>{thread.title}</strong>
-                <span>
-                  {thread.recording_count} Aufnahmen · {thread.mention_count} Erwähnungen
-                </span>
-              </div>
-              <div className="thread-mentions">
-                {thread.mentions.slice(0, 6).map((mention) => (
-                  <button
-                    key={mention.id}
-                    className="thread-chip"
-                    onClick={() => onOpenSource(mention.recording_id, mention.start_sec)}
-                    title={mention.recording_title ?? "Aufnahme öffnen"}
-                  >
-                    <span className="topic-dot" style={{ background: mention.topic_color ?? "var(--accent)" }} />
-                    <span>{mention.recording_created_at ? fmtDate(mention.recording_created_at) : "Datum offen"}</span>
-                    {mention.start_sec != null && <code>{fmtDuration(mention.start_sec)}</code>}
-                  </button>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
+        <details className="start-card-disclosure">
+          <summary>
+            <span>{visible.length} Threads</span>
+            <small>Anzeigen</small>
+          </summary>
+          <div className="thread-list">
+            {visible.map((thread: TopicThread) => (
+              <article className="thread-card" key={thread.id}>
+                <div className="thread-card-head">
+                  <strong>{thread.title}</strong>
+                  <span>{thread.recording_count} Aufnahmen</span>
+                </div>
+                <div className="thread-mentions">
+                  {thread.mentions.slice(0, 6).map((mention) => (
+                    <button
+                      key={mention.id}
+                      className="thread-chip"
+                      onClick={() => onOpenSource(mention.recording_id, mention.start_sec)}
+                      title={mention.recording_title ?? "Aufnahme öffnen"}
+                    >
+                      <span className="topic-dot" style={{ background: mention.topic_color ?? "var(--accent)" }} />
+                      <span>{mention.recording_created_at ? fmtDate(mention.recording_created_at) : "Datum offen"}</span>
+                      {mention.start_sec != null && <code>{fmtDuration(mention.start_sec)}</code>}
+                    </button>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </details>
       )}
     </section>
   );
@@ -200,28 +177,40 @@ export function StartPage({
   const recordingCount = topics.reduce((sum, topic) => sum + topic.recording_count, 0);
   const transcribedCount = topics.reduce((sum, topic) => sum + topic.transcribed_count, 0);
   const diarizedCount = topics.reduce((sum, topic) => sum + topic.diarized_count, 0);
+  const [captureTopicId, setCaptureTopicId] = useState<number | null>(null);
+  const captureTopic = topics.find((topic) => topic.id === captureTopicId) ?? topics[0];
 
   return (
     <div className="start-page">
-      <header className="start-header">
-        <div className="start-header-text">
-          <span className="page-kicker">Start</span>
-          <h2>Arbeitsbereich</h2>
-          <p>Suche in Aufnahmen, frage dein Archiv oder sprich ein Diktat ein.</p>
+      <header className="start-overview">
+        <div className="start-overview-stats">
+          {recordingCount === 0 ? (
+            <strong>Noch keine Aufnahmen</strong>
+          ) : (
+            <>
+              <strong>{recordingCount} Aufnahmen</strong>
+              <span>{transcribedCount} transkribiert</span>
+              {diarizedCount > 0 && <span>{diarizedCount} mit Sprechererkennung</span>}
+            </>
+          )}
         </div>
-        <div className="start-stats">
-          <div className="stat">
-            <strong>{recordingCount}</strong>
-            <span>Aufnahmen</span>
-          </div>
-          <div className="stat">
-            <strong>{transcribedCount}</strong>
-            <span>Transkribiert</span>
-          </div>
-          <div className="stat">
-            <strong>{diarizedCount}</strong>
-            <span>Diarisiert</span>
-          </div>
+        <div className="start-quick-record">
+          {captureTopic && (
+            <>
+              {topics.length > 1 && (
+                <select
+                  aria-label="Themenbereich für neue Aufnahme"
+                  value={captureTopic.id}
+                  onChange={(event) => setCaptureTopicId(Number(event.target.value))}
+                >
+                  {topics.map((topic) => (
+                    <option key={topic.id} value={topic.id}>{topic.name}</option>
+                  ))}
+                </select>
+              )}
+              <RecordControl topicId={captureTopic.id} topicName={captureTopic.name} primary />
+            </>
+          )}
         </div>
       </header>
 

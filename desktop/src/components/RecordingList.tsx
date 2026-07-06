@@ -6,7 +6,7 @@ import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format"
 import type { Recording, Topic } from "../lib/types";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { RecordControl } from "./RecordControl";
-import { SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
+import { MoreIcon, SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
 
 function RecordingRow({
   r,
@@ -48,16 +48,16 @@ function RecordingRow({
       <span className={`badge ${running ? "transcribing" : r.status}`}>
         {running ? `${phaseLabel}… ${pct}%` : statusLabel(r.status)}
       </span>
-      <button
-        className="btn ghost danger"
-        title="Löschen"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
-      >
-        <TrashIcon />
-      </button>
+      <details className="rec-actions" onClick={(event) => event.stopPropagation()}>
+        <summary title="Aufnahme verwalten" aria-label={`${r.title} verwalten`}>
+          <MoreIcon width={17} height={17} />
+        </summary>
+        <div className="rec-menu">
+          <button className="danger" type="button" onClick={onDelete}>
+            <TrashIcon width={15} height={15} /> Löschen
+          </button>
+        </div>
+      </details>
     </div>
   );
 }
@@ -77,6 +77,7 @@ export function RecordingList({
   const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<"recordings" | "documents">("recordings");
 
   async function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -132,28 +133,37 @@ export function RecordingList({
         }}
       />
 
-      {isLoading ? (
+      <header className="library-head">
+        <div>
+          <h2>{topic.name}</h2>
+          <p>
+            {recordingCount} {recordingCount === 1 ? "Aufnahme" : "Aufnahmen"}
+            {recordingCount > 0 && <span>·</span>}
+            {recordingCount > 0 && <span>{fmtDuration(totalDuration)}</span>}
+          </p>
+        </div>
+        <div className="library-actions">
+          <button className="btn" onClick={() => fileInput.current?.click()}>
+            <UploadIcon /> Importieren
+          </button>
+          <RecordControl topicId={topic.id} topicName={topic.name} primary />
+        </div>
+      </header>
+
+      <nav className="library-tabs" aria-label="Inhalte des Themenbereichs">
+        <button className={activeTab === "recordings" ? "active" : ""} onClick={() => setActiveTab("recordings")}>
+          Aufnahmen
+          {recordingCount > 0 && <span>{recordingCount}</span>}
+        </button>
+        <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>
+          Dokumente
+        </button>
+      </nav>
+
+      {activeTab === "recordings" && (isLoading ? (
         <div className="empty">Lade…</div>
       ) : hasRecordings ? (
         <>
-          <header className="library-head">
-            <div>
-              <div className="page-kicker">Audio-Bibliothek</div>
-              <h2>{topic.name}</h2>
-              <p>
-                {recordingCount} {recordingCount === 1 ? "Aufnahme" : "Aufnahmen"}
-                <span>·</span>
-                {fmtDuration(totalDuration)} Gesamtzeit
-              </p>
-            </div>
-            <div className="library-actions">
-              <button className="btn" onClick={() => fileInput.current?.click()}>
-                <UploadIcon /> Importieren
-              </button>
-              <RecordControl topicId={topic.id} topicName={topic.name} primary />
-            </div>
-          </header>
-
           <div className="library-tools">
             <label className="search-field">
               <SearchIcon width={16} height={16} />
@@ -203,19 +213,12 @@ export function RecordingList({
       ) : (
         <div className={`drop-hint ${dragOver ? "over" : ""}`}>
           <div className="drop-icon"><WaveIcon /></div>
-          <h2>Deine erste Aufnahme</h2>
-          <p>Nimm direkt auf oder importiere eine vorhandene Audio- oder Videodatei.</p>
-          <div className="drop-actions">
-            <RecordControl topicId={topic.id} topicName={topic.name} primary />
-            <button className="btn" onClick={() => fileInput.current?.click()}>
-              <UploadIcon /> Datei importieren
-            </button>
-          </div>
-          <div className="drop-footnote">Du kannst Dateien auch einfach hierher ziehen.</div>
+          <h2>Audio hier ablegen</h2>
+          <p>Oder oben eine Aufnahme starten beziehungsweise eine Datei importieren.</p>
         </div>
-      )}
+      ))}
 
-      <DocumentsPanel topicId={topic.id} />
+      {activeTab === "documents" && <DocumentsPanel topicId={topic.id} />}
     </div>
   );
 }

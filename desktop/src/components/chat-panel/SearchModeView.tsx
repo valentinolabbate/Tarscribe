@@ -26,11 +26,10 @@ export function SearchModeView({
         <div className="empty" style={{ margin: "auto", textAlign: "center" }}>
           <SearchIcon width={28} height={28} />
           <div className="big" style={{ marginTop: 8 }}>
-            {scoped ? "Aufnahme durchsuchen" : "Aufnahmen durchsuchen"}
+            {scoped ? "Im Transkript suchen" : "Was möchtest du finden?"}
           </div>
           <div style={{ color: "var(--text-faint)", maxWidth: 420 }}>
-            Semantische Suche über {scoped ? "diese Aufnahme" : "alle Transkripte und Zusammenfassungen"}.
-            Findet passende Stellen auch ohne exakte Wortgleichheit — kein LLM nötig.
+            {scoped ? "Durchsucht diese Aufnahme nach passenden Stellen." : "Durchsucht Transkripte und Zusammenfassungen."}
           </div>
           <div className="empty-action-row" aria-label="Suchbeispiele">
             {prompts.map((prompt) => (

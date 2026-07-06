@@ -35,7 +35,7 @@ export function TranscriptPanel({
       <div className="detail-panel-head">
         <div>
           <h2>Transkript</h2>
-          <p>{transcriptMeta} · Klick auf einen Abschnitt springt im Audio dorthin.</p>
+          <p>{transcriptMeta}</p>
         </div>
         {diar && (
           <button className="btn ghost" onClick={onOpenSpeakers}>

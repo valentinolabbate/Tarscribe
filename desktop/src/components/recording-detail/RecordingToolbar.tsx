@@ -1,6 +1,6 @@
 import { fmtDuration, statusLabel } from "../../lib/format";
 import type { DiarizationData, Recording, Topic, TranscriptData } from "../../lib/types";
-import { FolderIcon, SpeakerIdIcon } from "../icons";
+import { FolderIcon, MoreIcon, SpeakerIdIcon } from "../icons";
 
 export function RecordingToolbar({
   recording,
@@ -71,45 +71,45 @@ export function RecordingToolbar({
       </div>
 
       <div className="detail-actions">
-        {topics.length > 1 && (
-          <label className="recording-topic-select" title="Aufnahme in einen anderen Themenbereich verschieben">
-            <FolderIcon width={16} height={16} />
-            <select
-              value={recording.topic_id}
-              disabled={updatePending}
-              onChange={(event) => onMoveRecording(Number(event.target.value))}
-              aria-label="Aufnahme verschieben"
-            >
-              {topics.map((topic) => (
-                <option key={topic.id} value={topic.id}>
-                  {topic.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        {isTranscribed && transcript && !diar && (
-          <button className="btn" disabled={diarizePending || running} onClick={onDetectSpeakers}>
-            <SpeakerIdIcon width={16} height={16} /> Sprecher erkennen
-          </button>
-        )}
-        {transcript && (
+        <div className="export-wrap">
           <button
-            className="btn ghost"
-            disabled={transcribePending || running}
-            onClick={onRetranscribe}
-            title="Transkript mit der fertigen Audiodatei neu erstellen"
+            className="btn ghost detail-more"
+            onClick={onToggleExport}
+            title="Weitere Aktionen"
+            aria-label="Weitere Aktionen"
           >
-            Neu transkribieren
+            <MoreIcon width={18} height={18} />
           </button>
-        )}
-        {isTranscribed && transcript && (
-          <div className="export-wrap">
-            <button className="btn ghost" onClick={onToggleExport}>
-              Export ▾
-            </button>
-            {exportOpen && (
-              <div className="export-menu" onMouseLeave={onCloseExport}>
+          {exportOpen && (
+            <div className="export-menu recording-actions-menu" onMouseLeave={onCloseExport}>
+              {topics.length > 1 && (
+                <label className="recording-topic-select" title="Aufnahme verschieben">
+                  <FolderIcon width={16} height={16} />
+                  <select
+                    value={recording.topic_id}
+                    disabled={updatePending}
+                    onChange={(event) => onMoveRecording(Number(event.target.value))}
+                    aria-label="Aufnahme verschieben"
+                  >
+                    {topics.map((topic) => (
+                      <option key={topic.id} value={topic.id}>{topic.name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {isTranscribed && transcript && !diar && (
+                <button disabled={diarizePending || running} onClick={onDetectSpeakers}>
+                  <SpeakerIdIcon width={15} height={15} /> Sprecher erkennen
+                </button>
+              )}
+              {transcript && (
+                <button disabled={transcribePending || running} onClick={onRetranscribe}>
+                  Neu transkribieren
+                </button>
+              )}
+              {isTranscribed && transcript && (
+                <>
+                  <div className="menu-divider" />
                 {["txt", "srt", "vtt", "json"].map((format) => (
                   <button key={format} onClick={() => onExport(format)}>
                     .{format.toUpperCase()}
@@ -119,10 +119,11 @@ export function RecordingToolbar({
                 <button className="export-folder-item" onClick={onSendToFolder}>
                   An Ordner senden
                 </button>
-              </div>
-            )}
-          </div>
-        )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -5,7 +5,7 @@ Zusammenfassungen und Wissenssuche über Audioinhalte. Die Audioverarbeitung lä
 Apple Silicon; optionale Chat- und Embedding-Funktionen nutzt du über frei
 konfigurierbare Anbieter oder Endpoints.
 
-**Aktueller Stand:** v0.10.4 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.13.0 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 
@@ -24,6 +24,7 @@ konfigurierbare Anbieter oder Endpoints.
 **Auswerten**
 - KI-Zusammenfassungen über frei wählbare Vorlagen mit einem konfigurierbaren Chat-Modell
 - Zusammenfassungen beziehen bei Bedarf automatisch relevantes Wissen aus demselben Themenbereich ein (andere Transkripte, Zusammenfassungen und hochgeladene Dateien) – sichtbar belegt, welche Quellen eingeflossen sind
+- Optional kann das Chat-Modell den Themenbereich **aktiv und iterativ** durchsuchen („Agentic RAG"): Es formuliert eigene Suchanfragen an den Wissensindex, wertet die Treffer aus und recherchiert so lange weiter, bis es genug Kontext gesammelt hat. Gilt für Zusammenfassungen, Aufgaben, Kapitel, Diktat und Digest. Aktivierbar über `agent_rag_enabled` in der `settings.json` (Standard: aus); Modelle ohne Tool-Unterstützung erhalten automatisch den bisherigen einmaligen Kontext.
 - Aufgaben und Entscheidungen automatisch aus Gesprächen extrahieren; der **Aufgaben**-Bereich zeigt standardmäßig nur deine eigenen (lege in den Einstellungen fest, wer „Ich" ist) und lässt andere gezielt übernehmen
 - Wochen-Digest über die letzten Tage erzeugen und Themen-Threads über mehrere Aufnahmen hinweg verfolgen
 

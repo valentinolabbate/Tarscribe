@@ -11,7 +11,7 @@ import {
   useSummarize,
   useTemplates,
 } from "../hooks/queries";
-import { trackSummaryStart, useSummaryStream } from "../hooks/useJobs";
+import { trackSummaryStart, useAgentResearch, useSummaryStream } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { SummarySource, SummaryTemplate } from "../lib/types";
 import { TrashIcon } from "./icons";
@@ -114,6 +114,7 @@ export function SummaryPanel({
   const [editorSummaryId, setEditorSummaryId] = useState<number | null>(null);
   const autoOpenedRef = useRef<number | null>(null);
   const stream = useSummaryStream(activeSummaryId);
+  const agentResearch = useAgentResearch(recordingId);
   const { data: progress } = useSummaryProgress(recordingId, activeSummaryId, activeJobId);
 
   // Fall back to the first template if the remembered one no longer exists
@@ -233,9 +234,39 @@ export function SummaryPanel({
       )}
 
       {/* Live stream of the in-progress summary */}
-      {summarize.isPending && !stream && (
+      {summarize.isPending && !stream && !agentResearch && (
         <div className="rec-sub" style={{ marginBottom: 8 }}>
           Zusammenfassung wird gestartet…
+        </div>
+      )}
+      {agentResearch && !agentResearch.done && (
+        <div className="agent-research-indicator">
+          <div className="agent-research-header">
+            <div className="spinner-sm" />
+            <span>Recherchiert Kontext in der Wissensbasis…</span>
+            <span className="agent-research-round">
+              Runde {Math.max(0, ...agentResearch.queries.map((q) => q.round)) + 1}
+            </span>
+          </div>
+          {agentResearch.queries.length > 0 && (
+            <div className="agent-research-queries">
+              {agentResearch.queries.map((q, i) => (
+                <div key={i} className="agent-research-query">
+                  <span className="agent-research-query-text">{q.query || "…"}</span>
+                  <span className="agent-research-query-meta">
+                    {q.scope} · {q.hits > 0 ? `${q.hits} Treffer` : "…"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {agentResearch?.done && !text && (
+        <div className="agent-research-summary">
+          <span className="badge ready">
+            Recherche abgeschlossen · {agentResearch.sources} Quelle{agentResearch.sources === 1 ? "" : "n"}
+          </span>
         </div>
       )}
       {activeSummaryId != null && (

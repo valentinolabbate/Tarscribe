@@ -30,6 +30,8 @@ const settings: AppSettings = {
   hf_token_set: false,
   llm_chunk_size: 48000,
   summary_use_topic_knowledge: true,
+  agent_rag_enabled: false,
+  agent_rag: { max_rounds: 5, max_context_tokens: 12000, top_k: 6 },
   digest_export_path: "/tmp",
   dictation_shortcut: "Alt+Meta+D",
   meeting_detection_enabled: true,

@@ -808,6 +808,15 @@ async def _run_summary_async(
             try:
                 research_notes = ""
                 research_sources: list[dict] = []
+
+                def _broadcast_research(event: dict) -> None:
+                    hub.broadcast({
+                        "type": "agent_research",
+                        "recording_id": recording_id,
+                        "summary_id": summary_id,
+                        **event,
+                    })
+
                 with session_scope() as s:
                     research_notes, research_sources = await AG.research_context(
                         session=s,
@@ -821,6 +830,7 @@ async def _run_summary_async(
                         cfg=agent_cfg,
                         job_id=job_id,
                         raise_if_canceled=_raise_if_canceled,
+                        broadcast_fn=_broadcast_research,
                     )
                 if research_sources:
                     _save_summary_sources(summary_id, research_sources)
@@ -1010,6 +1020,14 @@ async def _run_action_items_async(
 
         agent_cfg = AG.get_agent_rag_config()
         if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+            def _broadcast_ai(event: dict) -> None:
+                hub.broadcast({
+                    "type": "agent_research",
+                    "recording_id": recording_id,
+                    "job_id": job_id,
+                    "task": "action_items",
+                    **event,
+                })
             chat = AG.make_agent_chat_async(
                 session_factory=session_scope,
                 topic_id=topic_id,
@@ -1017,6 +1035,7 @@ async def _run_action_items_async(
                 cfg=agent_cfg,
                 job_id=job_id,
                 raise_if_canceled=_raise_if_canceled,
+                broadcast_fn=_broadcast_ai,
             )
         else:
             chat = _llm_chat_fn_async()
@@ -1074,11 +1093,19 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
     agent_cfg = AG.get_agent_rag_config()
     if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
         try:
+            def _broadcast_dict(event: dict) -> None:
+                hub.broadcast({
+                    "type": "agent_research",
+                    "recording_id": recording_id,
+                    "task": "dictation",
+                    **event,
+                })
             chat = AG.make_agent_chat_sync(
                 session_factory=session_scope,
                 topic_id=topic_id,
                 recording_id=recording_id,
                 cfg=agent_cfg,
+                broadcast_fn=_broadcast_dict,
             )
         except Exception:
             chat = _llm_chat_fn()
@@ -1164,6 +1191,14 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
 
         agent_cfg = AG.get_agent_rag_config()
         if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+            def _broadcast_ch(event: dict) -> None:
+                hub.broadcast({
+                    "type": "agent_research",
+                    "recording_id": recording_id,
+                    "job_id": job_id,
+                    "task": "chapters",
+                    **event,
+                })
             chat = AG.make_agent_chat_async(
                 session_factory=session_scope,
                 topic_id=topic_id,
@@ -1171,6 +1206,7 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
                 cfg=agent_cfg,
                 job_id=job_id,
                 raise_if_canceled=_raise_if_canceled,
+                broadcast_fn=_broadcast_ch,
             )
         else:
             chat = _llm_chat_fn_async()

@@ -1,5 +1,6 @@
 import type {
   ActionItem,
+  AgentResearchEvent,
   AppSettings,
   Chapter,
   ChatMessage,
@@ -795,6 +796,7 @@ export const api = {
     onEvent: (e: JobEvent) => void,
     onSummary?: (e: SummaryEvent) => void,
     onLive?: (e: LiveEvent) => void,
+    onAgentResearch?: (e: AgentResearchEvent) => void,
   ): Promise<() => void> {
     const LIVE_TYPES = new Set(["live_session", "live_transcript", "live_speakers", "live_finalized", "live_degraded", "live_error"]);
     const handleMessage = (raw: string) => {
@@ -802,6 +804,7 @@ export const api = {
         const data = JSON.parse(raw);
         if (data?.type === "job") onEvent(data as JobEvent);
         else if (data?.type === "summary") onSummary?.(data as SummaryEvent);
+        else if (data?.type === "agent_research") onAgentResearch?.(data as AgentResearchEvent);
         else if (LIVE_TYPES.has(data?.type)) onLive?.(data as LiveEvent);
       } catch {
         /* ignore */

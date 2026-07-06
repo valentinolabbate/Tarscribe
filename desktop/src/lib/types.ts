@@ -77,6 +77,8 @@ export interface AppSettings {
   hf_token_set: boolean;
   llm_chunk_size: number;
   summary_use_topic_knowledge: boolean;
+  agent_rag_enabled: boolean;
+  agent_rag: { max_rounds: number; max_context_tokens: number; top_k: number };
   digest_export_path: string;
   dictation_shortcut: string;
   meeting_detection_enabled: boolean;
@@ -249,6 +251,22 @@ export interface SummaryEvent {
   delta: string;
   done: boolean;
   error?: string;
+}
+
+export interface AgentResearchEvent {
+  type: "agent_research";
+  recording_id: number;
+  summary_id?: number;
+  job_id?: number;
+  task?: string;
+  /** "tool_call" | "tool_result" | "done" */
+  phase: "tool_call" | "tool_result" | "done";
+  round: number;
+  tool?: string;
+  query?: string;
+  scope?: string;
+  hits?: number;
+  sources?: number;
 }
 
 export interface KnownSpeaker {

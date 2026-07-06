@@ -43,6 +43,8 @@ class PrefsIn(BaseModel):
     live_speaker_detection_enabled: bool | None = None
     llm_chunk_size: int | None = None
     summary_use_topic_knowledge: bool | None = None
+    agent_rag_enabled: bool | None = None
+    agent_rag: dict | None = None
     digest_export_path: str | None = None
     dictation_shortcut: str | None = None
     meeting_detection_enabled: bool | None = None

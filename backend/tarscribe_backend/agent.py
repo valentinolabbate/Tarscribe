@@ -216,6 +216,7 @@ async def research_context(
     cfg: dict,
     job_id: int | None = None,
     raise_if_canceled: Callable[[int], None] | None = None,
+    broadcast_fn: Callable[[dict], None] | None = None,
 ) -> tuple[str, list[dict]]:
     """Run the agentic retrieval loop.
 
@@ -323,6 +324,15 @@ async def research_context(
             except json.JSONDecodeError:
                 arguments = {}
 
+            if broadcast_fn:
+                broadcast_fn({
+                    "phase": "tool_call",
+                    "round": round_idx,
+                    "tool": tool_name,
+                    "query": arguments.get("query", ""),
+                    "scope": arguments.get("scope", "topic"),
+                })
+
             tool_result = _execute_tool(
                 session,
                 tool_name,
@@ -331,6 +341,20 @@ async def research_context(
                 recording_id=recording_id,
                 top_k=top_k,
             )
+
+            try:
+                parsed_result = json.loads(tool_result)
+                hit_count = len(parsed_result) if isinstance(parsed_result, list) else 0
+            except json.JSONDecodeError:
+                hit_count = 0
+
+            if broadcast_fn:
+                broadcast_fn({
+                    "phase": "tool_result",
+                    "round": round_idx,
+                    "tool": tool_name,
+                    "hits": hit_count,
+                })
 
             messages.append(
                 {
@@ -380,6 +404,8 @@ async def research_context(
 
     research_notes = _format_research_notes(deduped)
     sources = _hits_to_sources(deduped)
+    if broadcast_fn:
+        broadcast_fn({"phase": "done", "round": round_idx, "sources": len(sources)})
     return research_notes, sources
 
 
@@ -394,6 +420,7 @@ def research_context_sync(
     task_description: str,
     messages_seed: list[dict],
     cfg: dict,
+    broadcast_fn: Callable[[dict], None] | None = None,
 ) -> tuple[str, list[dict]]:
     """Sync version of ``research_context`` for non-async callers (digest)."""
     model = cfg["model"]
@@ -484,6 +511,15 @@ def research_context_sync(
             except json.JSONDecodeError:
                 arguments = {}
 
+            if broadcast_fn:
+                broadcast_fn({
+                    "phase": "tool_call",
+                    "round": round_idx,
+                    "tool": tool_name,
+                    "query": arguments.get("query", ""),
+                    "scope": arguments.get("scope", "topic"),
+                })
+
             tool_result = _execute_tool(
                 session,
                 tool_name,
@@ -492,6 +528,20 @@ def research_context_sync(
                 recording_id=recording_id,
                 top_k=top_k,
             )
+
+            try:
+                parsed_result = json.loads(tool_result)
+                hit_count = len(parsed_result) if isinstance(parsed_result, list) else 0
+            except json.JSONDecodeError:
+                hit_count = 0
+
+            if broadcast_fn:
+                broadcast_fn({
+                    "phase": "tool_result",
+                    "round": round_idx,
+                    "tool": tool_name,
+                    "hits": hit_count,
+                })
 
             messages.append(
                 {
@@ -536,6 +586,8 @@ def research_context_sync(
 
     research_notes = _format_research_notes(deduped)
     sources = _hits_to_sources(deduped)
+    if broadcast_fn:
+        broadcast_fn({"phase": "done", "round": round_idx, "sources": len(sources)})
     return research_notes, sources
 
 
@@ -552,6 +604,7 @@ def make_agent_chat_async(
     cfg: dict,
     job_id: int | None = None,
     raise_if_canceled: Callable[[int], None] | None = None,
+    broadcast_fn: Callable[[dict], None] | None = None,
 ) -> AsyncChat:
     """Build an ``AsyncChat`` callable that runs agentic research on first
     invocation, then injects the gathered context into every subsequent call.
@@ -577,6 +630,7 @@ def make_agent_chat_async(
                             cfg=cfg,
                             job_id=job_id,
                             raise_if_canceled=raise_if_canceled,
+                            broadcast_fn=broadcast_fn,
                         )
                     state["notes"] = notes
                     state["sources"] = sources
@@ -651,6 +705,7 @@ def make_agent_chat_sync(
     topic_id: int | None,
     recording_id: int | None,
     cfg: dict,
+    broadcast_fn: Callable[[dict], None] | None = None,
 ) -> Chat:
     """Sync version of ``make_agent_chat_async`` for non-async callers
     (dictation post-processing).
@@ -671,6 +726,7 @@ def make_agent_chat_sync(
                             task_description=task_desc,
                             messages_seed=messages,
                             cfg=cfg,
+                            broadcast_fn=broadcast_fn,
                         )
                     state["notes"] = notes
                     state["sources"] = sources

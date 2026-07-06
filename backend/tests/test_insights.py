@@ -626,33 +626,199 @@ def test_digest_endpoint_requires_configured_llm(client, monkeypatch):
 
 # ── Cross-recording threads ─────────────────────────────────────────────────
 
-def test_threads_rebuild_groups_recurring_chapters(client):
+def test_threads_rebuild_clusters_semantically_similar_transcripts(client):
+    import numpy as np
+    import sqlite_vec
     from sqlmodel import Session
 
     import tarscribe_backend.db as db
-    from tarscribe_backend.models import Chapter
+    from tarscribe_backend.models import Chapter, RagChunk
 
-    rec_a, _ = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=3))
-    rec_b, _ = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=1))
-    rec_c, _ = _make_recording(created_at=datetime.now(timezone.utc))
+    if not db.vec_available():
+        pytest.skip("sqlite-vec extension not available")
+
+    rec_a, topic_a = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=3))
+    rec_b, topic_b = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=1))
+    rec_c, topic_c = _make_recording(created_at=datetime.now(timezone.utc))
     with Session(db.get_engine()) as s:
-        s.add(Chapter(recording_id=rec_a, idx=0, start=10, title="Budget Planung"))
-        s.add(Chapter(recording_id=rec_b, idx=0, start=20, title="Budget-Planung"))
-        s.add(Chapter(recording_id=rec_c, idx=0, start=30, title="Einmaliges Thema"))
+        chapters = [
+            Chapter(recording_id=rec_a, idx=0, start=10, title="Budget Planung"),
+            Chapter(recording_id=rec_b, idx=0, start=20, title="Finanzrahmen für Q3"),
+            Chapter(recording_id=rec_c, idx=0, start=30, title="Budget Planung"),
+        ]
+        s.add_all(chapters)
+        chunks = [
+            RagChunk(
+                recording_id=rec_a,
+                topic_id=topic_a,
+                source_type="transcript",
+                chunk_index=0,
+                text="Das Team plant die Finanzierung und verteilt das Quartalsbudget auf Projekte.",
+                start_sec=12,
+                content_hash="a",
+                embed_model="test",
+            ),
+            RagChunk(
+                recording_id=rec_b,
+                topic_id=topic_b,
+                source_type="transcript",
+                chunk_index=0,
+                text="Für das dritte Quartal wird der verfügbare Finanzrahmen neu aufgeteilt.",
+                start_sec=22,
+                content_hash="b",
+                embed_model="test",
+            ),
+            RagChunk(
+                recording_id=rec_c,
+                topic_id=topic_c,
+                source_type="transcript",
+                chunk_index=0,
+                text="Trotz gleicher Kapitelwörter handelt dieses Gespräch von einem anderen Thema.",
+                start_sec=32,
+                content_hash="c",
+                embed_model="test",
+            ),
+        ]
+        s.add_all(chunks)
+        s.flush()
+        vectors = []
+        for values in ((1.0, 0.0), (0.96, 0.28), (0.0, 1.0)):
+            vector = np.zeros(768, dtype=np.float32)
+            vector[:2] = values
+            vector /= np.linalg.norm(vector)
+            vectors.append(vector)
+        conn = s.connection()
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            conn.exec_driver_sql(
+                "INSERT INTO rag_chunk_vec(rowid, embedding, topic_id, recording_id) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    chunk.id,
+                    sqlite_vec.serialize_float32(vector),
+                    chunk.topic_id,
+                    chunk.recording_id,
+                ),
+            )
         s.commit()
 
     rebuilt = client.post("/api/threads/rebuild")
     assert rebuilt.status_code == 200
-    assert rebuilt.json() == {"threads": 1, "mentions": 2}
+    assert rebuilt.json() == {
+        "threads": 1,
+        "mentions": 2,
+        "indexed_chunks": 3,
+        "mode": "semantic",
+        "threshold": 0.72,
+    }
 
     threads = client.get("/api/threads").json()
     assert len(threads) == 1
+    assert threads[0]["title"] in {"Budget Planung", "Finanzrahmen für Q3"}
     assert threads[0]["recording_count"] == 2
     assert {m["recording_id"] for m in threads[0]["mentions"]} == {rec_a, rec_b}
+    assert all(m["text"] != "Einmaliges Thema" for m in threads[0]["mentions"])
 
     rec_threads = client.get(f"/api/recordings/{rec_a}/threads").json()
     assert len(rec_threads) == 1
-    assert rec_threads[0]["mentions"][0]["start_sec"] == 10
+    assert rec_threads[0]["mentions"][0]["start_sec"] == 12
+
+
+def test_people_memory_collects_sourced_speaker_context(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import (
+        ActionItem,
+        DiarizationRun,
+        KnownSpeaker,
+        Segment,
+        SpeakerLabel,
+        ThreadMention,
+        TopicThread,
+    )
+
+    rec_a, _ = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=3))
+    rec_b, _ = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=1))
+    rec_other, _ = _make_recording(created_at=datetime.now(timezone.utc))
+    with Session(db.get_engine()) as s:
+        speaker = KnownSpeaker(name="Ada Lovelace", color="#8b5cf6", sample_count=2)
+        s.add(speaker)
+        s.flush()
+        for recording_id, label, start in (
+            (rec_a, "SPEAKER_00", 12.0),
+            (rec_b, "SPEAKER_01", 25.0),
+        ):
+            s.add(
+                SpeakerLabel(
+                    recording_id=recording_id,
+                    original_label=label,
+                    display_name=speaker.name,
+                    known_speaker_id=speaker.id,
+                )
+            )
+            run = DiarizationRun(recording_id=recording_id, model="test", is_active=True)
+            s.add(run)
+            s.flush()
+            s.add(Segment(run_id=run.id, start=start, end=start + 8, speaker_label=label))
+        s.add(ActionItem(recording_id=rec_a, kind="task", text="Prototyp bauen", assignee="Ada"))
+        s.add(
+            ActionItem(
+                recording_id=rec_other,
+                kind="task",
+                text="Review übernehmen",
+                assignee="Ada Lovelace",
+                done=True,
+            )
+        )
+        s.add(ActionItem(recording_id=rec_b, kind="task", text="Nicht Ada", assignee="Ben"))
+        s.add(ActionItem(recording_id=rec_b, kind="decision", text="Launch im Herbst"))
+        s.add(ActionItem(recording_id=rec_other, kind="decision", text="Fremde Entscheidung"))
+        thread = TopicThread(title="Produktstrategie")
+        s.add(thread)
+        s.flush()
+        s.add(
+            ThreadMention(
+                thread_id=thread.id,
+                recording_id=rec_a,
+                start_sec=30,
+                text="Produktstrategie",
+            )
+        )
+        s.add(
+            ThreadMention(
+                thread_id=thread.id,
+                recording_id=rec_b,
+                start_sec=45,
+                text="Produktstrategie",
+            )
+        )
+        s.commit()
+        speaker_id = speaker.id
+
+    response = client.get(f"/api/known-speakers/{speaker_id}/memory")
+    assert response.status_code == 200
+    memory = response.json()
+    assert memory["speaker"]["name"] == "Ada Lovelace"
+    assert memory["stats"] == {
+        "recording_count": 2,
+        "open_task_count": 1,
+        "decision_count": 1,
+        "thread_count": 1,
+        "talk_sec": 16.0,
+        "last_seen_at": memory["recordings"][0]["created_at"],
+    }
+    assert {recording["id"] for recording in memory["recordings"]} == {rec_a, rec_b}
+    assert {recording["start_sec"] for recording in memory["recordings"]} == {12.0, 25.0}
+    assert {item["text"] for item in memory["tasks"]} == {
+        "Prototyp bauen",
+        "Review übernehmen",
+    }
+    assert [item["text"] for item in memory["decisions"]] == ["Launch im Herbst"]
+    assert memory["threads"][0]["title"] == "Produktstrategie"
+    assert {mention["start_sec"] for mention in memory["threads"][0]["mentions"]} == {
+        30.0,
+        45.0,
+    }
 
 
 # ── Speaker stats ────────────────────────────────────────────────────────────

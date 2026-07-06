@@ -8,6 +8,7 @@ Festgehalten am 2026-06-11 (Stand: v0.5.0). Status-Werte: **Idee** → **Geplant
 | 2 | Themen-Threads über Aufnahmen hinweg | In Arbeit | L (4–6 Tage) |
 | 3 | Wochen-Digest | In Arbeit | S–M (1–2 Tage) |
 | 4 | Diktat-Inbox mit globalem Hotkey + Direkt-Aufgabe | In Arbeit | M (2–3 Tage) |
+| 5 | People Memory für bekannte Sprecher | In Arbeit | M (2–3 Tage) |
 
 ---
 
@@ -54,11 +55,13 @@ der häufigste Grund für „Mist, das hätte ich aufnehmen sollen" entfällt.
 
 **Status:** In Arbeit
 
-**Aktueller Stand (2026-06-11):** Erste Thread-Scheibe ist implementiert:
-Datenmodell (`threads`, `thread_mentions`), Rebuild-API, Aufnahme-spezifische Thread-API
-und Startseiten-Panel. Die erste Erkennung gruppiert gleiche/ähnliche Kapitelüberschriften
-über mehrere Aufnahmen. Embedding-Clustering, LLM-Titel und Detailseiten-Badges sind noch
-offen.
+**Aktueller Stand (2026-07-06):** Semantische Themen-Threads sind implementiert:
+Transkript-Chunks werden anhand ihrer bereits vorhandenen sqlite-vec-Embeddings lokal
+geclustert. Nur Cluster aus mindestens zwei Aufnahmen werden gespeichert; pro Aufnahme
+wird die repräsentativste Fundstelle mit Zeitmarke verknüpft. Titel stammen aus der
+semantisch zentralsten Kapitelüberschrift, der Rebuild läuft automatisch nach der
+RAG-Indexierung und kann auf der Startseite manuell angestoßen werden. Ein eigener
+Thread-Zeitstrahl und Detailseiten-Badges sind noch offen.
 
 Die Embeddings aller Aufnahmen liegen bereits in der Datenbank (sqlite-vec). Damit lässt
 sich erkennen, dass dasselbe Thema in mehreren Meetings auftaucht — als Zeitstrahl:
@@ -69,8 +72,8 @@ Konkurrenzprodukt, das lokal läuft.
 
 - **Baut auf:** RAG-Index (`rag_chunks` + `rag_chunk_vec`), Kapitel (Themen-Titel als
   Thread-Kandidaten), Action-Items (Entscheidungs-Status im Zeitstrahl).
-- **Noch zu bauen:** Embedding-Clustering ähnlicher Chunks, LLM-vergebene Thread-Titel,
-  Detailseiten-Hinweis und automatischer Rebuild nach Embedding-/Kapitel-Jobs.
+- **Noch zu bauen:** eigener Thread-Zeitstrahl, Detailseiten-Hinweis und optional
+  nachträglich editierbare oder LLM-verfeinerte Thread-Titel.
 - **Offene Fragen:** Clustering-Schwelle; wie aggressiv ähnliche, aber nicht gleiche
   Themen zusammengeführt werden sollen.
 
@@ -171,3 +174,21 @@ Action-Item an (inkl. Frist, falls genannt), das in der globalen Aufgaben-Ansich
      in der globalen Aufgaben-Ansicht (v0.5.0).
 4. **Feedback:** Toast nach Abschluss („Notiz gespeichert · 1 Aufgabe angelegt"),
    Klick öffnet die Notiz. Ohne konfiguriertes LLM: nur Transkription in die Inbox.
+
+## 5. People Memory für bekannte Sprecher
+
+**Status:** In Arbeit
+
+**Aktueller Stand (2026-07-06):** Das MVP ist implementiert. Der neue Bereich
+„Personen" zeigt für jeden bekannten Sprecher die verknüpften Aufnahmen,
+Sprechdauer und erste Fundstelle, zugeordnete offene und erledigte Aufgaben,
+Entscheidungen aus gemeinsamen Gesprächen sowie semantische Themen-Threads. Alle
+Ergebnisse entstehen aus bestehenden Sprecherlabels, Aufgaben und Thread-Quellen;
+es werden keine Persönlichkeits- oder Charakterbewertungen erzeugt.
+
+Fundstellen von Sprecherauftritten und Threads öffnen die Aufnahme direkt an der
+passenden Audiostelle. Aufgaben und Entscheidungen führen derzeit zur belegenden
+Aufnahme; ein exakt gespeicherter Zeitcode pro extrahiertem Eintrag ist noch offen.
+
+- **Noch zu bauen:** exakte Belegzitate und Zeitcodes für Aufgaben/Entscheidungen,
+  expliziter Zusagen-Verlauf sowie ein kompaktes Briefing vor dem nächsten Gespräch.

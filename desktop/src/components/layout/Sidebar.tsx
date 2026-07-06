@@ -1,5 +1,5 @@
 import type { Topic } from "../../lib/types";
-import { ActivityIcon, HomeIcon, PlusIcon, SettingsIcon, TasksIcon } from "../icons";
+import { ActivityIcon, HomeIcon, PlusIcon, SettingsIcon, SpeakerIdIcon, TasksIcon } from "../icons";
 import { TopicRow } from "./TopicRow";
 
 export function Sidebar({
@@ -7,9 +7,11 @@ export function Sidebar({
   activeTopic,
   showHome,
   showTasks,
+  showPeople,
   showJobs,
   onHome,
   onTasks,
+  onPeople,
   onJobs,
   onNewTopic,
   onSelectTopic,
@@ -20,9 +22,11 @@ export function Sidebar({
   activeTopic: number | null;
   showHome: boolean;
   showTasks: boolean;
+  showPeople: boolean;
   showJobs: boolean;
   onHome: () => void;
   onTasks: () => void;
+  onPeople: () => void;
   onJobs: () => void;
   onNewTopic: () => void;
   onSelectTopic: (topicId: number) => void;
@@ -44,6 +48,10 @@ export function Sidebar({
         <TasksIcon width={16} height={16} /> Aufgaben
       </button>
 
+      <button className={`topic-item ${showPeople ? "active" : ""}`} onClick={onPeople}>
+        <SpeakerIdIcon width={16} height={16} /> Personen
+      </button>
+
       <div className="section-label">
         <span>Bibliothek</span>
         <button className="btn ghost" style={{ padding: 2 }} title="Neuer Themenbereich" onClick={onNewTopic}>
@@ -56,7 +64,7 @@ export function Sidebar({
           <TopicRow
             key={topic.id}
             topic={topic}
-            active={topic.id === activeTopic && !showHome && !showTasks && !showJobs}
+            active={topic.id === activeTopic && !showHome && !showTasks && !showPeople && !showJobs}
             canMoveUp={index > 0}
             canMoveDown={index < topics.length - 1}
             onSelect={() => onSelectTopic(topic.id)}

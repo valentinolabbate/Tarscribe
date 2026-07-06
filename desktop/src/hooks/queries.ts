@@ -440,6 +440,14 @@ export function useKnownSpeakers() {
   return useQuery({ queryKey: ["known-speakers"], queryFn: api.listKnownSpeakers });
 }
 
+export function usePeopleMemory(speakerId: number | null) {
+  return useQuery({
+    queryKey: ["people-memory", speakerId],
+    queryFn: () => api.getPeopleMemory(speakerId!),
+    enabled: speakerId != null,
+  });
+}
+
 export function useDeleteKnownSpeaker() {
   const qc = useQueryClient();
   return useMutation({

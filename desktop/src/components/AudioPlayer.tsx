@@ -27,10 +27,11 @@ export const AudioPlayer = forwardRef<
     recordingId: number;
     audioPath: string;
     durationSec: number;
+    initialSeekSec?: number | null;
     onTime: (t: number) => void;
     onPlaying?: (p: boolean) => void;
   }
->(function AudioPlayer({ recordingId, audioPath, durationSec, onTime, onPlaying }, ref) {
+>(function AudioPlayer({ recordingId, audioPath, durationSec, initialSeekSec, onTime, onPlaying }, ref) {
     const container = useRef<HTMLDivElement>(null);
     const ws = useRef<WaveSurfer | null>(null);
     const [ready, setReady] = useState(false);
@@ -94,6 +95,7 @@ export const AudioPlayer = forwardRef<
           w.on("ready", () => {
             setReady(true);
             setDuration(w.getDuration());
+            if (initialSeekSec != null && initialSeekSec > 0) w.setTime(initialSeekSec);
           });
           w.on("timeupdate", (t: number) => {
             setTime(t);

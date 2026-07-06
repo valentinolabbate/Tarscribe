@@ -32,6 +32,7 @@ function TopicCalendarControl({ topic }: { topic: Topic }) {
 export function TopBar({
   showJobs,
   showTasks,
+  showPeople,
   showHome,
   openRecording,
   currentTopic,
@@ -40,6 +41,7 @@ export function TopBar({
 }: {
   showJobs: boolean;
   showTasks: boolean;
+  showPeople: boolean;
   showHome: boolean;
   openRecording: Recording | null;
   currentTopic: Topic | undefined;
@@ -50,13 +52,15 @@ export function TopBar({
     ? "Verarbeitung"
     : showTasks
       ? "Aufgaben"
-      : showHome
-        ? "Arbeitsbereich"
-        : openRecording
-          ? currentTopic?.name ?? "Aufnahme"
-          : currentTopic
-            ? "Bibliothek"
-            : "Tarscribe";
+      : showPeople
+        ? "Personen"
+        : showHome
+          ? "Arbeitsbereich"
+          : openRecording
+            ? currentTopic?.name ?? "Aufnahme"
+            : currentTopic
+              ? "Bibliothek"
+              : "Tarscribe";
 
   return (
     <div className="topbar">
@@ -65,7 +69,7 @@ export function TopBar({
       </div>
       <div className="spacer" />
       {showRecordingIndicator && <GlobalRecordingIndicator />}
-      {currentTopic && !showHome && !showTasks && !showJobs && (
+      {currentTopic && !showHome && !showTasks && !showPeople && !showJobs && (
         <>
           <button
             className="btn ghost"

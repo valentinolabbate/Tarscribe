@@ -34,12 +34,14 @@ export function RecordingDetail({
   onBack,
   onMoved,
   onOpenSettings,
+  initialSeekSec,
 }: {
   recording: Recording;
   topics: Topic[];
   onBack: () => void;
   onMoved?: (recording: Recording) => void;
   onOpenSettings?: () => void;
+  initialSeekSec?: number | null;
 }) {
   const job = useJobFor(recording.id);
   const transcribe = useTranscribe();
@@ -73,10 +75,10 @@ export function RecordingDetail({
       : sentences.find((s) => currentTime >= s.start && currentTime < s.end)
     )?.start ?? -1;
   useEffect(() => {
-    if (activeTab === "transcript" && playing && activeRef.current) {
+    if (activeTab === "transcript" && (playing || initialSeekSec != null) && activeRef.current) {
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-  }, [activeStart, activeTab, playing]);
+  }, [activeStart, activeTab, initialSeekSec, playing]);
 
   const localRunning = job?.status === "running" || job?.status === "pending";
   const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning);
@@ -248,6 +250,7 @@ export function RecordingDetail({
             recordingId={recording.id}
             audioPath={recording.audio_path}
             durationSec={recording.duration_sec}
+            initialSeekSec={initialSeekSec}
             onTime={setCurrentTime}
             onPlaying={setPlaying}
           />

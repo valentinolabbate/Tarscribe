@@ -607,6 +607,54 @@ def test_known_speaker_rename_merges_same_name(client):
         assert s.get(KnownSpeaker, second_id).sample_count == 5
 
 
+def test_known_speaker_rename_updates_linked_identity(client):
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem, KnownSpeaker, Recording, SpeakerLabel, Topic
+
+    with Session(db.get_engine()) as s:
+        topic = Topic(name="Identität")
+        s.add(topic)
+        s.flush()
+        recording = Recording(topic_id=topic.id, title="Gespräch", audio_path="/tmp/missing.wav")
+        s.add(recording)
+        s.flush()
+        speaker = KnownSpeaker(name="Ada Alt")
+        s.add(speaker)
+        s.flush()
+        s.add(
+            SpeakerLabel(
+                recording_id=recording.id,
+                original_label="SPEAKER_00",
+                display_name=speaker.name,
+                known_speaker_id=speaker.id,
+            )
+        )
+        s.add(
+            ActionItem(
+                recording_id=recording.id,
+                kind="task",
+                text="Review",
+                assignee=speaker.name,
+            )
+        )
+        s.commit()
+        speaker_id = speaker.id
+        recording_id = recording.id
+
+    response = client.patch(f"/api/known-speakers/{speaker_id}", json={"name": "Ada Neu"})
+    assert response.status_code == 200
+
+    with Session(db.get_engine()) as s:
+        label = s.exec(
+            select(SpeakerLabel).where(SpeakerLabel.known_speaker_id == speaker_id)
+        ).one()
+        item = s.exec(select(ActionItem).where(ActionItem.recording_id == recording_id)).one()
+        assert label.display_name == "Ada Neu"
+        assert item.assignee == "Ada Neu"
+
+
 def test_import_local_recording_accepts_native_capture_file(client, monkeypatch):
     from pathlib import Path
 

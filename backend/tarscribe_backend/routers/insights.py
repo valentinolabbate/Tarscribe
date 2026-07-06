@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
@@ -35,53 +34,6 @@ from ..overlay import load_overlay
 from ..settings_store import load_prefs
 
 router = APIRouter(prefix="/api", tags=["insights"])
-
-THREAD_STOPWORDS = {
-    "der",
-    "die",
-    "das",
-    "ein",
-    "eine",
-    "und",
-    "oder",
-    "mit",
-    "zum",
-    "zur",
-    "für",
-    "von",
-    "im",
-    "im",
-    "am",
-    "the",
-    "and",
-    "for",
-    "with",
-    # Structural chapter words — recurring meeting scaffolding, not a topic.
-    "begrüßung",
-    "begrüssung",
-    "einleitung",
-    "einführung",
-    "einstieg",
-    "abschluss",
-    "verabschiedung",
-    "ausblick",
-    "organisatorisches",
-    "vorstellung",
-    # Session formats — apply to every subject, so useless as a topic label.
-    "vorlesung",
-    "vorlesungen",
-    "übung",
-    "übungen",
-    "seminar",
-    "tutorium",
-    "sitzung",
-    "besprechung",
-    "meeting",
-}
-
-# Minimum keyword length to be considered topical (drops short connectives).
-THREAD_KEYWORD_MIN_LEN = 4
-
 
 def _get_recording(session: Session, recording_id: int) -> Recording:
     rec = session.get(Recording, recording_id)
@@ -417,22 +369,6 @@ def export_chapters(
 
 # ── Cross-recording threads ──────────────────────────────────────────────────
 
-def _thread_keywords(title: str) -> dict[str, str]:
-    """Significant topical keywords in a chapter title.
-
-    Returns a ``{lowercased: display}`` map so each keyword keeps the original
-    casing of its first occurrence for the thread title. De-duplicated per title
-    so a word repeated within one chapter still counts once.
-    """
-    keywords: dict[str, str] = {}
-    for word in re.findall(r"[a-zA-ZäöüÄÖÜß0-9]+", title):
-        low = word.lower()
-        if low in THREAD_STOPWORDS or len(low) < THREAD_KEYWORD_MIN_LEN:
-            continue
-        keywords.setdefault(low, word)
-    return keywords
-
-
 def _mention_dict(
     mention: ThreadMention,
     rec: Recording | None,
@@ -467,79 +403,9 @@ def _thread_dict(thread: TopicThread, mentions: list[dict]) -> dict:
 
 @router.post("/threads/rebuild")
 def rebuild_threads(session: Session = Depends(get_session)) -> dict:
-    """Cluster chapters into recurring threads by shared topical keyword.
+    from ..threads import rebuild_semantic_threads
 
-    Chapter titles are LLM-generated and essentially never match verbatim across
-    recordings, so we group on individual significant keywords instead. Keywords
-    that connect ≥2 distinct recordings become threads; the strongest (most
-    connecting) keyword claims its chapters first so each chapter lands in a
-    single thread.
-    """
-    for mention in session.exec(select(ThreadMention)).all():
-        session.delete(mention)
-    for thread in session.exec(select(TopicThread)).all():
-        session.delete(thread)
-    session.commit()
-
-    chapters = session.exec(select(Chapter).order_by(Chapter.recording_id, Chapter.idx)).all()
-    recordings = {
-        rec.id: rec
-        for rec in session.exec(select(Recording)).all()
-        if rec.id is not None
-    }
-
-    # keyword -> chapters mentioning it (only chapters with a known recording).
-    keyword_chapters: dict[str, list[Chapter]] = defaultdict(list)
-    keyword_display: dict[str, str] = {}
-    for chapter in chapters:
-        if chapter.recording_id not in recordings:
-            continue
-        for low, display in _thread_keywords(chapter.title).items():
-            keyword_chapters[low].append(chapter)
-            keyword_display.setdefault(low, display)
-
-    def recording_span(keyword: str) -> int:
-        return len({c.recording_id for c in keyword_chapters[keyword]})
-
-    # Strongest keyword first; ties broken by chapter count then alphabetically
-    # for deterministic output.
-    ranked = sorted(
-        (kw for kw in keyword_chapters if recording_span(kw) >= 2),
-        key=lambda kw: (-recording_span(kw), -len(keyword_chapters[kw]), kw),
-    )
-
-    used_chapter_ids: set[int] = set()
-    created = 0
-    mentions_created = 0
-    for keyword in ranked:
-        grouped = [c for c in keyword_chapters[keyword] if c.id not in used_chapter_ids]
-        # A stronger thread may have already claimed enough chapters to drop this
-        # one below the cross-recording threshold.
-        if len({c.recording_id for c in grouped}) < 2:
-            continue
-        updated_at = max(recordings[c.recording_id].created_at for c in grouped)
-        thread = TopicThread(
-            title=keyword_display[keyword].capitalize(),
-            updated_at=updated_at,
-        )
-        session.add(thread)
-        session.flush()
-        created += 1
-        for chapter in grouped:
-            used_chapter_ids.add(chapter.id)
-            session.add(
-                ThreadMention(
-                    thread_id=thread.id,
-                    recording_id=chapter.recording_id,
-                    chapter_id=chapter.id,
-                    start_sec=chapter.start,
-                    text=chapter.title,
-                    created_at=recordings[chapter.recording_id].created_at,
-                )
-            )
-            mentions_created += 1
-    session.commit()
-    return {"threads": created, "mentions": mentions_created}
+    return rebuild_semantic_threads(session)
 
 
 def _load_thread_payload(
@@ -585,6 +451,150 @@ def list_threads(session: Session = Depends(get_session)) -> list[dict]:
 def list_recording_threads(recording_id: int, session: Session = Depends(get_session)) -> list[dict]:
     _get_recording(session, recording_id)
     return _load_thread_payload(session, recording_filter=recording_id)
+
+
+@router.get("/known-speakers/{speaker_id}/memory")
+def get_people_memory(speaker_id: int, session: Session = Depends(get_session)) -> dict:
+    speaker = session.get(KnownSpeaker, speaker_id)
+    if not speaker:
+        raise HTTPException(404, "Sprecher nicht gefunden")
+
+    labels = session.exec(
+        select(SpeakerLabel).where(SpeakerLabel.known_speaker_id == speaker_id)
+    ).all()
+    labels_by_recording: dict[int, set[str]] = {}
+    for label in labels:
+        labels_by_recording.setdefault(label.recording_id, set()).add(label.original_label)
+    recording_ids = set(labels_by_recording)
+
+    recording_rows = []
+    if recording_ids:
+        recording_rows = session.exec(
+            select(Recording, Topic)
+            .join(Topic, Recording.topic_id == Topic.id)
+            .where(Recording.id.in_(recording_ids))
+            .order_by(Recording.created_at.desc())
+        ).all()
+    recordings = {rec.id: rec for rec, _topic in recording_rows if rec.id is not None}
+    topics = {topic.id: topic for _rec, topic in recording_rows if topic.id is not None}
+
+    runs_by_recording = {}
+    if recording_ids:
+        runs = session.exec(
+            select(DiarizationRun).where(
+                DiarizationRun.recording_id.in_(recording_ids),
+                DiarizationRun.is_active == True,  # noqa: E712
+            )
+        ).all()
+        runs_by_recording = {run.recording_id: run for run in runs}
+    run_ids = {run.id for run in runs_by_recording.values() if run.id is not None}
+    segments_by_run: dict[int, list[Segment]] = {}
+    if run_ids:
+        for segment in session.exec(
+            select(Segment).where(Segment.run_id.in_(run_ids)).order_by(Segment.start)
+        ).all():
+            segments_by_run.setdefault(segment.run_id, []).append(segment)
+
+    recording_payload = []
+    for rec, topic in recording_rows:
+        run = runs_by_recording.get(rec.id)
+        speaker_labels = labels_by_recording.get(rec.id, set())
+        speaker_segments = (
+            [
+                segment
+                for segment in segments_by_run.get(run.id, [])
+                if segment.speaker_label in speaker_labels
+            ]
+            if run
+            else []
+        )
+        recording_payload.append(
+            {
+                "id": rec.id,
+                "title": rec.title,
+                "created_at": rec.created_at.isoformat(),
+                "duration_sec": rec.duration_sec,
+                "topic_id": topic.id,
+                "topic_name": topic.name,
+                "topic_color": topic.color,
+                "start_sec": min((segment.start for segment in speaker_segments), default=None),
+                "talk_sec": round(
+                    sum(max(0.0, segment.end - segment.start) for segment in speaker_segments),
+                    3,
+                ),
+            }
+        )
+
+    task_payload = []
+    decision_payload = []
+    action_rows = session.exec(
+        select(ActionItem, Recording, Topic)
+        .join(Recording, ActionItem.recording_id == Recording.id)
+        .join(Topic, Recording.topic_id == Topic.id)
+        .order_by(Recording.created_at.desc(), ActionItem.id)
+    ).all()
+    my_name = my_speaker_name(session)
+    for item, rec, topic in action_rows:
+        if item.kind == "task" and _is_mine(item.assignee, speaker.name):
+            task_payload.append(_item_dict(item, rec, topic, my_name))
+        elif item.kind == "decision" and item.recording_id in recording_ids:
+            decision_payload.append(_item_dict(item, rec, topic, my_name))
+
+    thread_payload = []
+    if recording_ids:
+        mentions = session.exec(
+            select(ThreadMention)
+            .where(ThreadMention.recording_id.in_(recording_ids))
+            .order_by(ThreadMention.created_at.desc())
+        ).all()
+        mentions_by_thread: dict[int, list[ThreadMention]] = {}
+        for mention in mentions:
+            mentions_by_thread.setdefault(mention.thread_id, []).append(mention)
+        thread_ids = set(mentions_by_thread)
+        threads = (
+            {
+                thread.id: thread
+                for thread in session.exec(
+                    select(TopicThread).where(TopicThread.id.in_(thread_ids))
+                ).all()
+                if thread.id is not None
+            }
+            if thread_ids
+            else {}
+        )
+        for thread_id, thread_mentions in mentions_by_thread.items():
+            thread = threads.get(thread_id)
+            if not thread:
+                continue
+            payload_mentions = []
+            for mention in thread_mentions:
+                rec = recordings.get(mention.recording_id)
+                topic = topics.get(rec.topic_id) if rec else None
+                payload_mentions.append(_mention_dict(mention, rec, topic))
+            thread_payload.append(_thread_dict(thread, payload_mentions))
+        thread_payload.sort(key=lambda thread: thread["updated_at"], reverse=True)
+
+    open_tasks = sum(not item["done"] for item in task_payload)
+    return {
+        "speaker": {
+            "id": speaker.id,
+            "name": speaker.name,
+            "color": speaker.color,
+            "sample_count": speaker.sample_count,
+        },
+        "stats": {
+            "recording_count": len(recording_payload),
+            "open_task_count": open_tasks,
+            "decision_count": len(decision_payload),
+            "thread_count": len(thread_payload),
+            "talk_sec": round(sum(rec["talk_sec"] for rec in recording_payload), 3),
+            "last_seen_at": recording_payload[0]["created_at"] if recording_payload else None,
+        },
+        "recordings": recording_payload,
+        "tasks": task_payload,
+        "decisions": decision_payload,
+        "threads": thread_payload,
+    }
 
 
 # ── Weekly digest ────────────────────────────────────────────────────────────

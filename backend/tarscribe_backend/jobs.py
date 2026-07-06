@@ -1236,7 +1236,10 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
                         end=ch.get("end"),
                         title=ch["title"],
                     )
-        )
+                )
+            from .threads import rebuild_semantic_threads
+
+            rebuild_semantic_threads(s)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
     except (JobCanceled, asyncio.CancelledError):
         _update_job(job_id, status=JobStatus.canceled)
@@ -1285,6 +1288,9 @@ def _run_embedding(recording_id: int, job_id: int) -> None:
 
         with session_scope() as s:
             rag.index_recording(s, recording_id, progress=progress)
+            from .threads import rebuild_semantic_threads
+
+            rebuild_semantic_threads(s)
         _raise_if_canceled(job_id)
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)

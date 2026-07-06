@@ -13,7 +13,7 @@ from .. import jobs
 from ..db import get_session
 from ..ml.embedding import embed_speaker_segments, from_blob, to_blob, update_mean
 from ..ml.speaker_matching import apply_matches, match_recording
-from ..models import KnownSpeaker, Recording, SpeakerLabel
+from ..models import ActionItem, KnownSpeaker, Recording, SpeakerLabel
 from ..settings_store import load_prefs
 
 router = APIRouter(tags=["speakers"])
@@ -147,7 +147,18 @@ def update_known(
     if not k:
         raise HTTPException(404, "Sprecher nicht gefunden")
     if payload.name is not None:
+        previous_name = k.name
         k.name = _clean_name(payload.name) or "Sprecher"
+        for label in session.exec(
+            select(SpeakerLabel).where(SpeakerLabel.known_speaker_id == k.id)
+        ).all():
+            label.display_name = k.name
+            session.add(label)
+        if _name_key(previous_name) != _name_key(k.name):
+            for item in session.exec(select(ActionItem)).all():
+                if item.assignee and _name_key(item.assignee) == _name_key(previous_name):
+                    item.assignee = k.name
+                    session.add(item)
     if payload.color is not None:
         k.color = payload.color
     session.add(k)

@@ -26,7 +26,8 @@ konfigurierbare Anbieter oder Endpoints.
 - Zusammenfassungen beziehen bei Bedarf automatisch relevantes Wissen aus demselben Themenbereich ein (andere Transkripte, Zusammenfassungen und hochgeladene Dateien) – sichtbar belegt, welche Quellen eingeflossen sind
 - Optional kann das Chat-Modell den Themenbereich **aktiv und iterativ** durchsuchen („Agentic RAG"): Es formuliert eigene Suchanfragen an den Wissensindex, wertet die Treffer aus und recherchiert so lange weiter, bis es genug Kontext gesammelt hat. Gilt für Zusammenfassungen, Aufgaben, Kapitel, Diktat und Digest. Aktivierbar in den Einstellungen (Standard: aus); Modelle ohne Tool-Unterstützung erhalten automatisch den bisherigen einmaligen Kontext. Während der Recherche zeigt die App live die gestellten Suchanfragen und Treffer an.
 - Aufgaben und Entscheidungen automatisch aus Gesprächen extrahieren; der **Aufgaben**-Bereich zeigt standardmäßig nur deine eigenen (lege in den Einstellungen fest, wer „Ich" ist) und lässt andere gezielt übernehmen
-- Wochen-Digest über die letzten Tage erzeugen und Themen-Threads über mehrere Aufnahmen hinweg verfolgen
+- Wochen-Digest über die letzten Tage erzeugen und semantisch erkannte Themen-Threads über mehrere Aufnahmen hinweg verfolgen
+- **People Memory** bündelt pro bekanntem Sprecher gemeinsame Gespräche, offene Zusagen, Entscheidungen und Themen-Threads mit Links zurück zu den belegenden Aufnahmen
 
 **Suchen & Fragen**
 - Transkripte, Zusammenfassungen und Dokumente hybrid durchsuchen (Volltext + semantisch)

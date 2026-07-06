@@ -5,6 +5,7 @@ import { JobsPage } from "../JobsPage";
 import { LiveRecordingDetail } from "../LiveRecordingDetail";
 import { RecordingDetail } from "../RecordingDetail";
 import { RecordingList } from "../RecordingList";
+import { PeoplePage } from "../PeoplePage";
 import { StartPage } from "../StartPage";
 import { TasksPage } from "../TasksPage";
 
@@ -15,8 +16,10 @@ export function AppContent({
   currentTopic,
   showJobs,
   showTasks,
+  showPeople,
   showHome,
   openRecording,
+  openRecordingStartSec,
   dictationShortcutLabel,
   onOpenRecording,
   onBackFromRecording,
@@ -30,10 +33,12 @@ export function AppContent({
   currentTopic: Topic | undefined;
   showJobs: boolean;
   showTasks: boolean;
+  showPeople: boolean;
   showHome: boolean;
   openRecording: Recording | null;
+  openRecordingStartSec: number | null;
   dictationShortcutLabel: string;
-  onOpenRecording: (recordingId: number) => Promise<void>;
+  onOpenRecording: (recordingId: number, startSec?: number | null) => Promise<void>;
   onBackFromRecording: () => void;
   onMovedRecording: (recording: Recording) => void;
   onOpenSettings: () => void;
@@ -56,6 +61,7 @@ export function AppContent({
 
   if (showJobs) return <JobsPage onOpenRecording={onOpenRecording} />;
   if (showTasks) return <TasksPage topics={topics} onOpenRecording={onOpenRecording} />;
+  if (showPeople) return <PeoplePage onOpenRecording={onOpenRecording} />;
   if (showHome) {
     return (
       <StartPage
@@ -74,6 +80,7 @@ export function AppContent({
         onBack={onBackFromRecording}
         onMoved={onMovedRecording}
         onOpenSettings={onOpenSettings}
+        initialSeekSec={openRecordingStartSec}
       />
     );
   }

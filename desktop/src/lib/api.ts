@@ -21,6 +21,7 @@ import type {
   McpInfo,
   McpRegistrationResult,
   ModelStatusPayload,
+  PeopleMemory,
   RagConfig,
   RagHit,
   RagSource,
@@ -35,6 +36,7 @@ import type {
   Topic,
   TopicDocument,
   TopicThread,
+  ThreadRebuildResult,
 } from "./types";
 import {
   convertLocalFileSrc,
@@ -413,6 +415,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/recordings/${id}/edits/reset`, { method: "POST" }),
 
   listKnownSpeakers: () => request<KnownSpeaker[]>("/api/known-speakers"),
+  getPeopleMemory: (id: number) =>
+    request<PeopleMemory>(`/api/known-speakers/${id}/memory`),
   deleteKnownSpeaker: (id: number) =>
     request<void>(`/api/known-speakers/${id}`, { method: "DELETE" }),
   enrollSpeaker: (recordingId: number, label: string, name: string, knownSpeakerId?: number) =>
@@ -679,7 +683,7 @@ export const api = {
   sendDigestToFolder: (id: number) =>
     request<{ path: string }>(`/api/digests/${id}/send-to-folder`, { method: "POST" }),
   listThreads: () => request<TopicThread[]>("/api/threads"),
-  rebuildThreads: () => request<{ threads: number; mentions: number }>("/api/threads/rebuild", { method: "POST" }),
+  rebuildThreads: () => request<ThreadRebuildResult>("/api/threads/rebuild", { method: "POST" }),
   listRecordingThreads: (recordingId: number) =>
     request<TopicThread[]>(`/api/recordings/${recordingId}/threads`),
 

@@ -102,7 +102,14 @@ function ThreadsPanel({
   async function rebuildThreads() {
     try {
       const res = await rebuild.mutateAsync();
-      toast(`${res.threads} Threads aus ${res.mentions} Erwähnungen erkannt.`, "success");
+      if (res.indexed_chunks === 0) {
+        toast("Noch keine semantisch indexierten Transkripte vorhanden.", "info");
+      } else {
+        toast(
+          `${res.threads} semantische Threads aus ${res.mentions} Aufnahmen erkannt.`,
+          "success",
+        );
+      }
     } catch (e) {
       toast(`Threads konnten nicht aktualisiert werden: ${(e as Error).message}`, "error");
     }
@@ -115,12 +122,12 @@ function ThreadsPanel({
           <h3>Themen-Threads</h3>
         </div>
         <button className="btn ghost" onClick={rebuildThreads} disabled={rebuild.isPending}>
-          {rebuild.isPending ? "Aktualisiere..." : "Aktualisieren"}
+          {rebuild.isPending ? "Analysiere..." : "Semantisch aktualisieren"}
         </button>
       </div>
       {isLoading && <div className="start-card-note">Wird geladen…</div>}
       {!isLoading && visible.length === 0 && (
-        <div className="start-card-note">Verbindungen zwischen deinen Aufnahmen.</div>
+        <div className="start-card-note">Semantische Verbindungen zwischen deinen Aufnahmen.</div>
       )}
       {visible.length > 0 && (
         <details className="start-card-disclosure">

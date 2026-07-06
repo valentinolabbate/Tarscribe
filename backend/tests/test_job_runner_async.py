@@ -124,6 +124,35 @@ def test_llm_jobs_do_not_use_cpu_executor(db_env, monkeypatch):
     ]
 
 
+def test_embedding_job_rebuilds_semantic_threads(db_env, monkeypatch):
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.rag as rag
+    import tarscribe_backend.threads as threads
+    from tarscribe_backend.models import Job, JobPhase, JobStatus
+
+    recording_id = _recording(db_env)
+    with Session(db_env.get_engine()) as session:
+        job = Job(recording_id=recording_id, phase=JobPhase.embedding, status=JobStatus.pending)
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    calls: list[int] = []
+    monkeypatch.setattr(rag, "index_recording", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(
+        threads,
+        "rebuild_semantic_threads",
+        lambda session: calls.append(id(session)) or {"threads": 0},
+    )
+    monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
+
+    jobs._run_embedding(recording_id, job_id)
+
+    assert len(calls) == 1
+    with Session(db_env.get_engine()) as session:
+        assert session.get(Job, job_id).status == JobStatus.done
+
+
 def test_llm_scheduler_falls_back_when_bound_loop_is_closed(db_env):
     import tarscribe_backend.jobs as jobs
 

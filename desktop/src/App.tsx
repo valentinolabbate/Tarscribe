@@ -33,7 +33,9 @@ export default function App() {
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [showHome, setShowHome] = useState(true);
   const [showTasks, setShowTasks] = useState(false);
+  const [showPeople, setShowPeople] = useState(false);
   const [showJobs, setShowJobs] = useState(false);
+  const [openRecordingStartSec, setOpenRecordingStartSec] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
@@ -97,7 +99,9 @@ export default function App() {
     setActiveTopic(rec.topic_id);
     setShowHome(false);
     setShowTasks(false);
+    setShowPeople(false);
     setShowJobs(false);
+    setOpenRecordingStartSec(null);
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
 
@@ -130,13 +134,15 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  const openRecordingById = useCallback(async (recordingId: number) => {
+  const openRecordingById = useCallback(async (recordingId: number, startSec?: number | null) => {
     try {
       const rec = await api.getRecording(recordingId);
       setActiveTopic(rec.topic_id);
       setShowHome(false);
       setShowTasks(false);
+      setShowPeople(false);
       setShowJobs(false);
+      setOpenRecordingStartSec(startSec ?? null);
       setOpenRecording(rec);
     } catch {
       toast("Aufnahme konnte nicht geöffnet werden.", "error");
@@ -157,6 +163,7 @@ export default function App() {
     setActiveTopic,
     setShowHome,
     setShowTasks,
+    setShowPeople,
     setShowJobs,
     setOpenRecording,
     setDetectedMeeting,
@@ -200,23 +207,38 @@ export default function App() {
         activeTopic={activeTopic}
         showHome={showHome}
         showTasks={showTasks}
+        showPeople={showPeople}
         showJobs={showJobs}
         onHome={() => {
           setShowHome(true);
           setShowTasks(false);
+          setShowPeople(false);
           setShowJobs(false);
+          setOpenRecordingStartSec(null);
           setOpenRecording(null);
         }}
         onTasks={() => {
           setShowTasks(true);
           setShowHome(false);
+          setShowPeople(false);
           setShowJobs(false);
+          setOpenRecordingStartSec(null);
+          setOpenRecording(null);
+        }}
+        onPeople={() => {
+          setShowPeople(true);
+          setShowTasks(false);
+          setShowHome(false);
+          setShowJobs(false);
+          setOpenRecordingStartSec(null);
           setOpenRecording(null);
         }}
         onJobs={() => {
           setShowJobs(true);
           setShowTasks(false);
+          setShowPeople(false);
           setShowHome(false);
+          setOpenRecordingStartSec(null);
           setOpenRecording(null);
         }}
         onNewTopic={() => setShowTopicModal(true)}
@@ -225,7 +247,9 @@ export default function App() {
           setOpenRecording(null);
           setShowHome(false);
           setShowTasks(false);
+          setShowPeople(false);
           setShowJobs(false);
+          setOpenRecordingStartSec(null);
         }}
         onMoveTopic={moveTopic}
         onSettings={() => setShowSettings(true)}
@@ -237,6 +261,7 @@ export default function App() {
         <TopBar
           showJobs={showJobs}
           showTasks={showTasks}
+          showPeople={showPeople}
           showHome={showHome}
           openRecording={openRecording}
           currentTopic={current}
@@ -251,17 +276,26 @@ export default function App() {
             currentTopic={current}
             showJobs={showJobs}
             showTasks={showTasks}
+            showPeople={showPeople}
             showHome={showHome}
             openRecording={openRecording}
+            openRecordingStartSec={openRecordingStartSec}
             dictationShortcutLabel={dictationShortcutLabel}
             onOpenRecording={openRecordingById}
-            onBackFromRecording={() => setOpenRecording(null)}
+            onBackFromRecording={() => {
+              setOpenRecordingStartSec(null);
+              setOpenRecording(null);
+            }}
             onMovedRecording={(rec) => {
               setActiveTopic(rec.topic_id);
+              setOpenRecordingStartSec(null);
               setOpenRecording(rec);
             }}
             onOpenSettings={() => setShowSettings(true)}
-            onSetOpenRecording={setOpenRecording}
+            onSetOpenRecording={(rec) => {
+              setOpenRecordingStartSec(null);
+              setOpenRecording(rec);
+            }}
           />
         </div>
       </main>

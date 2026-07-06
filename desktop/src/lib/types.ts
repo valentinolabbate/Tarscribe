@@ -169,6 +169,14 @@ export interface TopicThread {
   mentions: ThreadMention[];
 }
 
+export interface ThreadRebuildResult {
+  threads: number;
+  mentions: number;
+  indexed_chunks: number;
+  mode: "semantic";
+  threshold: number;
+}
+
 export interface DictationResult {
   recording: Recording;
   job_id: number;
@@ -283,6 +291,34 @@ export interface KnownSpeaker {
   name: string;
   color: string;
   sample_count: number;
+}
+
+export interface PeopleMemoryRecording {
+  id: number;
+  title: string;
+  created_at: string;
+  duration_sec: number;
+  topic_id: number;
+  topic_name: string;
+  topic_color: string;
+  start_sec: number | null;
+  talk_sec: number;
+}
+
+export interface PeopleMemory {
+  speaker: KnownSpeaker;
+  stats: {
+    recording_count: number;
+    open_task_count: number;
+    decision_count: number;
+    thread_count: number;
+    talk_sec: number;
+    last_seen_at: string | null;
+  };
+  recordings: PeopleMemoryRecording[];
+  tasks: ActionItem[];
+  decisions: ActionItem[];
+  threads: TopicThread[];
 }
 
 export interface Utterance {

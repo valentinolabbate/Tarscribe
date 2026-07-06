@@ -72,7 +72,7 @@ def test_estimate_tokens(env):
     assert agent._estimate_tokens("abcdefgh") == 2
 
 
-def test_compact_hits_strips_to_essentials(env):
+def test_compact_hits_preserves_source_metadata(env):
     agent, _db, _rag = env
     hits = [
         {
@@ -87,7 +87,19 @@ def test_compact_hits_strips_to_essentials(env):
         }
     ]
     compact = agent._compact_hits(hits)
-    assert compact == [{"title": "Meeting", "source_type": "transcript", "text": "Important text"}]
+    assert compact == [
+        {
+            "title": "Meeting",
+            "recording_id": 1,
+            "topic_id": None,
+            "document_id": None,
+            "source_type": "transcript",
+            "start_sec": None,
+            "end_sec": None,
+            "speaker": None,
+            "text": "Important text",
+        }
+    ]
 
 
 def test_execute_tool_unknown_name(env):

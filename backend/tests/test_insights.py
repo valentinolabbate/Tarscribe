@@ -274,7 +274,7 @@ def test_run_action_items_persists_llm_due_date(client, monkeypatch):
             '"due":"morgen","due_date":"2026-06-19"}]'
         )
 
-    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda: fake_chat)
+    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda *_args: fake_chat)
     jobs._run_action_items(rec_id, job_id)
 
     with Session(db.get_engine()) as s:
@@ -337,7 +337,7 @@ def test_run_action_items_auto_syncs_caldav(client, monkeypatch):
             '"due":"morgen","due_date":"2026-06-19"}]'
         )
 
-    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda: fake_chat)
+    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda *_args: fake_chat)
     jobs._run_action_items(rec_id, job_id)
 
     with Session(db.get_engine()) as s:
@@ -562,7 +562,7 @@ def test_digest_endpoint_generates_and_lists(client, monkeypatch):
     monkeypatch.setattr(
         llm,
         "get_llm_config",
-        lambda: {
+        lambda *_args: {
             "model": "digest-model",
             "base_url": "http://llm.test/v1",
             "api_key": None,
@@ -617,7 +617,7 @@ def test_digest_endpoint_requires_configured_llm(client, monkeypatch):
     monkeypatch.setattr(
         llm,
         "get_llm_config",
-        lambda: {"model": None, "base_url": "http://llm.test/v1"},
+        lambda *_args: {"model": None, "base_url": "http://llm.test/v1"},
     )
     r = client.post("/api/digests?days=7")
     assert r.status_code == 400

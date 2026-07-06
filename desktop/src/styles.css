@@ -2511,6 +2511,171 @@ select:focus {
   color: var(--text-faint);
   line-height: 1.5;
 }
+.llm-settings-field {
+  gap: 10px;
+}
+.llm-provider-toggle {
+  align-self: flex-start;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+.llm-endpoint-row,
+.llm-api-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.llm-endpoint-row input,
+.llm-api-key-row input {
+  flex: 1;
+  min-width: 0;
+}
+.llm-api-key-row {
+  justify-content: space-between;
+}
+.llm-status {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.llm-status.ok {
+  color: var(--ok);
+}
+.llm-status.error {
+  color: var(--danger);
+}
+.llm-profile-heading,
+.llm-tuning-title {
+  display: grid;
+  gap: 3px;
+}
+.llm-profile-heading {
+  margin-top: 6px;
+}
+.llm-profile-heading strong,
+.llm-tuning-title strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.llm-profile-heading span,
+.llm-tuning-title span {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.llm-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.llm-profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-input) 62%, transparent);
+}
+.llm-profile-card-head {
+  display: grid;
+  gap: 3px;
+  min-height: 45px;
+}
+.llm-profile-card-head strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.llm-profile-card-head span {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.llm-profile-card > label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.llm-profile-card input[type="text"],
+.llm-profile-card select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 9px;
+  font-size: 12px;
+}
+.llm-agent-toggle {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  align-items: center;
+  gap: 8px !important;
+  margin-top: auto;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+.llm-agent-toggle.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated));
+}
+.llm-agent-toggle > span {
+  display: grid;
+  gap: 2px;
+}
+.llm-agent-toggle strong {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.llm-agent-toggle small {
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.25;
+}
+.llm-shared-tuning {
+  margin: 4px 0 0;
+}
+.llm-range-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.llm-range-value input {
+  width: 140px;
+}
+.llm-range-value .mono {
+  width: 34px;
+}
+.llm-shared-tuning .tuning-row > input[type="number"] {
+  width: 94px;
+}
+.llm-agent-limits-title {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.llm-save-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+@media (max-width: 560px) {
+  .llm-profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .llm-profile-card-head {
+    min-height: 0;
+  }
+  .llm-endpoint-row,
+  .llm-api-key-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .llm-endpoint-row .btn,
+  .llm-api-key-row .btn {
+    align-self: flex-start;
+  }
+}
 .seg {
   display: inline-flex;
   border: 1px solid var(--border-strong);

@@ -117,7 +117,7 @@ def test_dictation_postprocess_titles_moves_and_creates_action_items(client, mon
             '"assignee":null,"due":"morgen","due_date":"2026-06-19"}]}'
         )
 
-    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda: fake_chat)
+    monkeypatch.setattr(jobs, "_llm_chat_fn", lambda *_args: fake_chat)
     jobs._maybe_postprocess_dictation(rec_id)
 
     with Session(db.get_engine()) as s:

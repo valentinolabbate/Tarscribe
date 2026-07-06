@@ -18,6 +18,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from .db import session_scope
+from .llm import LlmUseCase
 from .models import (
     ActionItem,
     DiarizationRun,
@@ -679,7 +680,7 @@ async def _run_summary_async(
     last_save = 0.0
     try:
         _start_job(job_id, progress=0.05)
-        cfg = L.get_llm_config()
+        cfg = L.get_llm_config("summaries")
         if not cfg["model"]:
             raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
@@ -802,7 +803,7 @@ async def _run_summary_async(
         from . import agent as AG
         from . import rag as R
 
-        agent_cfg = AG.get_agent_rag_config()
+        agent_cfg = AG.get_agent_rag_config("summaries")
         agent_done = False
         if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
             try:
@@ -941,11 +942,11 @@ async def _run_summary_async(
         )
 
 
-def _llm_chat_fn():
+def _llm_chat_fn(use_case: LlmUseCase = "summaries"):
     """Non-streaming chat callable from the configured chat model (raises if unconfigured)."""
     from . import llm as L
 
-    cfg = L.get_llm_config()
+    cfg = L.get_llm_config(use_case)
     if not cfg["model"]:
         raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
@@ -968,10 +969,10 @@ def _llm_chat_fn():
     return _chat
 
 
-def _llm_chat_fn_async():
+def _llm_chat_fn_async(use_case: LlmUseCase = "summaries"):
     from . import llm as L
 
-    cfg = L.get_llm_config()
+    cfg = L.get_llm_config(use_case)
     if not cfg["model"]:
         raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
@@ -1018,7 +1019,7 @@ async def _run_action_items_async(
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")
 
-        agent_cfg = AG.get_agent_rag_config()
+        agent_cfg = AG.get_agent_rag_config("summaries")
         if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
             def _broadcast_ai(event: dict) -> None:
                 hub.broadcast({
@@ -1038,7 +1039,7 @@ async def _run_action_items_async(
                 broadcast_fn=_broadcast_ai,
             )
         else:
-            chat = _llm_chat_fn_async()
+            chat = _llm_chat_fn_async("summaries")
 
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
 
@@ -1090,7 +1091,7 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
     if not text:
         return
 
-    agent_cfg = AG.get_agent_rag_config()
+    agent_cfg = AG.get_agent_rag_config("summaries")
     if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
         try:
             def _broadcast_dict(event: dict) -> None:
@@ -1108,10 +1109,10 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
                 broadcast_fn=_broadcast_dict,
             )
         except Exception:
-            chat = _llm_chat_fn()
+            chat = _llm_chat_fn("summaries")
     else:
         try:
-            chat = _llm_chat_fn()
+            chat = _llm_chat_fn("summaries")
         except Exception:
             return
 
@@ -1189,7 +1190,7 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
         if not utts:
             raise RuntimeError("Kein Transkript vorhanden")
 
-        agent_cfg = AG.get_agent_rag_config()
+        agent_cfg = AG.get_agent_rag_config("chapters")
         if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
             def _broadcast_ch(event: dict) -> None:
                 hub.broadcast({
@@ -1209,7 +1210,7 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
                 broadcast_fn=_broadcast_ch,
             )
         else:
-            chat = _llm_chat_fn_async()
+            chat = _llm_chat_fn_async("chapters")
 
         chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
         _update_job(job_id, progress=0.3)

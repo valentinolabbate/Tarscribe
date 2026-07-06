@@ -45,13 +45,13 @@ class ToolSupportError(Exception):
 # --- configuration ---------------------------------------------------------
 
 
-def get_agent_rag_config() -> dict:
+def get_agent_rag_config(use_case: L.LlmUseCase = "summaries") -> dict:
     """Merge agent_rag prefs with the chat-LLM config and RAG availability."""
     prefs = load_prefs()
     agent = prefs.get("agent_rag") or {}
-    llm_cfg = L.get_llm_config()
+    llm_cfg = L.get_llm_config(use_case)
     return {
-        "enabled": bool(prefs.get("agent_rag_enabled")),
+        "enabled": bool(llm_cfg.get("agent_mode")),
         "max_rounds": int(agent.get("max_rounds") or 5),
         "max_context_tokens": int(agent.get("max_context_tokens") or 12000),
         "top_k": int(agent.get("top_k") or 6),
@@ -68,9 +68,9 @@ def get_agent_rag_config() -> dict:
     }
 
 
-def agent_rag_active() -> bool:
+def agent_rag_active(use_case: L.LlmUseCase = "summaries") -> bool:
     """True when agentic RAG is enabled and RAG backend is available."""
-    cfg = get_agent_rag_config()
+    cfg = get_agent_rag_config(use_case)
     return bool(cfg["enabled"] and cfg["rag_enabled"] and cfg["model"])
 
 
@@ -131,7 +131,13 @@ def _compact_hits(hits: list[dict]) -> list[dict]:
         compact.append(
             {
                 "title": h.get("recording_title") or "Quelle",
+                "recording_id": h.get("recording_id"),
+                "topic_id": h.get("topic_id"),
+                "document_id": h.get("document_id"),
                 "source_type": h.get("source_type"),
+                "start_sec": h.get("start_sec"),
+                "end_sec": h.get("end_sec"),
+                "speaker": h.get("speaker"),
                 "text": (h.get("text") or "").strip(),
             }
         )
@@ -160,7 +166,9 @@ def _execute_tool(
         elif scope == "all":
             hits = R.search(session, query, top_k=top_k)
         else:
-            if topic_id is None:
+            if topic_id is None and recording_id is not None:
+                hits = R.search(session, query, top_k=top_k, recording_id=recording_id)
+            elif topic_id is None:
                 hits = R.search(session, query, top_k=top_k)
             else:
                 hits = R.retrieve_topic_knowledge(
@@ -195,8 +203,12 @@ def _hits_to_sources(hits: list[dict]) -> list[dict]:
         {
             "recording_id": h.get("recording_id"),
             "recording_title": h.get("title") or h.get("recording_title"),
+            "topic_id": h.get("topic_id"),
             "document_id": h.get("document_id"),
             "source_type": h.get("source_type"),
+            "start_sec": h.get("start_sec"),
+            "end_sec": h.get("end_sec"),
+            "speaker": h.get("speaker"),
             "text": h.get("text"),
         }
         for h in hits

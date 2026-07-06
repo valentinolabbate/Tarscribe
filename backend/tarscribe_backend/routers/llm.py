@@ -29,6 +29,7 @@ class LlmConfigIn(BaseModel):
     top_k: int | None = None
     max_tokens: int | None = None
     reasoning_effort: str | None = None
+    profiles: dict[str, dict] | None = None
 
 
 class LlmApiKeyIn(BaseModel):
@@ -51,6 +52,7 @@ def get_llm_config() -> dict:
     # whether one is stored.
     return {
         **(settings_store.load_prefs().get("llm") or {}),
+        "profiles": L.get_llm_profiles(),
         "api_key_set": settings_store.has_llm_api_key(),
     }
 
@@ -58,11 +60,30 @@ def get_llm_config() -> dict:
 @router.put("/api/llm/config")
 def set_llm_config(payload: LlmConfigIn) -> dict:
     llm = dict(settings_store.load_prefs().get("llm") or {})
-    # exclude_unset=True: only touch fields the client explicitly sent
-    # (allows sending null to clear a param)
-    llm.update(payload.model_dump(exclude_unset=True))
+    data = payload.model_dump(exclude_unset=True)
+    profile_patch = data.pop("profiles", None)
+    llm.update(data)
+    if profile_patch is not None:
+        profiles = dict(llm.get("profiles") or {})
+        for use_case, patch in profile_patch.items():
+            if use_case not in L.LLM_USE_CASES or not isinstance(patch, dict):
+                continue
+            profile = dict(profiles.get(use_case) or {})
+            profile.update(
+                {
+                    key: value
+                    for key, value in patch.items()
+                    if key in {"model", "reasoning_effort", "agent_mode"}
+                }
+            )
+            profiles[use_case] = profile
+        llm["profiles"] = profiles
     settings_store.save_prefs({"llm": llm})
-    return {**llm, "api_key_set": settings_store.has_llm_api_key()}
+    return {
+        **llm,
+        "profiles": L.get_llm_profiles(),
+        "api_key_set": settings_store.has_llm_api_key(),
+    }
 
 
 @router.get("/api/llm/models")
@@ -119,7 +140,7 @@ def summarize(
     if not tpl:
         raise HTTPException(404, "Vorlage nicht gefunden")
 
-    cfg = L.get_llm_config()
+    cfg = L.get_llm_config("summaries")
     summary = Summary(recording_id=recording_id, template_id=template_id, model=cfg["model"] or "")
     session.add(summary)
     session.commit()

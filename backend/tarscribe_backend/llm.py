@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
+from typing import Literal
 
 import httpx
 
@@ -16,13 +17,36 @@ from .settings_store import get_llm_api_key, load_prefs
 
 # Rough char budget per LLM request before we switch to map-reduce chunking.
 CHAR_BUDGET = 48_000
+LlmUseCase = Literal["chapters", "summaries", "chat"]
+LLM_USE_CASES: tuple[LlmUseCase, ...] = ("chapters", "summaries", "chat")
 
 
-def get_llm_config() -> dict:
+def get_llm_profiles() -> dict[str, dict]:
+    prefs = load_prefs()
+    llm = prefs.get("llm") or {}
+    stored_profiles = llm.get("profiles") or {}
+    profiles: dict[str, dict] = {}
+    for use_case in LLM_USE_CASES:
+        stored = stored_profiles.get(use_case) or {}
+        profiles[use_case] = {
+            "model": stored.get("model", llm.get("model")),
+            "reasoning_effort": stored.get(
+                "reasoning_effort", llm.get("reasoning_effort")
+            )
+            or None,
+            "agent_mode": bool(
+                stored.get("agent_mode", prefs.get("agent_rag_enabled", False))
+            ),
+        }
+    return profiles
+
+
+def get_llm_config(use_case: LlmUseCase = "chat") -> dict:
     llm = load_prefs().get("llm") or {}
+    profile = get_llm_profiles()[use_case]
     return {
         "base_url": (llm.get("base_url") or "http://localhost:11434/v1").rstrip("/"),
-        "model": llm.get("model"),
+        "model": profile["model"],
         "provider": llm.get("provider") or "ollama",
         "api_key": get_llm_api_key(),
         "temperature": float(llm["temperature"]) if llm.get("temperature") is not None else 0.3,
@@ -31,7 +55,8 @@ def get_llm_config() -> dict:
         "max_tokens": int(llm["max_tokens"]) if llm.get("max_tokens") is not None else None,
         # Reasoning/"thinking" depth for capable models (minimal|low|medium|high);
         # None = don't send the param (model uses its default).
-        "reasoning_effort": llm.get("reasoning_effort") or None,
+        "reasoning_effort": profile["reasoning_effort"],
+        "agent_mode": profile["agent_mode"],
     }
 
 

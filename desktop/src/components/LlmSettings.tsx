@@ -2,22 +2,37 @@ import { type FormEvent, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { validateHttpUrl } from "../lib/formValidation";
+import type { LlmProfile, LlmUseCase } from "../lib/types";
 import { KEY_PROVIDERS, NumField, PRESETS } from "./llm-settings/model";
+
+const USE_CASES: Array<{ id: LlmUseCase; label: string; detail: string }> = [
+  { id: "chapters", label: "Kapitel", detail: "Zeitmarken und Kapitelüberschriften" },
+  { id: "summaries", label: "Zusammenfassungen", detail: "Zusammenfassungen, Aufgaben und Digests" },
+  { id: "chat", label: "Chat", detail: "Fragen an Aufnahmen und Wissensarchiv" },
+];
+
+const EMPTY_PROFILE: LlmProfile = {
+  model: null,
+  reasoning_effort: null,
+  agent_mode: false,
+};
+
+type Profiles = Record<LlmUseCase, LlmProfile>;
 
 export function LlmSettings() {
   const qc = useQueryClient();
   const [provider, setProvider] = useState("ollama");
   const [baseUrl, setBaseUrl] = useState(PRESETS.ollama);
-  const [model, setModel] = useState<string>("");
+  const [profiles, setProfiles] = useState<Profiles>({
+    chapters: { ...EMPTY_PROFILE },
+    summaries: { ...EMPTY_PROFILE },
+    chat: { ...EMPTY_PROFILE },
+  });
   const [models, setModels] = useState<string[]>([]);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // API key (secret) for hosted OpenAI-compatible providers.
   const [apiKey, setApiKey] = useState("");
   const [apiKeySet, setApiKeySet] = useState(false);
-
-  // Inference params
   const [temperature, setTemperature] = useState(0.3);
   const [topP, setTopP] = useState(0.9);
   const [useTopP, setUseTopP] = useState(false);
@@ -25,26 +40,47 @@ export function LlmSettings() {
   const [useTopK, setUseTopK] = useState(false);
   const [maxTokens, setMaxTokens] = useState(2048);
   const [useMaxTokens, setUseMaxTokens] = useState(false);
-  // Reasoning/"thinking" depth ("" = off / model default).
-  const [reasoningEffort, setReasoningEffort] = useState("");
   const [chunkSize, setChunkSize] = useState(48000);
+  const [agentLimits, setAgentLimits] = useState({
+    max_rounds: 5,
+    max_context_tokens: 12000,
+    top_k: 6,
+  });
   const baseUrlError = validateHttpUrl(baseUrl, "Base-URL");
   const showBaseUrlError = baseUrl.trim().length > 0 && !!baseUrlError;
 
   useEffect(() => {
-    api.getLlmConfig().then((c) => {
-      if (c.provider) setProvider(c.provider);
-      if (c.base_url) setBaseUrl(c.base_url);
-      if (c.model) setModel(c.model);
-      if (c.temperature != null) setTemperature(c.temperature);
-      if (c.top_p != null) { setTopP(c.top_p); setUseTopP(true); }
-      if (c.top_k != null) { setTopK(c.top_k); setUseTopK(true); }
-      if (c.max_tokens != null) { setMaxTokens(c.max_tokens); setUseMaxTokens(true); }
-      if (c.reasoning_effort) setReasoningEffort(c.reasoning_effort);
-      if (c.api_key_set) setApiKeySet(true);
+    api.getLlmConfig().then((config) => {
+      if (config.provider) setProvider(config.provider);
+      if (config.base_url) setBaseUrl(config.base_url);
+      const fallback: LlmProfile = {
+        model: config.model ?? null,
+        reasoning_effort: config.reasoning_effort ?? null,
+        agent_mode: false,
+      };
+      setProfiles({
+        chapters: { ...fallback, ...config.profiles?.chapters },
+        summaries: { ...fallback, ...config.profiles?.summaries },
+        chat: { ...fallback, ...config.profiles?.chat },
+      });
+      if (config.temperature != null) setTemperature(config.temperature);
+      if (config.top_p != null) {
+        setTopP(config.top_p);
+        setUseTopP(true);
+      }
+      if (config.top_k != null) {
+        setTopK(config.top_k);
+        setUseTopK(true);
+      }
+      if (config.max_tokens != null) {
+        setMaxTokens(config.max_tokens);
+        setUseMaxTokens(true);
+      }
+      if (config.api_key_set) setApiKeySet(true);
     });
-    api.getSettings().then((s) => {
-      if (s.llm_chunk_size) setChunkSize(s.llm_chunk_size);
+    api.getSettings().then((settings) => {
+      if (settings.llm_chunk_size) setChunkSize(settings.llm_chunk_size);
+      if (settings.agent_rag) setAgentLimits(settings.agent_rag);
     });
   }, []);
 
@@ -57,24 +93,26 @@ export function LlmSettings() {
     setBusy(true);
     setStatus(null);
     try {
-      // If the user typed a new key, store + verify it (also returns the models).
       if (apiKey.trim()) {
-        const r = await api.setLlmApiKey(apiKey.trim(), url);
+        const result = await api.setLlmApiKey(apiKey.trim(), url);
         setApiKeySet(true);
-        if (!r.ok) {
-          setStatus({ ok: false, msg: `Gespeichert, aber Verbindung fehlgeschlagen: ${r.error ?? ""}` });
+        if (!result.ok) {
+          setStatus({
+            ok: false,
+            msg: `Gespeichert, aber Verbindung fehlgeschlagen: ${result.error ?? ""}`,
+          });
           return;
         }
         setApiKey("");
-        setModels(r.models ?? []);
-        setStatus({ ok: true, msg: `${(r.models ?? []).length} Modelle gefunden` });
+        setModels(result.models ?? []);
+        setStatus({ ok: true, msg: `${(result.models ?? []).length} Modelle gefunden` });
         return;
       }
-      const res = await api.listLlmModels(url);
-      setModels(res.models);
-      setStatus({ ok: true, msg: `${res.models.length} Modelle gefunden` });
-    } catch (e) {
-      setStatus({ ok: false, msg: String((e as Error).message) });
+      const result = await api.listLlmModels(url);
+      setModels(result.models);
+      setStatus({ ok: true, msg: `${result.models.length} Modelle gefunden` });
+    } catch (error) {
+      setStatus({ ok: false, msg: String((error as Error).message) });
     } finally {
       setBusy(false);
     }
@@ -92,7 +130,7 @@ export function LlmSettings() {
     }
   }
 
-  async function save(nextModel = model) {
+  async function saveConnection() {
     if (baseUrlError) {
       setStatus({ ok: false, msg: baseUrlError });
       return;
@@ -100,20 +138,19 @@ export function LlmSettings() {
     await api.setLlmConfig({
       provider,
       base_url: baseUrl,
-      model: nextModel,
       temperature,
       top_p: useTopP ? topP : null,
       top_k: useTopK ? topK : null,
       max_tokens: useMaxTokens ? maxTokens : null,
-      reasoning_effort: reasoningEffort || null,
     });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
+    setStatus({ ok: true, msg: "Verbindung und gemeinsame Parameter gespeichert" });
   }
 
-  async function saveReasoning(v: string) {
-    setReasoningEffort(v);
-    // Partial update — backend only touches fields that are explicitly sent.
-    await api.setLlmConfig({ reasoning_effort: v || null });
+  async function updateProfile(useCase: LlmUseCase, patch: Partial<LlmProfile>) {
+    const next = { ...profiles[useCase], ...patch };
+    setProfiles((current) => ({ ...current, [useCase]: next }));
+    await api.setLlmConfig({ profiles: { [useCase]: next } });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
   }
 
@@ -121,9 +158,15 @@ export function LlmSettings() {
     await api.updateSettings({ llm_chunk_size: size });
   }
 
-  function onProvider(p: string) {
-    setProvider(p);
-    if (PRESETS[p]) setBaseUrl(PRESETS[p]);
+  async function updateAgentLimits(patch: Partial<typeof agentLimits>) {
+    const next = { ...agentLimits, ...patch };
+    setAgentLimits(next);
+    await api.updateSettings({ agent_rag: next });
+  }
+
+  function onProvider(nextProvider: string) {
+    setProvider(nextProvider);
+    if (PRESETS[nextProvider]) setBaseUrl(PRESETS[nextProvider]);
   }
 
   function submitConnection(event: FormEvent<HTMLFormElement>) {
@@ -132,123 +175,168 @@ export function LlmSettings() {
   }
 
   return (
-    <div className="field">
-      <label>Chat-Modell (Zusammenfassungen &amp; Chat)</label>
-      <div className="seg" style={{ marginBottom: 8, flexWrap: "wrap" }}>
+    <div className="field llm-settings-field">
+      <label>LLM-Verbindung</label>
+      <div className="settings-info-box">
+        Anbieter, Endpoint und Zugang gelten gemeinsam. Modell, Thinking-Level und
+        Agent-Recherche stellst du darunter für jeden Einsatz separat ein.
+      </div>
+      <div className="seg llm-provider-toggle">
         {[
           ["ollama", "Ollama"],
           ["lmstudio", "LM Studio"],
           ["openai", "OpenAI"],
           ["openrouter", "OpenRouter"],
           ["custom", "Eigener Endpoint"],
-        ].map(([v, l]) => (
-          <button key={v} className={provider === v ? "seg-btn active" : "seg-btn"} onClick={() => onProvider(v)}>
-            {l}
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            className={provider === value ? "seg-btn active" : "seg-btn"}
+            onClick={() => onProvider(value)}
+          >
+            {label}
           </button>
         ))}
       </div>
-      <form onSubmit={submitConnection}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          <input
-            type="url"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            style={{ flex: 1 }}
-            spellCheck={false}
-            aria-invalid={showBaseUrlError}
-            aria-describedby={showBaseUrlError ? "llm-base-url-error" : undefined}
-          />
-          <button className="btn" type="submit" disabled={busy || !!baseUrlError}>
-            Modelle laden
-          </button>
-        </div>
-        {showBaseUrlError && (
-          <div id="llm-base-url-error" className="field-error">
-            {baseUrlError}
-          </div>
-        )}
+      <form onSubmit={submitConnection} className="llm-endpoint-row">
+        <input
+          type="url"
+          value={baseUrl}
+          onChange={(event) => setBaseUrl(event.target.value)}
+          spellCheck={false}
+          aria-invalid={showBaseUrlError}
+          aria-describedby={showBaseUrlError ? "llm-base-url-error" : undefined}
+        />
+        <button className="btn" type="submit" disabled={busy || !!baseUrlError}>
+          Modelle laden
+        </button>
       </form>
-
+      {showBaseUrlError && (
+        <div id="llm-base-url-error" className="field-error">
+          {baseUrlError}
+        </div>
+      )}
       {KEY_PROVIDERS.has(provider) && (
-        <div style={{ marginBottom: 8 }}>
+        <div className="llm-api-key-row">
           {apiKeySet && !apiKey ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+            <>
               <span className="badge ready">✓ API-Key hinterlegt</span>
               <button className="btn ghost danger" onClick={removeApiKey} disabled={busy}>
                 Entfernen
               </button>
-            </div>
+            </>
           ) : (
             <input
               type="password"
               placeholder="API-Key (z.B. sk-…)"
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(event) => setApiKey(event.target.value)}
               spellCheck={false}
               autoComplete="off"
-              style={{ width: "100%" }}
             />
           )}
-          <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
-            Für Anbieter mit API-Key. Wird beim Klick auf „Modelle laden"
-            gespeichert &amp; geprüft und sicher in der OS-Keychain abgelegt.
-          </div>
         </div>
       )}
-      {models.length > 0 && (
-        <select
-          value={model}
-          onChange={(e) => {
-            setModel(e.target.value);
-            save(e.target.value);
-          }}
-          disabled={!!baseUrlError}
-          style={{ width: "100%" }}
-        >
-          <option value="">— Modell wählen —</option>
-          {models.map((m) => (
-            <option key={m} value={m}>{m}</option>
-          ))}
-        </select>
-      )}
-      {model && models.length === 0 && (
-        <div className="rec-sub" style={{ fontSize: 12 }}>Aktuelles Modell: {model}</div>
-      )}
-      {status && (
-        <div style={{ marginTop: 8, fontSize: 12, color: status.ok ? "var(--ok)" : "var(--danger)" }}>
-          {status.msg}
-        </div>
-      )}
+      {status && <div className={status.ok ? "llm-status ok" : "llm-status error"}>{status.msg}</div>}
 
-      {/* ── Inference-Parameter ─────────────────────────────────────────── */}
-      <div className="tuning" style={{ marginTop: 12 }}>
+      <div className="llm-profile-heading">
+        <strong>Einsatz-Profile</strong>
+        <span>Jeder Bereich kann ein anderes Modell und Rechenverhalten nutzen.</span>
+      </div>
+      <datalist id="llm-model-options">
+        {models.map((availableModel) => (
+          <option key={availableModel} value={availableModel} />
+        ))}
+      </datalist>
+      <div className="llm-profile-grid">
+        {USE_CASES.map((useCase) => {
+          const profile = profiles[useCase.id];
+          return (
+            <section className="llm-profile-card" key={useCase.id}>
+              <div className="llm-profile-card-head">
+                <strong>{useCase.label}</strong>
+                <span>{useCase.detail}</span>
+              </div>
+              <label>
+                Modell
+                <input
+                  type="text"
+                  list="llm-model-options"
+                  value={profile.model ?? ""}
+                  placeholder="Modell wählen oder ID eingeben"
+                  onChange={(event) =>
+                    setProfiles((current) => ({
+                      ...current,
+                      [useCase.id]: { ...current[useCase.id], model: event.target.value },
+                    }))
+                  }
+                  onBlur={(event) =>
+                    updateProfile(useCase.id, { model: event.target.value.trim() || null })
+                  }
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                Thinking-Level
+                <select
+                  value={profile.reasoning_effort ?? ""}
+                  onChange={(event) =>
+                    updateProfile(useCase.id, {
+                      reasoning_effort: event.target.value || null,
+                    })
+                  }
+                >
+                  <option value="">Aus (Modellstandard)</option>
+                  <option value="minimal">Minimal</option>
+                  <option value="low">Niedrig</option>
+                  <option value="medium">Mittel</option>
+                  <option value="high">Hoch</option>
+                </select>
+              </label>
+              <label className={profile.agent_mode ? "llm-agent-toggle active" : "llm-agent-toggle"}>
+                <input
+                  type="checkbox"
+                  checked={profile.agent_mode}
+                  onChange={(event) =>
+                    updateProfile(useCase.id, { agent_mode: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>Agent-Recherche</strong>
+                  <small>Sucht iterativ im Wissensindex</small>
+                </span>
+              </label>
+            </section>
+          );
+        })}
+      </div>
+
+      <div className="tuning llm-shared-tuning">
+        <div className="llm-tuning-title">
+          <strong>Gemeinsame Inferenz-Parameter</strong>
+          <span>Diese Werte gelten weiterhin für alle drei Profile.</span>
+        </div>
         <div className="tuning-row">
           <label>Temperature</label>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="llm-range-value">
             <input
               type="range"
               min={0}
               max={2}
               step={0.05}
               value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
-              onMouseUp={() => save()}
-              onTouchEnd={() => save()}
-              style={{ width: 120 }}
+              onChange={(event) => setTemperature(Number(event.target.value))}
             />
-            <span className="mono" style={{ width: 34 }}>{temperature.toFixed(2)}</span>
+            <span className="mono">{temperature.toFixed(2)}</span>
           </div>
         </div>
-        <div className="tuning-hint">
-          Niedriger = deterministischer. Für Zusammenfassungen 0.1–0.5 empfohlen.
-        </div>
-
         <NumField
           label="Top-P"
           enabled={useTopP}
-          onToggle={(v) => { setUseTopP(v); save(); }}
+          onToggle={setUseTopP}
           value={topP}
-          onChange={(v) => setTopP(v)}
+          onChange={setTopP}
           min={0.01}
           max={1}
           step={0.05}
@@ -256,9 +344,9 @@ export function LlmSettings() {
         <NumField
           label="Top-K"
           enabled={useTopK}
-          onToggle={(v) => { setUseTopK(v); save(); }}
+          onToggle={setUseTopK}
           value={topK}
-          onChange={(v) => setTopK(v)}
+          onChange={setTopK}
           min={1}
           step={1}
           placeholder="z.B. 40"
@@ -266,57 +354,79 @@ export function LlmSettings() {
         <NumField
           label="Max. Tokens"
           enabled={useMaxTokens}
-          onToggle={(v) => { setUseMaxTokens(v); save(); }}
+          onToggle={setUseMaxTokens}
           value={maxTokens}
-          onChange={(v) => setMaxTokens(v)}
+          onChange={setMaxTokens}
           min={64}
           step={64}
           placeholder="z.B. 2048"
         />
-
-        <div className="tuning-row" style={{ marginTop: 6 }}>
-          <label title="Denk-/Reasoning-Tiefe für Chat und Zusammenfassungen. Wird nur an das Modell gesendet, wenn nicht Aus gewählt ist.">
-            Reasoning / Thinking-Level
-          </label>
-          <select
-            value={reasoningEffort}
-            onChange={(e) => saveReasoning(e.target.value)}
-            style={{ width: 130 }}
-          >
-            <option value="">Aus (Standard)</option>
-            <option value="minimal">Minimal</option>
-            <option value="low">Niedrig</option>
-            <option value="medium">Mittel</option>
-            <option value="high">Hoch</option>
-          </select>
-        </div>
-        <div className="tuning-hint">
-          Nur für Reasoning-fähige Modelle (z.B. GPT-5/o-Serie, gpt-oss, DeepSeek-R1).
-          Höher = gründlicher, aber langsamer. Gilt für Chat &amp; Zusammenfassungen.
-        </div>
-
-        <div className="tuning-row" style={{ marginTop: 6 }}>
-          <label title="Maximale Transkript-Zeichen pro LLM-Aufruf. Längere Texte werden in Abschnitte aufgeteilt.">
-            Chunk-Größe (Zeichen)
-          </label>
+        <div className="tuning-row">
+          <label>Chunk-Größe (Zeichen)</label>
           <input
             type="number"
             min={4000}
             max={200000}
             step={1000}
             value={chunkSize}
-            style={{ width: 90 }}
-            onChange={(e) => setChunkSize(Number(e.target.value))}
+            onChange={(event) => setChunkSize(Number(event.target.value))}
             onBlur={() => saveChunkSize(chunkSize)}
           />
         </div>
-        <div className="tuning-hint">
-          Längere Texte werden in Abschnitte aufgeteilt (Map-Reduce). Default: 48 000.
+        <div className="llm-tuning-title llm-agent-limits-title">
+          <strong>Grenzen der Agent-Recherche</strong>
+          <span>Gemeinsames Sicherheits- und Kontextbudget für aktivierte Profile.</span>
         </div>
-
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-          <button className="btn primary" onClick={() => save()} disabled={!!baseUrlError}>
-            Parameter speichern
+        <div className="tuning-row">
+          <label>Maximale Suchrunden</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            value={agentLimits.max_rounds}
+            onChange={(event) =>
+              setAgentLimits((current) => ({ ...current, max_rounds: Number(event.target.value) }))
+            }
+            onBlur={() => updateAgentLimits({ max_rounds: agentLimits.max_rounds || 5 })}
+          />
+        </div>
+        <div className="tuning-row">
+          <label>Kontext-Token-Budget</label>
+          <input
+            type="number"
+            min={1000}
+            max={100000}
+            step={500}
+            value={agentLimits.max_context_tokens}
+            onChange={(event) =>
+              setAgentLimits((current) => ({
+                ...current,
+                max_context_tokens: Number(event.target.value),
+              }))
+            }
+            onBlur={() =>
+              updateAgentLimits({ max_context_tokens: agentLimits.max_context_tokens || 12000 })
+            }
+          />
+        </div>
+        <div className="tuning-row">
+          <label>Treffer pro Suche</label>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            value={agentLimits.top_k}
+            onChange={(event) =>
+              setAgentLimits((current) => ({ ...current, top_k: Number(event.target.value) }))
+            }
+            onBlur={() => updateAgentLimits({ top_k: agentLimits.top_k || 6 })}
+          />
+        </div>
+        <div className="llm-save-row">
+          <button className="btn primary" onClick={saveConnection} disabled={!!baseUrlError}>
+            Verbindung &amp; Parameter speichern
           </button>
         </div>
       </div>

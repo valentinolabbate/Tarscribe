@@ -186,8 +186,17 @@ export interface LlmConfig {
   max_tokens?: number | null;
   /** Reasoning/"thinking" depth for capable models: minimal|low|medium|high. */
   reasoning_effort?: string | null;
+  profiles?: Partial<Record<LlmUseCase, LlmProfile>>;
   /** Read-only: whether a (secret) API key is stored in the keychain. */
   api_key_set?: boolean;
+}
+
+export type LlmUseCase = "chapters" | "summaries" | "chat";
+
+export interface LlmProfile {
+  model: string | null;
+  reasoning_effort: string | null;
+  agent_mode: boolean;
 }
 
 export interface McpHostTarget {

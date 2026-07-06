@@ -99,7 +99,7 @@ export function ChatToolbar({
         <select
           className="chat-thinking-select"
           aria-label="Thinking-Level"
-          title="Denk-/Reasoning-Tiefe für diese Chat-Antwort. Standard nutzt die globale LLM-Einstellung."
+          title="Denk-/Reasoning-Tiefe für diese Chat-Antwort. Standard nutzt das Chat-Profil."
           value={reasoningEffort}
           disabled={streaming}
           onChange={(event) => onReasoningEffortChange(event.target.value as ReasoningEffort)}

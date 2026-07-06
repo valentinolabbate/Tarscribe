@@ -40,6 +40,65 @@ def test_health(client):
     assert r.json()["status"] == "ok"
 
 
+def test_llm_profiles_migrate_and_resolve_per_use_case(client):
+    import tarscribe_backend.llm as llm
+
+    legacy = client.put(
+        "/api/llm/config",
+        json={"model": "shared-model", "reasoning_effort": "low"},
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["profiles"] == {
+        "chapters": {
+            "model": "shared-model",
+            "reasoning_effort": "low",
+            "agent_mode": False,
+        },
+        "summaries": {
+            "model": "shared-model",
+            "reasoning_effort": "low",
+            "agent_mode": False,
+        },
+        "chat": {
+            "model": "shared-model",
+            "reasoning_effort": "low",
+            "agent_mode": False,
+        },
+    }
+
+    updated = client.put(
+        "/api/llm/config",
+        json={
+            "profiles": {
+                "chapters": {
+                    "model": "chapter-model",
+                    "reasoning_effort": "minimal",
+                    "agent_mode": False,
+                },
+                "summaries": {
+                    "model": "summary-model",
+                    "reasoning_effort": "high",
+                    "agent_mode": True,
+                },
+                "chat": {
+                    "model": "chat-model",
+                    "reasoning_effort": None,
+                    "agent_mode": False,
+                },
+            }
+        },
+    )
+    assert updated.status_code == 200
+    assert llm.get_llm_config("chapters")["model"] == "chapter-model"
+    assert llm.get_llm_config("summaries")["reasoning_effort"] == "high"
+    assert llm.get_llm_config("summaries")["agent_mode"] is True
+    assert llm.get_llm_config("chat")["model"] == "chat-model"
+    client.put(
+        "/api/llm/config",
+        json={"profiles": {"summaries": {"agent_mode": False}}},
+    )
+
+
 def test_waveform_endpoint_returns_and_reuses_bounded_peaks(client, monkeypatch):
     import numpy as np
     import soundfile as sf
@@ -298,14 +357,18 @@ def test_rag_chat_uses_per_request_reasoning_effort(client, monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(
-        rag_router.L,
-        "get_llm_config",
-        lambda: {
+    def fake_get_llm_config(use_case):
+        captured["use_case"] = use_case
+        return {
             "model": "local-test",
             "base_url": "http://llm",
             "reasoning_effort": "low",
-        },
+        }
+
+    monkeypatch.setattr(
+        rag_router.L,
+        "get_llm_config",
+        fake_get_llm_config,
     )
 
     def fake_stream_chat(*_args, **kwargs):
@@ -324,6 +387,7 @@ def test_rag_chat_uses_per_request_reasoning_effort(client, monkeypatch):
 
     assert r.status_code == 200
     assert "Antwort" in r.text
+    assert captured["use_case"] == "chat"
     assert captured["reasoning_effort"] == "high"
 
 
@@ -812,7 +876,7 @@ def test_summary_runner_persists_streamed_content_and_exposes_it_via_api(client,
         job_id = job.id
 
     events = []
-    monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
+    monkeypatch.setattr(llm, "get_llm_config", lambda *_args: {"model": "local-test", "base_url": "http://llm"})
     async def fake_astream_chat(*_args, **_kwargs):
         for delta in ("Hallo", " Welt"):
             yield delta
@@ -978,7 +1042,7 @@ def test_summary_appends_existing_tasks_without_sending_them_to_summary_llm(
     monkeypatch.setattr(
         llm,
         "get_llm_config",
-        lambda: {"model": "local-test", "base_url": "http://llm"},
+        lambda *_args: {"model": "local-test", "base_url": "http://llm"},
     )
     monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
@@ -1060,7 +1124,7 @@ def test_meeting_protocol_prompt_treats_topic_as_context(client, monkeypatch):
         seen["messages"] = messages
         yield "ok"
 
-    monkeypatch.setattr(llm, "get_llm_config", lambda: {"model": "local-test", "base_url": "http://llm"})
+    monkeypatch.setattr(llm, "get_llm_config", lambda *_args: {"model": "local-test", "base_url": "http://llm"})
     monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
 

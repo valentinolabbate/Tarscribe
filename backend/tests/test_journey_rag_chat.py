@@ -82,7 +82,7 @@ def client(monkeypatch):
     monkeypatch.setattr(
         rag_router.L,
         "get_llm_config",
-        lambda: {
+        lambda *_args: {
             "provider": "custom",
             "base_url": "http://localhost:1234/v1",
             "model": "journey-chat",

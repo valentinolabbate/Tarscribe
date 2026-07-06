@@ -721,7 +721,7 @@ def _generate_digest_markdown(
     from .. import agent as AG
     from .. import llm as L
 
-    cfg = L.get_llm_config()
+    cfg = L.get_llm_config("summaries")
     if not cfg["model"]:
         raise HTTPException(
             400,
@@ -766,7 +766,7 @@ Quellen:
 
     # Agentic RAG: let the LLM iteratively search the knowledge base before
     # generating the digest. Falls back to plain digest on any failure.
-    agent_cfg = AG.get_agent_rag_config()
+    agent_cfg = AG.get_agent_rag_config("summaries")
     if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
         try:
             from ..db import session_scope

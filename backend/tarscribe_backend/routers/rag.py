@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from .. import llm as L
+from .. import agent as AG
 from .. import rag as R
 from .. import settings_store
 from ..db import get_session, vec_available
@@ -208,7 +209,7 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
     if not payload.messages:
         raise HTTPException(400, "Keine Nachricht übergeben.")
 
-    cfg = L.get_llm_config()
+    cfg = L.get_llm_config("chat")
     if not cfg["model"]:
         raise HTTPException(400, "Kein Chat-Modell konfiguriert (siehe Einstellungen).")
 
@@ -258,6 +259,61 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
         *history,
         {"role": "user", "content": f"Kontext:\n{context}\n\nFrage: {query}"},
     ]
+
+    agent_cfg = AG.get_agent_rag_config("chat")
+    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        try:
+            agent_topic_id = payload.topic_id
+            if payload.recording_id is not None and payload.include_topic_context:
+                recording = session.get(Recording, payload.recording_id)
+                if recording is not None:
+                    agent_topic_id = recording.topic_id
+            _research_notes, research_sources = AG.research_context_sync(
+                session=session,
+                topic_id=agent_topic_id,
+                recording_id=payload.recording_id,
+                task_description=f"Wissensfrage beantworten: {query}",
+                messages_seed=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *history,
+                    {"role": "user", "content": query},
+                ],
+                cfg=agent_cfg,
+            )
+            known_texts = {source["text"] for source in sources}
+            agent_context_lines: list[str] = []
+            for source in research_sources:
+                text = (source.get("text") or "").strip()
+                if not text or text in known_texts:
+                    continue
+                known_texts.add(text)
+                index = len(sources) + 1
+                normalized = {
+                    "index": index,
+                    "recording_id": source.get("recording_id"),
+                    "recording_title": source.get("recording_title") or "Quelle",
+                    "topic_id": source.get("topic_id"),
+                    "document_id": source.get("document_id"),
+                    "source_type": source.get("source_type") or "transcript",
+                    "start_sec": source.get("start_sec"),
+                    "end_sec": source.get("end_sec"),
+                    "speaker": source.get("speaker"),
+                    "text": text,
+                }
+                sources.append(normalized)
+                agent_context_lines.append(
+                    f"[{index}] {normalized['recording_title']} "
+                    f"({normalized['source_type']}):\n{text}"
+                )
+            if agent_context_lines:
+                messages[-1]["content"] += (
+                    "\n\n--- Zusätzlich agentisch recherchierter Kontext ---\n"
+                    + "\n\n".join(agent_context_lines)
+                )
+        except AG.ToolSupportError:
+            pass
+        except Exception:  # noqa: BLE001
+            pass
 
     def gen():
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"

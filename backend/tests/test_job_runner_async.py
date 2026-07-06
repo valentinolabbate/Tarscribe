@@ -167,7 +167,7 @@ def test_cancel_llm_job_closes_streaming_request(db_env, monkeypatch):
     monkeypatch.setattr(
         llm,
         "get_llm_config",
-        lambda: {"model": "local-test", "base_url": "http://llm"},
+        lambda *_args: {"model": "local-test", "base_url": "http://llm"},
     )
     monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
     monkeypatch.setattr(jobs, "schedule_reindex", lambda *_args, **_kwargs: None)

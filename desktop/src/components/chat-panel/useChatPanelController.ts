@@ -53,7 +53,7 @@ export function useChatPanelController({
     api
       .getLlmConfig()
       .then((config) => {
-        const ok = !!config.model;
+        const ok = !!(config.profiles?.chat?.model ?? config.model);
         setChatAvailable(ok);
         if (ok && restored.current.mode == null) setMode("chat");
       })

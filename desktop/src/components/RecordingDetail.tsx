@@ -35,6 +35,7 @@ export function RecordingDetail({
   onMoved,
   onOpenSettings,
   onOpenDocument,
+  onOpenRecording,
   initialSeekSec,
 }: {
   recording: Recording;
@@ -43,6 +44,7 @@ export function RecordingDetail({
   onMoved?: (recording: Recording) => void;
   onOpenSettings?: () => void;
   onOpenDocument: (documentId: number) => void;
+  onOpenRecording?: (recordingId: number, startSec?: number | null) => void;
   initialSeekSec?: number | null;
 }) {
   const job = useJobFor(recording.id);
@@ -285,6 +287,9 @@ export function RecordingDetail({
                 recordingId={recording.id}
                 recordingTitle={recording.title}
                 onOpenSettings={onOpenSettings}
+                playerRef={playerRef}
+                onOpenRecording={onOpenRecording}
+                onOpenDocument={onOpenDocument}
               />
             )}
 

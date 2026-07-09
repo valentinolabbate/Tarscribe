@@ -1,16 +1,32 @@
+import type { RefObject } from "react";
 import { ActionItemsPanel } from "../ActionItemsPanel";
 import { SummaryPanel } from "../SummaryPanel";
+import type { PlayerHandle } from "../AudioPlayer";
 import { SummaryIcon, TasksIcon } from "../icons";
 
 export function SummaryWorkspace({
   recordingId,
   recordingTitle,
   onOpenSettings,
+  playerRef,
+  onOpenRecording,
+  onOpenDocument,
 }: {
   recordingId: number;
   recordingTitle: string;
   onOpenSettings?: () => void;
+  playerRef: RefObject<PlayerHandle | null>;
+  onOpenRecording?: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
+  const handleOpenSource = (sourceRecordingId: number, startSec?: number | null) => {
+    if (sourceRecordingId === recordingId) {
+      playerRef.current?.seek(startSec ?? 0);
+    } else {
+      onOpenRecording?.(sourceRecordingId, startSec);
+    }
+  };
+
   return (
     <section className="detail-panel summary-workspace">
       <div className="detail-panel-head">
@@ -44,6 +60,8 @@ export function SummaryWorkspace({
             recordingId={recordingId}
             recordingTitle={recordingTitle}
             onOpenSettings={onOpenSettings}
+            onOpenSource={handleOpenSource}
+            onOpenDocument={onOpenDocument}
           />
         </section>
       </div>

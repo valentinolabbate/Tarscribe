@@ -173,11 +173,13 @@ function ThreadsPanel({
 export function StartPage({
   topics,
   onOpenSource,
+  onOpenDocument,
   dictation,
   dictationShortcutLabel,
 }: {
   topics: Topic[];
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument: (documentId: number) => void;
   dictation: DictationController;
   dictationShortcutLabel: string;
 }) {
@@ -223,7 +225,7 @@ export function StartPage({
 
       <div className="start-body">
         <section className="start-primary" aria-label="Suche und Wissens-Chat">
-          <ChatPanel topics={topics} onOpenSource={onOpenSource} />
+          <ChatPanel topics={topics} onOpenSource={onOpenSource} onOpenDocument={onOpenDocument} />
         </section>
         <aside className="start-aside">
           <DictationPanel dictation={dictation} shortcutLabel={dictationShortcutLabel} />

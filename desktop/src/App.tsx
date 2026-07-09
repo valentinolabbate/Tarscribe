@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FirstRunWizard } from "./components/FirstRunWizard";
 import { DictationOverlay } from "./components/DictationOverlay";
@@ -25,6 +25,10 @@ import { api } from "./lib/api";
 import { setTrayRecordingState } from "./lib/tauri";
 import type { Recording, Topic } from "./lib/types";
 
+const DocumentEditorModal = lazy(() =>
+  import("./components/DocumentEditorModal").then((module) => ({ default: module.DocumentEditorModal })),
+);
+
 export default function App() {
   const { ready, error, needsSetup, setNeedsSetup, needsEnv, setNeedsEnv, proceed } =
     useAppBootstrap();
@@ -41,6 +45,7 @@ export default function App() {
   const [update, setUpdate] = useState<PendingUpdate | null>(null);
   const [showUpdate, setShowUpdate] = useState(false);
   const [detectedMeeting, setDetectedMeeting] = useState<{ appName: string } | null>(null);
+  const [editorDocumentId, setEditorDocumentId] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const { sidebarWidth, handleResizerDown } = useSidebarWidth();
 
@@ -282,6 +287,7 @@ export default function App() {
             openRecordingStartSec={openRecordingStartSec}
             dictationShortcutLabel={dictationShortcutLabel}
             onOpenRecording={openRecordingById}
+            onOpenDocument={setEditorDocumentId}
             onBackFromRecording={() => {
               setOpenRecordingStartSec(null);
               setOpenRecording(null);
@@ -322,6 +328,14 @@ export default function App() {
       )}
       {showUpdate && update && (
         <UpdateModal pending={update} onClose={() => setShowUpdate(false)} />
+      )}
+      {editorDocumentId != null && (
+        <Suspense fallback={<div className="modal-backdrop summary-editor-backdrop" />}>
+          <DocumentEditorModal
+            documentId={editorDocumentId}
+            onClose={() => setEditorDocumentId(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

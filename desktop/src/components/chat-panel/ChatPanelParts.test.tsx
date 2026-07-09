@@ -194,4 +194,31 @@ describe("chat panel parts", () => {
     expect(text(messageHtml)).toContain("Wir entscheiden uns");
     expect(text(composerHtml)).toContain("Senden");
   });
+
+  it("collapses long chat source rows", () => {
+    const sources = Array.from({ length: 8 }, (_, index) => ({
+      ...source,
+      index: index + 1,
+      recording_title: `Quelle ${index + 1}`,
+    }));
+    const html = renderToStaticMarkup(
+      <ChatModeView
+        messages={[{ role: "assistant", content: "Antwort mit vielen Quellen.", sources }]}
+        sessionLoading={false}
+        chatAvailable
+        ragOff={false}
+        scoped={false}
+        streaming={false}
+        prompts={[]}
+        topics={[topic]}
+        openSnippet={null}
+        onPrompt={vi.fn()}
+        onOpenSnippet={vi.fn()}
+        onOpenSource={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("chat-source-row collapsed");
+    expect(text(html)).toContain("Alle Quellen anzeigen");
+  });
 });

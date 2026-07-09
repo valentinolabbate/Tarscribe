@@ -34,6 +34,7 @@ export function RecordingDetail({
   onBack,
   onMoved,
   onOpenSettings,
+  onOpenDocument,
   initialSeekSec,
 }: {
   recording: Recording;
@@ -41,6 +42,7 @@ export function RecordingDetail({
   onBack: () => void;
   onMoved?: (recording: Recording) => void;
   onOpenSettings?: () => void;
+  onOpenDocument: (documentId: number) => void;
   initialSeekSec?: number | null;
 }) {
   const job = useJobFor(recording.id);
@@ -287,7 +289,12 @@ export function RecordingDetail({
             )}
 
             {activeTab === "ask" && (
-              <AskWorkspace topics={topics} recording={recording} playerRef={playerRef} />
+              <AskWorkspace
+                topics={topics}
+                recording={recording}
+                playerRef={playerRef}
+                onOpenDocument={onOpenDocument}
+              />
             )}
 
             {activeTab === "speakers" && (

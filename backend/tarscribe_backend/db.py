@@ -135,6 +135,9 @@ def _run_lightweight_migrations() -> None:
         ("summaries", "generated_content", "TEXT"),
         ("summaries", "revision", "INTEGER DEFAULT 0"),
         ("summaries", "updated_at", "DATETIME"),
+        ("documents", "content", "TEXT"),
+        ("documents", "revision", "INTEGER DEFAULT 0"),
+        ("documents", "updated_at", "DATETIME"),
         ("chat_messages", "agent_research_json", "TEXT"),
     ]
     with get_engine().begin() as conn:
@@ -157,6 +160,10 @@ def _run_lightweight_migrations() -> None:
         conn.execute(text("UPDATE summaries SET revision = 0 WHERE revision IS NULL"))
         conn.execute(
             text("UPDATE summaries SET updated_at = created_at WHERE updated_at IS NULL")
+        )
+        conn.execute(text("UPDATE documents SET revision = 0 WHERE revision IS NULL"))
+        conn.execute(
+            text("UPDATE documents SET updated_at = created_at WHERE updated_at IS NULL")
         )
 
     _migrate_rag_chunks_for_documents()

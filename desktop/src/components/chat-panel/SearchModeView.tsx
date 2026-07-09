@@ -11,6 +11,7 @@ export function SearchModeView({
   prompts,
   onPrompt,
   onOpenSource,
+  onOpenDocument,
 }: {
   hits: RagHit[] | null;
   searching: boolean;
@@ -19,6 +20,7 @@ export function SearchModeView({
   prompts: string[];
   onPrompt: (prompt: string) => void;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
   return (
     <>
@@ -52,7 +54,12 @@ export function SearchModeView({
             </span>
             <span>{sourceMeta(hit, !scoped)}</span>
             <div style={{ flex: 1 }} />
-            <SourceAction source={hit} scoped={scoped} onOpenSource={onOpenSource} />
+            <SourceAction
+              source={hit}
+              scoped={scoped}
+              onOpenSource={onOpenSource}
+              onOpenDocument={onOpenDocument}
+            />
           </div>
           <div className="chat-result-text">{hit.text}</div>
         </div>

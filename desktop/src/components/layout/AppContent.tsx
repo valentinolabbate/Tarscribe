@@ -22,6 +22,7 @@ export function AppContent({
   openRecordingStartSec,
   dictationShortcutLabel,
   onOpenRecording,
+  onOpenDocument,
   onBackFromRecording,
   onMovedRecording,
   onOpenSettings,
@@ -39,6 +40,7 @@ export function AppContent({
   openRecordingStartSec: number | null;
   dictationShortcutLabel: string;
   onOpenRecording: (recordingId: number, startSec?: number | null) => Promise<void>;
+  onOpenDocument: (documentId: number) => void;
   onBackFromRecording: () => void;
   onMovedRecording: (recording: Recording) => void;
   onOpenSettings: () => void;
@@ -67,6 +69,7 @@ export function AppContent({
       <StartPage
         topics={topics}
         onOpenSource={onOpenRecording}
+        onOpenDocument={onOpenDocument}
         dictation={dictation}
         dictationShortcutLabel={dictationShortcutLabel}
       />
@@ -80,15 +83,25 @@ export function AppContent({
         onBack={onBackFromRecording}
         onMoved={onMovedRecording}
         onOpenSettings={onOpenSettings}
+        onOpenDocument={onOpenDocument}
         initialSeekSec={openRecordingStartSec}
       />
     );
   }
-  if (currentTopic) return <RecordingList topic={currentTopic} onOpen={onSetOpenRecording} />;
+  if (currentTopic) {
+    return (
+      <RecordingList
+        topic={currentTopic}
+        onOpen={onSetOpenRecording}
+        onOpenDocument={onOpenDocument}
+      />
+    );
+  }
   return (
     <StartPage
       topics={topics}
       onOpenSource={onOpenRecording}
+      onOpenDocument={onOpenDocument}
       dictation={dictation}
       dictationShortcutLabel={dictationShortcutLabel}
     />

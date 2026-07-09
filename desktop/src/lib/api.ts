@@ -36,6 +36,7 @@ import type {
   TranscriptData,
   Topic,
   TopicDocument,
+  TopicDocumentContent,
   TopicThread,
   ThreadRebuildResult,
 } from "./types";
@@ -363,6 +364,14 @@ export const api = {
   },
   reindexDocument: (id: number) =>
     request<{ enqueued: boolean }>(`/api/documents/${id}/reindex`, { method: "POST" }),
+  getDocumentContent: (id: number) =>
+    request<TopicDocumentContent>(`/api/documents/${id}/content`),
+  updateDocumentContent: (id: number, content: string, revision: number) =>
+    request<TopicDocumentContent>(`/api/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, revision }),
+    }),
   deleteDocument: (id: number) =>
     request<void>(`/api/documents/${id}`, { method: "DELETE" }),
   async openDocument(id: number): Promise<void> {

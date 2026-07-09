@@ -351,7 +351,7 @@ def index_document(session: Session, document_id: int, progress=None) -> int:
 
     from pathlib import Path
 
-    text = extract_text(Path(doc.file_path), doc.content_type)
+    text = doc.content if doc.content is not None else extract_text(Path(doc.file_path), doc.content_type)
     pending = chunk_document(text)
     if not pending:
         _delete_document_chunks(session, document_id)

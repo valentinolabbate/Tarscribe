@@ -10,11 +10,13 @@ export function ChatPanel({
   topics = [],
   scopeRecording,
   onOpenSource,
+  onOpenDocument,
   embedded = false,
 }: {
   topics?: Topic[];
   scopeRecording?: { id: number; title: string };
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
   embedded?: boolean;
 }) {
   const chat = useChatPanelController({ scopeRecording });
@@ -82,6 +84,7 @@ export function ChatPanel({
             prompts={chat.searchEmptyPrompts}
             onPrompt={chat.setInput}
             onOpenSource={onOpenSource}
+            onOpenDocument={onOpenDocument}
           />
         ) : (
           <ChatModeView
@@ -98,6 +101,7 @@ export function ChatPanel({
             onPrompt={chat.setInput}
             onOpenSnippet={chat.setOpenSnippet}
             onOpenSource={onOpenSource}
+            onOpenDocument={onOpenDocument}
           />
         )}
       </div>

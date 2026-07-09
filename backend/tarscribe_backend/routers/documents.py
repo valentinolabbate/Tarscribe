@@ -8,15 +8,17 @@ so they surface in semantic/keyword search and the knowledge chat.
 from __future__ import annotations
 
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..config import get_settings
 from ..db import get_session, vec_available
-from ..documents import SUPPORTED_SUFFIXES, is_supported
+from ..documents import DocumentError, SUPPORTED_SUFFIXES, extract_text, is_supported
 from ..models import Document, Recording, Topic
 from ..upload_security import (
     UploadPathForbidden,
@@ -29,12 +31,44 @@ from ..upload_security import (
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 
+class DocumentUpdateIn(BaseModel):
+    content: str = Field(max_length=2_000_000)
+    revision: int = Field(ge=0)
+
+
+def _document_payload(doc: Document) -> dict:
+    return {
+        "id": doc.id,
+        "topic_id": doc.topic_id,
+        "recording_id": doc.recording_id,
+        "title": doc.title,
+        "original_filename": doc.original_filename,
+        "file_path": doc.file_path,
+        "content_type": doc.content_type,
+        "text_chars": doc.text_chars,
+        "revision": doc.revision,
+        "status": doc.status,
+        "error": doc.error,
+        "updated_at": doc.updated_at,
+        "created_at": doc.created_at,
+    }
+
+
+def _document_content(doc: Document) -> str:
+    if doc.content is not None:
+        return doc.content
+    try:
+        return extract_text(_download_path(doc), doc.content_type)
+    except DocumentError:
+        return ""
+
+
 @router.get("")
 def list_documents(
     topic_id: int | None = None,
     recording_id: int | None = None,
     session: Session = Depends(get_session),
-) -> list[Document]:
+) -> list[dict]:
     """List documents. ``recording_id`` → that recording's docs; ``topic_id`` →
     the topic's *topic-level* docs (those not bound to a recording)."""
     stmt = select(Document).order_by(Document.created_at.desc())
@@ -45,15 +79,59 @@ def list_documents(
             Document.topic_id == topic_id,
             Document.recording_id == None,  # noqa: E711
         )
-    return list(session.exec(stmt).all())
+    return [_document_payload(doc) for doc in session.exec(stmt).all()]
 
 
 @router.get("/{document_id}")
-def get_document(document_id: int, session: Session = Depends(get_session)) -> Document:
+def get_document(document_id: int, session: Session = Depends(get_session)) -> dict:
     doc = session.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "Dokument nicht gefunden")
-    return doc
+    return _document_payload(doc)
+
+
+@router.get("/{document_id}/content")
+def get_document_content(
+    document_id: int, session: Session = Depends(get_session)
+) -> dict:
+    doc = session.get(Document, document_id)
+    if not doc:
+        raise HTTPException(404, "Dokument nicht gefunden")
+    return {**_document_payload(doc), "content": _document_content(doc)}
+
+
+@router.patch("/{document_id}")
+def update_document(
+    document_id: int,
+    payload: DocumentUpdateIn,
+    session: Session = Depends(get_session),
+) -> dict:
+    doc = session.get(Document, document_id)
+    if not doc:
+        raise HTTPException(404, "Dokument nicht gefunden")
+    if payload.revision != (doc.revision or 0):
+        raise HTTPException(409, "Dokument wurde inzwischen geändert. Bitte neu öffnen.")
+
+    from .. import rag
+
+    should_index = rag.rag_enabled()
+    doc.content = payload.content
+    doc.text_chars = len(payload.content.strip())
+    doc.revision = (doc.revision or 0) + 1
+    doc.updated_at = datetime.now(timezone.utc)
+    if should_index:
+        doc.status = "uploaded"
+        doc.error = None
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+
+    if should_index:
+        from ..jobs import enqueue_document_embedding
+
+        enqueue_document_embedding(document_id)
+
+    return {**_document_payload(doc), "content": doc.content or ""}
 
 
 @router.post("", status_code=201)
@@ -63,7 +141,7 @@ async def upload_document(
     title: str | None = Form(None),
     file: UploadFile = File(...),
     session: Session = Depends(get_session),
-) -> Document:
+) -> dict:
     if not session.get(Topic, topic_id):
         raise HTTPException(404, "Themenbereich nicht gefunden")
     if recording_id is not None:
@@ -108,7 +186,7 @@ async def upload_document(
     from ..jobs import enqueue_document_embedding
 
     enqueue_document_embedding(doc.id)
-    return doc
+    return _document_payload(doc)
 
 
 @router.post("/{document_id}/reindex")

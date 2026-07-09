@@ -145,6 +145,31 @@ def test_index_document_appears_in_search(env):
     assert hits[0]["recording_title"] == "Setup-Guide"
 
 
+def test_index_document_uses_edited_context(env):
+    db, rag = env
+    from sqlmodel import select
+
+    from tarscribe_backend.models import Document, RagChunk
+
+    tid = _make_topic(db)
+    did = _make_document(db, tid, text="Alter Kontext zur Migration. " * 6, title="Kontext")
+    with db.session_scope() as s:
+        doc = s.get(Document, did)
+        doc.content = "Bearbeiteter Kontext zur Release-Planung. " * 6
+        doc.revision = 1
+        s.add(doc)
+    with db.session_scope() as s:
+        rag.index_document(s, did)
+    with db.session_scope() as s:
+        chunk_texts = [
+            chunk.text for chunk in s.exec(select(RagChunk).where(RagChunk.document_id == did)).all()
+        ]
+
+    assert chunk_texts
+    assert all("Bearbeiteter Kontext" in text for text in chunk_texts)
+    assert all("Alter Kontext" not in text for text in chunk_texts)
+
+
 def test_topic_document_excluded_from_recording_scope(env):
     db, rag = env
     tid = _make_topic(db)
@@ -328,6 +353,29 @@ def test_upload_list_download_delete(client):
 
     listed = client.get(f"/api/documents?topic_id={topic['id']}").json()
     assert [d["id"] for d in listed] == [doc["id"]]
+    assert "content" not in listed[0]
+
+    content = client.get(f"/api/documents/{doc['id']}/content")
+    assert content.status_code == 200
+    editor_doc = content.json()
+    assert editor_doc["content"] == "Wichtige Referenz zum Projekt."
+    assert editor_doc["revision"] == 0
+
+    updated = client.patch(
+        f"/api/documents/{doc['id']}",
+        json={"content": "Bearbeiteter Kontext zum Projekt.", "revision": editor_doc["revision"]},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["content"] == "Bearbeiteter Kontext zum Projekt."
+    assert updated.json()["revision"] == 1
+    stale = client.patch(
+        f"/api/documents/{doc['id']}",
+        json={"content": "Veraltete Änderung", "revision": editor_doc["revision"]},
+    )
+    assert stale.status_code == 409
+    assert client.get(f"/api/documents/{doc['id']}/content").json()["content"] == (
+        "Bearbeiteter Kontext zum Projekt."
+    )
 
     dl = client.get(f"/api/documents/{doc['id']}/file")
     assert dl.status_code == 200

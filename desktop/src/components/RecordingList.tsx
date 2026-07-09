@@ -65,9 +65,11 @@ function RecordingRow({
 export function RecordingList({
   topic,
   onOpen,
+  onOpenDocument,
 }: {
   topic: Topic;
   onOpen: (r: Recording) => void;
+  onOpenDocument: (documentId: number) => void;
 }) {
   const { data: recordings, isLoading } = useRecordings(topic.id);
   const upload = useUploadRecording();
@@ -218,7 +220,7 @@ export function RecordingList({
         </div>
       ))}
 
-      {activeTab === "documents" && <DocumentsPanel topicId={topic.id} />}
+      {activeTab === "documents" && <DocumentsPanel topicId={topic.id} onOpenDocument={onOpenDocument} />}
     </div>
   );
 }

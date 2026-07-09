@@ -6,10 +6,12 @@ export function SourceAction({
   source,
   scoped,
   onOpenSource,
+  onOpenDocument,
 }: {
   source: RagSource | RagHit;
   scoped: boolean;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
   if (source.source_type === "document" && source.document_id != null) {
     const docId = source.document_id;
@@ -17,7 +19,10 @@ export function SourceAction({
       <button
         className="btn ghost"
         style={{ padding: "2px 8px", fontSize: 11.5 }}
-        onClick={() => void api.openDocument(docId).catch(() => {})}
+        onClick={() => {
+          if (onOpenDocument) onOpenDocument(docId);
+          else void api.openDocument(docId).catch(() => {});
+        }}
       >
         Dokument öffnen
       </button>

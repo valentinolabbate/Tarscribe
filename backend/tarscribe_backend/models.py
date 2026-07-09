@@ -240,8 +240,11 @@ class Document(SQLModel, table=True):
     content_type: Optional[str] = None
     # Length of the extracted plain text (for display; 0 until indexed).
     text_chars: int = 0
+    content: Optional[str] = None
+    revision: int = 0
     status: str = "uploaded"  # uploaded | indexing | ready | failed
     error: Optional[str] = None
+    updated_at: datetime = Field(default_factory=_utcnow)
     created_at: datetime = Field(default_factory=_utcnow)
 
 

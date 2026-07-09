@@ -22,11 +22,13 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
 export function DocumentsPanel({
   topicId,
   recordingId,
+  onOpenDocument,
   compact = false,
 }: {
   topicId: number;
   /** When set, documents are attached to this recording instead of the topic. */
   recordingId?: number;
+  onOpenDocument: (documentId: number) => void;
   /** Compact footer variant for secondary document context inside another workflow. */
   compact?: boolean;
 }) {
@@ -121,11 +123,18 @@ export function DocumentsPanel({
               </div>
               <button
                 className="btn ghost"
-                title="Öffnen / Herunterladen"
+                title="Im Editor öffnen"
+                onClick={() => onOpenDocument(doc.id)}
+              >
+                <DocIcon width={16} height={16} />
+              </button>
+              <button
+                className="btn ghost"
+                title="Originaldatei herunterladen"
                 onClick={() =>
                   api
                     .openDocument(doc.id)
-                    .catch((e) => toast(`Öffnen fehlgeschlagen: ${(e as Error).message}`, "error"))
+                    .catch((e) => toast(`Download fehlgeschlagen: ${(e as Error).message}`, "error"))
                 }
               >
                 <DownloadIcon width={16} height={16} />

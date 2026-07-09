@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtDuration } from "../../lib/format";
 import type { ChatResearchToolCall, RagSource, Topic } from "../../lib/types";
 import { ChatIcon } from "../icons";
@@ -21,6 +21,7 @@ export function ChatModeView({
   onPrompt,
   onOpenSnippet,
   onOpenSource,
+  onOpenDocument,
 }: {
   messages: UiMessage[];
   sessionLoading: boolean;
@@ -35,6 +36,7 @@ export function ChatModeView({
   onPrompt: (prompt: string) => void;
   onOpenSnippet: (snippet: { m: number; s: number } | null) => void;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
   const [expandedResearch, setExpandedResearch] = useState<Set<number>>(() => new Set());
 
@@ -120,6 +122,7 @@ export function ChatModeView({
             source={message.sources?.find((source) => openSnippet?.m === index && openSnippet?.s === source.index)}
             scoped={scoped}
             onOpenSource={onOpenSource}
+            onOpenDocument={onOpenDocument}
           />
         </div>
       ))}
@@ -189,23 +192,54 @@ function SourceBadges({
   openSnippet: { m: number; s: number } | null;
   onOpenSnippet: (snippet: { m: number; s: number } | null) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const likelyOverflow = sources.length > 6;
+  const canToggle = expanded || overflows || likelyOverflow;
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const measure = () => setOverflows(row.scrollHeight > row.clientHeight + 1);
+    const frame = window.requestAnimationFrame(measure);
+    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    resizeObserver?.observe(row);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+    };
+  }, [sources, expanded]);
+
   return (
-    <div className="chat-source-row">
-      {sources.map((source) => {
-        const open = openSnippet?.m === messageIndex && openSnippet?.s === source.index;
-        return (
-          <button
-            key={source.index}
-            className="badge"
-            title="Klicken: Textausschnitt anzeigen"
-            onClick={() => onOpenSnippet(open ? null : { m: messageIndex, s: source.index })}
-            style={{ cursor: "pointer", fontSize: 11.5, borderColor: open ? "var(--accent)" : undefined }}
-          >
-            [{source.index}] {scoped ? sourceMeta(source, false) : source.recording_title}
-            {!scoped && source.start_sec != null ? ` · ${fmtDuration(source.start_sec)}` : ""}
-          </button>
-        );
-      })}
+    <div className="chat-source-group">
+      <div ref={rowRef} className={`chat-source-row${expanded ? "" : " collapsed"}`}>
+        {sources.map((source) => {
+          const open = openSnippet?.m === messageIndex && openSnippet?.s === source.index;
+          return (
+            <button
+              key={source.index}
+              className="badge"
+              title="Klicken: Textausschnitt anzeigen"
+              onClick={() => onOpenSnippet(open ? null : { m: messageIndex, s: source.index })}
+              style={{ cursor: "pointer", fontSize: 11.5, borderColor: open ? "var(--accent)" : undefined }}
+            >
+              [{source.index}] {scoped ? sourceMeta(source, false) : source.recording_title}
+              {!scoped && source.start_sec != null ? ` · ${fmtDuration(source.start_sec)}` : ""}
+            </button>
+          );
+        })}
+      </div>
+      {canToggle && (
+        <button
+          type="button"
+          className="chat-source-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Quellen einklappen" : "Alle Quellen anzeigen"}
+        </button>
+      )}
     </div>
   );
 }
@@ -214,10 +248,12 @@ function SourceSnippet({
   source,
   scoped,
   onOpenSource,
+  onOpenDocument,
 }: {
   source?: RagSource;
   scoped: boolean;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
   if (!source) return null;
   return (
@@ -227,7 +263,12 @@ function SourceSnippet({
           [{source.index}] {sourceMeta(source, !scoped)}
         </span>
         <div className="chat-toolbar-spacer" />
-        <SourceAction source={source} scoped={scoped} onOpenSource={onOpenSource} />
+        <SourceAction
+          source={source}
+          scoped={scoped}
+          onOpenSource={onOpenSource}
+          onOpenDocument={onOpenDocument}
+        />
       </div>
       <div className="chat-source-snippet-text">{source.text}</div>
     </div>

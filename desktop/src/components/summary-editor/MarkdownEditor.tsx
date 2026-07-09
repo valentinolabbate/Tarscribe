@@ -7,10 +7,12 @@ export function MarkdownEditor({
   value,
   onChange,
   onSave,
+  placeholderText = "Zusammenfassung bearbeiten…",
 }: {
   value: string;
   onChange: (value: string) => void;
   onSave: () => void;
+  placeholderText?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -29,7 +31,7 @@ export function MarkdownEditor({
         basicSetup,
         markdown(),
         EditorView.lineWrapping,
-        placeholder("Zusammenfassung bearbeiten…"),
+        placeholder(placeholderText),
         keymap.of([
           {
             key: "Mod-s",

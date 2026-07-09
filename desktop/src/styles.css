@@ -3182,11 +3182,31 @@ select:focus {
   color: var(--accent-ink);
   white-space: pre-wrap;
 }
+.chat-source-group {
+  margin-top: 6px;
+}
 .chat-source-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 6px;
+}
+.chat-source-row.collapsed {
+  max-height: 54px;
+  overflow: hidden;
+}
+.chat-source-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 4px 0 0;
+  cursor: pointer;
+}
+.chat-source-toggle:hover {
+  text-decoration: underline;
 }
 .chat-source-snippet {
   margin-top: 6px;
@@ -3619,6 +3639,13 @@ select:focus {
 .summary-editor-viewbar > span {
   color: var(--text-faint);
   font-size: 11px;
+}
+.document-editor-warning {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg-elevated));
+  color: var(--text);
+  font-size: 12px;
 }
 .summary-view-switch {
   display: inline-flex;

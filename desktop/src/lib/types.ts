@@ -22,11 +22,18 @@ export interface TopicDocument {
   recording_id: number | null;
   title: string;
   original_filename: string | null;
+  file_path: string;
   content_type: string | null;
   text_chars: number;
+  revision: number;
   status: DocumentStatus;
   error: string | null;
+  updated_at: string;
   created_at: string;
+}
+
+export interface TopicDocumentContent extends TopicDocument {
+  content: string;
 }
 
 export type RecordingStatus =

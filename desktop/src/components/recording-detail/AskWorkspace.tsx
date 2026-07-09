@@ -9,10 +9,12 @@ export function AskWorkspace({
   topics,
   recording,
   playerRef,
+  onOpenDocument,
 }: {
   topics: Topic[];
   recording: Recording;
   playerRef: RefObject<PlayerHandle | null>;
+  onOpenDocument: (documentId: number) => void;
 }) {
   return (
     <section className="detail-panel ask-workspace">
@@ -30,8 +32,14 @@ export function AskWorkspace({
         onOpenSource={(recordingId, start) => {
           if (recordingId === recording.id) playerRef.current?.seek(start ?? 0);
         }}
+        onOpenDocument={onOpenDocument}
       />
-      <DocumentsPanel compact topicId={recording.topic_id} recordingId={recording.id} />
+      <DocumentsPanel
+        compact
+        topicId={recording.topic_id}
+        recordingId={recording.id}
+        onOpenDocument={onOpenDocument}
+      />
     </section>
   );
 }

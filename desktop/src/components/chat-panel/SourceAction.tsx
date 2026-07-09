@@ -28,6 +28,17 @@ export function SourceAction({
       </button>
     );
   }
+  if (source.source_type === "web" && source.source_url) {
+    return (
+      <button
+        className="btn ghost"
+        style={{ padding: "2px 8px", fontSize: 11.5 }}
+        onClick={() => window.open(source.source_url ?? "", "_blank", "noopener,noreferrer")}
+      >
+        Web öffnen
+      </button>
+    );
+  }
   if (source.recording_id == null) return null;
   const recordingId = source.recording_id;
   const startSec = source.start_sec;

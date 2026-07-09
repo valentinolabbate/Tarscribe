@@ -326,6 +326,7 @@ async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> Stre
                     "topic_id": source.get("topic_id"),
                     "document_id": source.get("document_id"),
                     "source_type": source.get("source_type") or "transcript",
+                    "source_url": source.get("source_url"),
                     "start_sec": source.get("start_sec"),
                     "end_sec": source.get("end_sec"),
                     "speaker": source.get("speaker"),

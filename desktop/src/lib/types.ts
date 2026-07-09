@@ -129,6 +129,7 @@ export interface SummarySource {
   recording_id: number | null;
   recording_title: string | null;
   document_id?: number | null;
+  source_url?: string | null;
   source_type: RagSourceType;
 }
 
@@ -216,6 +217,7 @@ export interface LlmProfile {
   model: string | null;
   reasoning_effort: string | null;
   agent_mode: boolean;
+  web_search: boolean;
 }
 
 export interface McpHostTarget {
@@ -530,7 +532,7 @@ export interface RagStatus {
   dimension?: number;
 }
 
-export type RagSourceType = "transcript" | "summary" | "document";
+export type RagSourceType = "transcript" | "summary" | "document" | "web";
 
 export interface RagSource {
   index: number;
@@ -540,6 +542,8 @@ export interface RagSource {
   topic_id?: number | null;
   /** Set when the source is an uploaded document. */
   document_id?: number | null;
+  /** Set when the source comes from web search. */
+  source_url?: string | null;
   source_type: RagSourceType;
   start_sec?: number | null;
   end_sec?: number | null;
@@ -582,6 +586,7 @@ export interface RagHit {
   recording_title: string;
   topic_id: number;
   document_id?: number | null;
+  source_url?: string | null;
   source_type: RagSourceType;
   text: string;
   start_sec?: number | null;

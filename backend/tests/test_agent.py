@@ -59,6 +59,7 @@ def _base_cfg(**overrides):
         "reasoning_effort": None,
         "provider": "ollama",
         "rag_enabled": True,
+        "web_search_enabled": False,
     }
     cfg.update(overrides)
     return cfg
@@ -94,12 +95,13 @@ def test_compact_hits_preserves_source_metadata(env):
             "topic_id": None,
             "document_id": None,
             "source_type": "transcript",
-            "start_sec": None,
-            "end_sec": None,
-            "speaker": None,
-            "text": "Important text",
-        }
-    ]
+                "start_sec": None,
+                "end_sec": None,
+                "speaker": None,
+                "source_url": None,
+                "text": "Important text",
+            }
+        ]
 
 
 def test_execute_tool_unknown_name(env):
@@ -239,6 +241,74 @@ async def test_research_context_tool_loop_with_search(env, monkeypatch):
     assert "Budget wurde diskutiert" in notes
     assert len(sources) == 1
     assert sources[0]["recording_title"] == "Budget Meeting"
+
+
+@pytest.mark.asyncio()
+async def test_research_context_exposes_web_search_when_enabled(env, monkeypatch):
+    agent, _db, _rag = env
+    observed_tools: list[str] = []
+    call_count = {"n": 0}
+
+    async def fake_achat_complete(*_args, **kwargs):
+        observed_tools[:] = [tool["function"]["name"] for tool in kwargs["tools"]]
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_web",
+                            "type": "function",
+                            "function": {
+                                "name": "search_web",
+                                "arguments": json.dumps({"query": "aktuelle norm", "max_results": 2}),
+                            },
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        return {
+            "message": {"role": "assistant", "content": "Kontext ausreichend", "tool_calls": None},
+            "finish_reason": "stop",
+        }
+
+    class Result:
+        title = "Norm Update"
+        url = "https://example.com/norm"
+        snippet = "Neue Fassung."
+        text = "Neue Fassung mit wichtigen Details."
+
+    monkeypatch.setattr(agent.L, "achat_complete", fake_achat_complete)
+    monkeypatch.setattr(agent, "search_web", lambda *_a, **_kw: [Result()])
+
+    cfg = _base_cfg(web_search_enabled=True)
+    notes, sources = await agent.research_context(
+        session=object(),
+        topic_id=1,
+        recording_id=1,
+        task_description="Test",
+        messages_seed=[],
+        cfg=cfg,
+    )
+    assert observed_tools == ["search_knowledge", "search_web"]
+    assert "Norm Update" in notes
+    assert sources == [
+        {
+            "recording_id": None,
+            "recording_title": "Norm Update",
+            "topic_id": None,
+            "document_id": None,
+            "source_type": "web",
+            "source_url": "https://example.com/norm",
+            "start_sec": None,
+            "end_sec": None,
+            "speaker": None,
+            "text": "Neue Fassung mit wichtigen Details.",
+        }
+    ]
 
 
 @pytest.mark.asyncio()

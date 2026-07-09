@@ -37,6 +37,7 @@ def get_llm_profiles() -> dict[str, dict]:
             "agent_mode": bool(
                 stored.get("agent_mode", prefs.get("agent_rag_enabled", False))
             ),
+            "web_search": bool(stored.get("web_search", False)),
         }
     return profiles
 
@@ -57,6 +58,7 @@ def get_llm_config(use_case: LlmUseCase = "chat") -> dict:
         # None = don't send the param (model uses its default).
         "reasoning_effort": profile["reasoning_effort"],
         "agent_mode": profile["agent_mode"],
+        "web_search": profile["web_search"],
     }
 
 

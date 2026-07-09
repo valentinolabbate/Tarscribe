@@ -62,16 +62,19 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
             "model": "shared-model",
             "reasoning_effort": "low",
             "agent_mode": False,
+            "web_search": False,
         },
         "summaries": {
             "model": "shared-model",
             "reasoning_effort": "low",
             "agent_mode": False,
+            "web_search": False,
         },
         "chat": {
             "model": "shared-model",
             "reasoning_effort": "low",
             "agent_mode": False,
+            "web_search": False,
         },
     }
 
@@ -83,16 +86,19 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
                     "model": "chapter-model",
                     "reasoning_effort": "minimal",
                     "agent_mode": False,
+                    "web_search": False,
                 },
                 "summaries": {
                     "model": "summary-model",
                     "reasoning_effort": "high",
                     "agent_mode": True,
+                    "web_search": True,
                 },
                 "chat": {
                     "model": "chat-model",
                     "reasoning_effort": None,
                     "agent_mode": False,
+                    "web_search": False,
                 },
             }
         },
@@ -101,6 +107,7 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
     assert llm.get_llm_config("chapters")["model"] == "chapter-model"
     assert llm.get_llm_config("summaries")["reasoning_effort"] == "high"
     assert llm.get_llm_config("summaries")["agent_mode"] is True
+    assert llm.get_llm_config("summaries")["web_search"] is True
     assert llm.get_llm_config("chat")["model"] == "chat-model"
     client.put(
         "/api/llm/config",

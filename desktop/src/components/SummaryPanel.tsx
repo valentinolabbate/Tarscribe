@@ -61,6 +61,7 @@ function parseSources(raw: string | null): SummarySource[] {
 function sourceTypeLabel(t: SummarySource["source_type"]): string {
   if (t === "document") return "Datei";
   if (t === "summary") return "Zusammenfassung";
+  if (t === "web") return "Web";
   return "Transkript";
 }
 

@@ -290,6 +290,7 @@ def _save_summary_sources(summary_id: int, hits: list[dict]) -> None:
             "recording_title": h.get("recording_title"),
             "document_id": h.get("document_id"),
             "source_type": h.get("source_type"),
+            "source_url": h.get("source_url"),
         }
         for i, h in enumerate(hits, 1)
     ]

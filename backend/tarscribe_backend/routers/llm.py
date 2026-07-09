@@ -73,7 +73,7 @@ def set_llm_config(payload: LlmConfigIn) -> dict:
                 {
                     key: value
                     for key, value in patch.items()
-                    if key in {"model", "reasoning_effort", "agent_mode"}
+                    if key in {"model", "reasoning_effort", "agent_mode", "web_search"}
                 }
             )
             profiles[use_case] = profile

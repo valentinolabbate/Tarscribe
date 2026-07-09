@@ -92,6 +92,7 @@ export function shortChatTitle(text: string): string {
 export function sourceTypeLabel(type: RagSource["source_type"]): string {
   if (type === "summary") return "Zusammenfassung";
   if (type === "document") return "Dokument";
+  if (type === "web") return "Web";
   return "Transkript";
 }
 
@@ -139,9 +140,11 @@ export function buildContextChips(
   const transcripts = sources.filter((source) => source.source_type === "transcript").length;
   const summaries = sources.filter((source) => source.source_type === "summary").length;
   const documents = sources.filter((source) => source.source_type === "document").length;
+  const web = sources.filter((source) => source.source_type === "web").length;
   if (transcripts) chips.push({ label: countLabel(transcripts, "Transkriptstelle", "Transkriptstellen") });
   if (summaries) chips.push({ label: countLabel(summaries, "Zusammenfassungsstelle", "Zusammenfassungsstellen") });
   if (documents) chips.push({ label: countLabel(documents, "Dokumentstelle", "Dokumentstellen") });
+  if (web) chips.push({ label: countLabel(web, "Webquelle", "Webquellen") });
 
   const topicNamesById = new Map(topics.map((topic) => [topic.id, topic.name]));
   const topicIds = Array.from(

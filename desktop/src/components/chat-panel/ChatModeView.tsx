@@ -170,7 +170,9 @@ function ChatResearchUsage({
 }
 
 function toolLabel(tool: string): string {
-  return tool === "search_knowledge" ? "Wissenssuche" : tool || "Tool";
+  if (tool === "search_knowledge") return "Wissenssuche";
+  if (tool === "search_web") return "Websuche";
+  return tool || "Tool";
 }
 
 function scopeLabel(scope: string): string {

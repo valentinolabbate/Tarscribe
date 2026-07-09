@@ -22,6 +22,7 @@ const EMPTY_PROFILE: LlmProfile = {
   model: null,
   reasoning_effort: null,
   agent_mode: false,
+  web_search: false,
 };
 
 type Profiles = Record<LlmUseCase, LlmProfile>;
@@ -146,6 +147,7 @@ export function LlmSettings() {
         model: config.model ?? null,
         reasoning_effort: config.reasoning_effort ?? null,
         agent_mode: false,
+        web_search: false,
       };
       setProfiles({
         chapters: { ...fallback, ...config.profiles?.chapters },
@@ -418,6 +420,19 @@ export function LlmSettings() {
                 <span>
                   <strong>Agent-Recherche</strong>
                   <small>Sucht iterativ im Wissensindex</small>
+                </span>
+              </label>
+              <label className={profile.web_search ? "llm-agent-toggle active" : "llm-agent-toggle"}>
+                <input
+                  type="checkbox"
+                  checked={profile.web_search}
+                  onChange={(event) =>
+                    updateProfile(useCase.id, { web_search: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>Websuche</strong>
+                  <small>DuckDuckGo als externes Tool</small>
                 </span>
               </label>
             </section>

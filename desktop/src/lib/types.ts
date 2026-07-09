@@ -272,7 +272,7 @@ export interface SummaryEvent {
 
 export interface AgentResearchEvent {
   type: "agent_research";
-  recording_id: number;
+  recording_id?: number;
   summary_id?: number;
   job_id?: number;
   task?: string;
@@ -284,6 +284,14 @@ export interface AgentResearchEvent {
   scope?: string;
   hits?: number;
   sources?: number;
+}
+
+export interface ChatResearchToolCall {
+  round: number;
+  tool: string;
+  query: string;
+  scope: string;
+  hits: number | null;
 }
 
 export interface KnownSpeaker {
@@ -540,6 +548,7 @@ export interface ChatStoredMessage extends ChatMessage {
   id: number;
   session_id: number;
   sources: RagSource[] | null;
+  agent_research: ChatResearchToolCall[] | null;
   created_at: string;
 }
 

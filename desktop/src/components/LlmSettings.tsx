@@ -1,9 +1,16 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FocusEvent, type FormEvent, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { validateHttpUrl } from "../lib/formValidation";
 import type { LlmProfile, LlmUseCase } from "../lib/types";
-import { KEY_PROVIDERS, NumField, PRESETS } from "./llm-settings/model";
+import {
+  buildModelSelectOptions,
+  KEY_PROVIDERS,
+  type ModelSelectOption,
+  NumField,
+  PRESETS,
+} from "./llm-settings/model";
+import { ChevronDownIcon } from "./icons";
 
 const USE_CASES: Array<{ id: LlmUseCase; label: string; detail: string }> = [
   { id: "chapters", label: "Kapitel", detail: "Zeitmarken und Kapitelüberschriften" },
@@ -19,6 +26,83 @@ const EMPTY_PROFILE: LlmProfile = {
 
 type Profiles = Record<LlmUseCase, LlmProfile>;
 
+function LlmModelDropdown({
+  value,
+  options,
+  disabled,
+  placeholder,
+  emptyLabel,
+  open,
+  onOpenChange,
+  onChange,
+}: {
+  value: string | null;
+  options: ModelSelectOption[];
+  disabled: boolean;
+  placeholder: string;
+  emptyLabel: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChange: (value: string | null) => void;
+}) {
+  const selected = value ? options.find((option) => option.value === value) : null;
+  const label = selected?.label ?? value ?? placeholder;
+
+  function closeOnBlur(event: FocusEvent<HTMLDivElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      onOpenChange(false);
+    }
+  }
+
+  function choose(next: string | null) {
+    onChange(next);
+    onOpenChange(false);
+  }
+
+  return (
+    <div className={open ? "llm-model-dropdown open" : "llm-model-dropdown"} onBlur={closeOnBlur}>
+      <button
+        type="button"
+        className="llm-model-trigger"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={value || placeholder}
+        onClick={() => onOpenChange(!open)}
+      >
+        <span>{label}</span>
+        <ChevronDownIcon width={14} height={14} />
+      </button>
+      {open && (
+        <div className="llm-model-menu" role="listbox">
+          <button
+            type="button"
+            role="option"
+            aria-selected={!value}
+            className={!value ? "active" : ""}
+            onClick={() => choose(null)}
+          >
+            {emptyLabel}
+          </button>
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={option.value === value}
+              className={option.value === value ? "active" : ""}
+              title={option.value}
+              onClick={() => choose(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LlmSettings() {
   const qc = useQueryClient();
   const [provider, setProvider] = useState("ollama");
@@ -29,6 +113,9 @@ export function LlmSettings() {
     chat: { ...EMPTY_PROFILE },
   });
   const [models, setModels] = useState<string[]>([]);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [openModelMenu, setOpenModelMenu] = useState<LlmUseCase | null>(null);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [apiKey, setApiKey] = useState("");
@@ -51,8 +138,10 @@ export function LlmSettings() {
 
   useEffect(() => {
     api.getLlmConfig().then((config) => {
-      if (config.provider) setProvider(config.provider);
-      if (config.base_url) setBaseUrl(config.base_url);
+      const nextProvider = config.provider || "ollama";
+      const nextBaseUrl = config.base_url || PRESETS[nextProvider] || PRESETS.ollama;
+      setProvider(nextProvider);
+      setBaseUrl(nextBaseUrl);
       const fallback: LlmProfile = {
         model: config.model ?? null,
         reasoning_effort: config.reasoning_effort ?? null,
@@ -76,7 +165,11 @@ export function LlmSettings() {
         setMaxTokens(config.max_tokens);
         setUseMaxTokens(true);
       }
-      if (config.api_key_set) setApiKeySet(true);
+      const hasApiKey = !!config.api_key_set;
+      if (hasApiKey) setApiKeySet(true);
+      if (!KEY_PROVIDERS.has(nextProvider) || hasApiKey) {
+        void loadModels(nextBaseUrl, { silent: true });
+      }
     });
     api.getSettings().then((settings) => {
       if (settings.llm_chunk_size) setChunkSize(settings.llm_chunk_size);
@@ -84,19 +177,23 @@ export function LlmSettings() {
     });
   }, []);
 
-  async function loadModels(url = baseUrl) {
+  async function loadModels(url = baseUrl, options: { silent?: boolean } = {}) {
     const urlError = validateHttpUrl(url, "Base-URL");
     if (urlError) {
-      setStatus({ ok: false, msg: urlError });
+      if (!options.silent) setStatus({ ok: false, msg: urlError });
       return;
     }
+    setOpenModelMenu(null);
+    setModelsLoading(true);
     setBusy(true);
-    setStatus(null);
+    if (!options.silent) setStatus(null);
     try {
       if (apiKey.trim()) {
         const result = await api.setLlmApiKey(apiKey.trim(), url);
         setApiKeySet(true);
         if (!result.ok) {
+          setModels([]);
+          setModelsLoaded(false);
           setStatus({
             ok: false,
             msg: `Gespeichert, aber Verbindung fehlgeschlagen: ${result.error ?? ""}`,
@@ -105,15 +202,20 @@ export function LlmSettings() {
         }
         setApiKey("");
         setModels(result.models ?? []);
+        setModelsLoaded(true);
         setStatus({ ok: true, msg: `${(result.models ?? []).length} Modelle gefunden` });
         return;
       }
       const result = await api.listLlmModels(url);
       setModels(result.models);
-      setStatus({ ok: true, msg: `${result.models.length} Modelle gefunden` });
+      setModelsLoaded(true);
+      if (!options.silent) setStatus({ ok: true, msg: `${result.models.length} Modelle gefunden` });
     } catch (error) {
-      setStatus({ ok: false, msg: String((error as Error).message) });
+      setModels([]);
+      setModelsLoaded(false);
+      if (!options.silent) setStatus({ ok: false, msg: String((error as Error).message) });
     } finally {
+      setModelsLoading(false);
       setBusy(false);
     }
   }
@@ -124,6 +226,9 @@ export function LlmSettings() {
       await api.deleteLlmApiKey();
       setApiKeySet(false);
       setApiKey("");
+      setModels([]);
+      setModelsLoaded(false);
+      setOpenModelMenu(null);
       setStatus(null);
     } finally {
       setBusy(false);
@@ -167,6 +272,18 @@ export function LlmSettings() {
   function onProvider(nextProvider: string) {
     setProvider(nextProvider);
     if (PRESETS[nextProvider]) setBaseUrl(PRESETS[nextProvider]);
+    setModels([]);
+    setModelsLoaded(false);
+    setOpenModelMenu(null);
+    setStatus(null);
+  }
+
+  function onBaseUrlChange(value: string) {
+    setBaseUrl(value);
+    setModels([]);
+    setModelsLoaded(false);
+    setOpenModelMenu(null);
+    setStatus(null);
   }
 
   function submitConnection(event: FormEvent<HTMLFormElement>) {
@@ -203,7 +320,7 @@ export function LlmSettings() {
         <input
           type="url"
           value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
+          onChange={(event) => onBaseUrlChange(event.target.value)}
           spellCheck={false}
           aria-invalid={showBaseUrlError}
           aria-describedby={showBaseUrlError ? "llm-base-url-error" : undefined}
@@ -244,14 +361,16 @@ export function LlmSettings() {
         <strong>Einsatz-Profile</strong>
         <span>Jeder Bereich kann ein anderes Modell und Rechenverhalten nutzen.</span>
       </div>
-      <datalist id="llm-model-options">
-        {models.map((availableModel) => (
-          <option key={availableModel} value={availableModel} />
-        ))}
-      </datalist>
       <div className="llm-profile-grid">
         {USE_CASES.map((useCase) => {
           const profile = profiles[useCase.id];
+          const modelOptions = buildModelSelectOptions(models, profile.model);
+          const modelSelectDisabled = modelsLoading || (modelOptions.length === 0 && !profile.model);
+          const modelPlaceholder = modelsLoading
+            ? "Modelle werden geladen..."
+            : modelsLoaded
+              ? "Kein Modell"
+              : "Modelle laden";
           return (
             <section className="llm-profile-card" key={useCase.id}>
               <div className="llm-profile-card-head">
@@ -260,21 +379,15 @@ export function LlmSettings() {
               </div>
               <label>
                 Modell
-                <input
-                  type="text"
-                  list="llm-model-options"
-                  value={profile.model ?? ""}
-                  placeholder="Modell wählen oder ID eingeben"
-                  onChange={(event) =>
-                    setProfiles((current) => ({
-                      ...current,
-                      [useCase.id]: { ...current[useCase.id], model: event.target.value },
-                    }))
-                  }
-                  onBlur={(event) =>
-                    updateProfile(useCase.id, { model: event.target.value.trim() || null })
-                  }
-                  spellCheck={false}
+                <LlmModelDropdown
+                  value={profile.model}
+                  options={modelOptions}
+                  disabled={modelSelectDisabled}
+                  placeholder={modelPlaceholder}
+                  emptyLabel="Kein Modell"
+                  open={openModelMenu === useCase.id}
+                  onOpenChange={(nextOpen) => setOpenModelMenu(nextOpen ? useCase.id : null)}
+                  onChange={(nextModel) => updateProfile(useCase.id, { model: nextModel })}
                 />
               </label>
               <label>

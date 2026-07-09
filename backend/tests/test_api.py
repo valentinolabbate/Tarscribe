@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 
 import pytest
+
+
+def _sse_events(response_text: str) -> list[dict]:
+    return [
+        json.loads(line.removeprefix("data: "))
+        for line in response_text.splitlines()
+        if line.startswith("data: ")
+    ]
 
 
 @pytest.fixture()
@@ -287,6 +296,15 @@ def test_chat_sessions_persist_messages_and_scope(client):
         json={
             "role": "assistant",
             "content": "Es gab eine Entscheidung. [1]",
+            "agent_research": [
+                {
+                    "round": 0,
+                    "tool": "search_knowledge",
+                    "query": "Entscheidung Handbuch",
+                    "scope": "all",
+                    "hits": 1,
+                }
+            ],
             "sources": [
                 {
                     "index": 1,
@@ -304,6 +322,7 @@ def test_chat_sessions_persist_messages_and_scope(client):
     assert loaded["title"] == "Was wurde beschlossen?"
     assert loaded["message_count"] == 2
     assert loaded["messages"][1]["sources"][0]["recording_title"] == "Handbuch"
+    assert loaded["messages"][1]["agent_research"][0]["query"] == "Entscheidung Handbuch"
 
     topic = client.post("/api/topics", json={"name": "Projekt"}).json()
     from sqlmodel import Session
@@ -389,6 +408,110 @@ def test_rag_chat_uses_per_request_reasoning_effort(client, monkeypatch):
     assert "Antwort" in r.text
     assert captured["use_case"] == "chat"
     assert captured["reasoning_effort"] == "high"
+
+
+def test_rag_chat_streams_agent_research_events(client, monkeypatch):
+    import tarscribe_backend.routers.rag as rag_router
+
+    captured: dict = {}
+
+    monkeypatch.setattr(rag_router.R, "rag_enabled", lambda: True)
+    monkeypatch.setattr(
+        rag_router.R,
+        "search",
+        lambda *_args, **_kwargs: [
+            {
+                "recording_id": None,
+                "recording_title": "Basis",
+                "topic_id": None,
+                "document_id": None,
+                "source_type": "document",
+                "start_sec": None,
+                "end_sec": None,
+                "speaker": None,
+                "text": "Basis-Kontext.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        rag_router.L,
+        "get_llm_config",
+        lambda _use_case: {
+            "model": "gemma-test",
+            "base_url": "http://lm-studio",
+            "temperature": 0.3,
+        },
+    )
+    monkeypatch.setattr(
+        rag_router.AG,
+        "get_agent_rag_config",
+        lambda _use_case: {
+            "enabled": True,
+            "rag_enabled": True,
+            "model": "gemma-test",
+            "base_url": "http://lm-studio",
+            "top_k": 6,
+        },
+    )
+
+    async def fake_research_context(**kwargs):
+        kwargs["broadcast_fn"](
+            {
+                "phase": "tool_call",
+                "round": 0,
+                "tool": "search_knowledge",
+                "query": "Budget Entscheidung",
+                "scope": "all",
+            }
+        )
+        kwargs["broadcast_fn"](
+            {
+                "phase": "tool_result",
+                "round": 0,
+                "tool": "search_knowledge",
+                "hits": 2,
+            }
+        )
+        kwargs["broadcast_fn"]({"phase": "done", "round": 0, "sources": 1})
+        return "", [
+            {
+                "recording_id": 4,
+                "recording_title": "Jour fixe",
+                "topic_id": 2,
+                "document_id": None,
+                "source_type": "transcript",
+                "start_sec": 12,
+                "end_sec": 18,
+                "speaker": "Valentino",
+                "text": "Agentisch gefundener Kontext.",
+            }
+        ]
+
+    monkeypatch.setattr(rag_router.AG, "research_context", fake_research_context)
+
+    def fake_stream_chat(messages, *_args, **_kwargs):
+        captured["messages"] = messages
+        yield "Antwort [2]"
+
+    monkeypatch.setattr(rag_router.L, "stream_chat", fake_stream_chat)
+
+    r = client.post(
+        "/api/rag/chat",
+        json={"messages": [{"role": "user", "content": "Was wurde entschieden?"}]},
+    )
+
+    assert r.status_code == 200
+    events = _sse_events(r.text)
+    assert [event["type"] for event in events[:4]] == [
+        "agent_research",
+        "agent_research",
+        "agent_research",
+        "sources",
+    ]
+    assert events[0]["query"] == "Budget Entscheidung"
+    assert events[1]["hits"] == 2
+    assert events[3]["sources"][1]["recording_title"] == "Jour fixe"
+    assert "Agentisch gefundener Kontext" in captured["messages"][-1]["content"]
 
 
 def test_topic_overview_counts_artifacts_and_exports(client):

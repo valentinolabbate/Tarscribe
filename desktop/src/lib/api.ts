@@ -4,6 +4,7 @@ import type {
   AppSettings,
   Chapter,
   ChatMessage,
+  ChatResearchToolCall,
   ChatScope,
   ChatSession,
   ChatStoredMessage,
@@ -538,7 +539,10 @@ export const api = {
   deleteChatSession: (id: number) => request<void>(`/api/chats/${id}`, { method: "DELETE" }),
   addChatMessage: (
     chatId: number,
-    message: ChatMessage & { sources?: RagSource[] | null },
+    message: ChatMessage & {
+      sources?: RagSource[] | null;
+      agent_research?: ChatResearchToolCall[] | null;
+    },
   ) =>
     request<ChatStoredMessage>(`/api/chats/${chatId}/messages`, {
       method: "POST",
@@ -567,6 +571,7 @@ export const api = {
     opts: RagChatOptions = {},
     handlers: {
       onSources?: (s: RagSource[]) => void;
+      onAgentResearch?: (e: AgentResearchEvent) => void;
       onDelta?: (text: string) => void;
       signal?: AbortSignal;
     } = {},
@@ -608,9 +613,15 @@ export const api = {
         buf = buf.slice(sep + 2);
         const line = raw.split("\n").find((l) => l.startsWith("data:"));
         if (!line) continue;
-        let evt: { type: string; sources?: RagSource[]; content?: string; error?: string };
+        let evt: {
+          type: string;
+          sources?: RagSource[];
+          content?: string;
+          error?: string;
+        } & Partial<Omit<AgentResearchEvent, "type">>;
         try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
         if (evt.type === "sources") handlers.onSources?.(evt.sources ?? []);
+        else if (evt.type === "agent_research") handlers.onAgentResearch?.(evt as AgentResearchEvent);
         else if (evt.type === "delta") handlers.onDelta?.(evt.content ?? "");
         else if (evt.type === "error") throw new Error(evt.error ?? "Chat-Fehler");
       }

@@ -1,8 +1,17 @@
 import { fmtDuration } from "../../lib/format";
-import type { ChatMessage, ChatSession, RagHit, RagSource, Topic } from "../../lib/types";
+import type {
+  AgentResearchEvent,
+  ChatMessage,
+  ChatResearchToolCall,
+  ChatSession,
+  RagHit,
+  RagSource,
+  Topic,
+} from "../../lib/types";
 
 export interface UiMessage extends ChatMessage {
   sources?: RagSource[];
+  agent_research?: ChatResearchToolCall[];
 }
 
 export type Mode = "search" | "chat";
@@ -44,7 +53,35 @@ export function uiMessagesFromSession(chat: ChatSession): UiMessage[] {
     role: message.role,
     content: message.content,
     sources: message.sources ?? undefined,
+    agent_research: message.agent_research ?? undefined,
   }));
+}
+
+export function updateChatResearchToolCalls(
+  current: ChatResearchToolCall[],
+  event: AgentResearchEvent,
+): ChatResearchToolCall[] {
+  if (event.phase === "tool_call") {
+    return [
+      ...current,
+      {
+        round: event.round,
+        tool: event.tool || "search_knowledge",
+        query: event.query || "",
+        scope: event.scope || "topic",
+        hits: null,
+      },
+    ];
+  }
+  if (event.phase === "tool_result") {
+    const index = current
+      .map((call, idx) => ({ call, idx }))
+      .reverse()
+      .find(({ call }) => call.round === event.round && call.hits == null)?.idx;
+    if (index == null) return current;
+    return current.map((call, idx) => (idx === index ? { ...call, hits: event.hits ?? 0 } : call));
+  }
+  return current;
 }
 
 export function shortChatTitle(text: string): string {

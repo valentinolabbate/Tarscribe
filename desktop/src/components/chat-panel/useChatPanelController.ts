@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../../lib/api";
-import type { ChatMessage, ChatScope, ChatSession, RagHit, RagSource, RagStatus } from "../../lib/types";
+import type {
+  ChatMessage,
+  ChatResearchToolCall,
+  ChatScope,
+  ChatSession,
+  RagHit,
+  RagSource,
+  RagStatus,
+} from "../../lib/types";
 import {
   CHAT_HISTORY_LIMIT,
   chatStorageKey,
   loadPersistedChat,
   shortChatTitle,
+  updateChatResearchToolCalls,
   uiMessagesFromSession,
   type Mode,
   type PersistedChat,
@@ -131,6 +140,7 @@ export function useChatPanelController({
               role: message.role,
               content: message.content,
               sources: message.sources ?? null,
+              agent_research: message.agent_research ?? null,
             });
           }
           const chat = await api.getChatSession(created.id);
@@ -249,6 +259,7 @@ export function useChatPanelController({
     setStreaming(true);
     let assistantText = "";
     let assistantSources: RagSource[] = [];
+    let assistantResearch: ChatResearchToolCall[] = [];
     try {
       await api.ragChat(
         [...history, { role: "user", content: text }],
@@ -263,6 +274,14 @@ export function useChatPanelController({
               return copy;
             });
           },
+          onAgentResearch: (event) => {
+            assistantResearch = updateChatResearchToolCalls(assistantResearch, event);
+            setMessages((prev) => {
+              const copy = [...prev];
+              copy[assistantIdx] = { ...copy[assistantIdx], agent_research: assistantResearch };
+              return copy;
+            });
+          },
           onDelta: (delta) => {
             assistantText += delta;
             setMessages((prev) => {
@@ -274,7 +293,12 @@ export function useChatPanelController({
         },
       );
       await api.addChatMessage(sessionId, { role: "user", content: text });
-      await api.addChatMessage(sessionId, { role: "assistant", content: assistantText, sources: assistantSources });
+      await api.addChatMessage(sessionId, {
+        role: "assistant",
+        content: assistantText,
+        sources: assistantSources,
+        agent_research: assistantResearch,
+      });
       const saved = await api.getChatSession(sessionId);
       setSessions((prev) => {
         const rest = prev.filter((session) => session.id !== saved.id);

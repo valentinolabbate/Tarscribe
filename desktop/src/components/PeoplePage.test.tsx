@@ -107,7 +107,54 @@ describe("People Memory", () => {
     expect(html).toContain("Prototyp fertigstellen");
     expect(html).toContain("Der Launch erfolgt im Herbst");
     expect(html).toContain("Produktstrategie");
-    expect(html).toContain("Keine Persönlichkeitsbewertung");
+    expect(html).not.toContain("Keine Persönlichkeitsbewertung");
     expect(html).toContain("2:00 gesprochen");
+  });
+
+  it("limits profile sections to three entries before expanding", () => {
+    const overflowingMemory: PeopleMemory = {
+      ...memory,
+      stats: {
+        ...memory.stats,
+        recording_count: 4,
+        open_task_count: 4,
+        decision_count: 4,
+        thread_count: 4,
+      },
+      recordings: Array.from({ length: 4 }, (_, index) => ({
+        ...memory.recordings[0],
+        id: 100 + index,
+        title: `Gespräch ${index + 1}`,
+      })),
+      tasks: Array.from({ length: 4 }, (_, index) => ({
+        ...memory.tasks[0],
+        id: 200 + index,
+        text: `Aufgabe ${index + 1}`,
+      })),
+      decisions: Array.from({ length: 4 }, (_, index) => ({
+        ...memory.decisions[0],
+        id: 300 + index,
+        text: `Entscheidung ${index + 1}`,
+      })),
+      threads: Array.from({ length: 4 }, (_, index) => ({
+        ...memory.threads[0],
+        id: 400 + index,
+        title: `Thema ${index + 1}`,
+      })),
+    };
+
+    const html = renderToStaticMarkup(
+      <PeopleMemoryView memory={overflowingMemory} onOpenRecording={vi.fn()} />,
+    ).replace(/\s+/g, " ");
+
+    expect(html).toContain("Aufgabe 3");
+    expect(html).not.toContain("Aufgabe 4");
+    expect(html).toContain("Gespräch 3");
+    expect(html).not.toContain("Gespräch 4");
+    expect(html).toContain("Thema 3");
+    expect(html).not.toContain("Thema 4");
+    expect(html).toContain("Entscheidung 3");
+    expect(html).not.toContain("Entscheidung 4");
+    expect(html.match(/1 weiteren Eintrag anzeigen/g)?.length).toBe(4);
   });
 });

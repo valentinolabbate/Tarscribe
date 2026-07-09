@@ -299,7 +299,7 @@ class ChatSession(SQLModel, table=True):
 
 
 class ChatMessage(SQLModel, table=True):
-    """One stored chat turn. Assistant messages keep their source snapshot."""
+    """One stored chat turn. Assistant messages keep their source and tool snapshots."""
 
     __tablename__ = "chat_messages"
 
@@ -308,6 +308,7 @@ class ChatMessage(SQLModel, table=True):
     role: str
     content: str = ""
     sources_json: Optional[str] = None
+    agent_research_json: Optional[str] = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 

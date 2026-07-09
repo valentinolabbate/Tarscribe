@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { fmtDuration } from "../../lib/format";
-import type { RagSource, Topic } from "../../lib/types";
+import type { ChatResearchToolCall, RagSource, Topic } from "../../lib/types";
 import { ChatIcon } from "../icons";
 import { ChatContextUsage } from "./ChatContextUsage";
 import { ChatMarkdown } from "./ChatMarkdown";
@@ -35,6 +36,8 @@ export function ChatModeView({
   onOpenSnippet: (snippet: { m: number; s: number } | null) => void;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
 }) {
+  const [expandedResearch, setExpandedResearch] = useState<Set<number>>(() => new Set());
+
   return (
     <>
       {sessionLoading && <div style={{ color: "var(--text-faint)", margin: "auto" }}>Chat wird geladen...</div>}
@@ -90,6 +93,20 @@ export function ChatModeView({
           {message.role === "assistant" && message.sources && (
             <ChatContextUsage sources={message.sources} topics={topics} scopeRecording={scopeRecording} />
           )}
+          {message.role === "assistant" && message.agent_research && message.agent_research.length > 0 && (
+            <ChatResearchUsage
+              calls={message.agent_research}
+              expanded={expandedResearch.has(index)}
+              onToggle={() => {
+                setExpandedResearch((current) => {
+                  const next = new Set(current);
+                  if (next.has(index)) next.delete(index);
+                  else next.add(index);
+                  return next;
+                });
+              }}
+            />
+          )}
           {message.sources && message.sources.length > 0 && (
             <SourceBadges
               sources={message.sources}
@@ -108,6 +125,55 @@ export function ChatModeView({
       ))}
     </>
   );
+}
+
+function ChatResearchUsage({
+  calls,
+  expanded,
+  onToggle,
+}: {
+  calls: ChatResearchToolCall[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const hiddenCount = Math.max(0, calls.length - 3);
+  const visibleCalls = expanded ? calls : calls.slice(-3);
+  return (
+    <div className="chat-research-usage" aria-label="Genutzte RAG-Toolaufrufe">
+      <div className="chat-research-head">
+        <span className="chat-context-label">RAG-Recherche:</span>
+        <span className="chat-research-count">
+          {calls.length} Toolcall{calls.length === 1 ? "" : "s"}
+        </span>
+        {hiddenCount > 0 && (
+          <button type="button" className="chat-research-toggle" onClick={onToggle}>
+            {expanded ? "Weniger" : `Erweitern (${hiddenCount})`}
+          </button>
+        )}
+      </div>
+      <div className="chat-research-list">
+        {visibleCalls.map((call, index) => (
+          <div key={`${call.round}-${call.query}-${index}`} className="chat-research-call">
+            <span className="chat-research-query">{call.query || "…"}</span>
+            <span className="chat-research-meta">
+              {toolLabel(call.tool)} · {scopeLabel(call.scope)} ·{" "}
+              {call.hits == null ? "sucht…" : `${call.hits} Treffer`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function toolLabel(tool: string): string {
+  return tool === "search_knowledge" ? "Wissenssuche" : tool || "Tool";
+}
+
+function scopeLabel(scope: string): string {
+  if (scope === "all") return "Archiv";
+  if (scope === "recording") return "Aufnahme";
+  return "Thema";
 }
 
 function SourceBadges({

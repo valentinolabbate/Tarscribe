@@ -135,6 +135,7 @@ def _run_lightweight_migrations() -> None:
         ("summaries", "generated_content", "TEXT"),
         ("summaries", "revision", "INTEGER DEFAULT 0"),
         ("summaries", "updated_at", "DATETIME"),
+        ("chat_messages", "agent_research_json", "TEXT"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:

@@ -135,6 +135,7 @@ export function useJobSocket(onLive?: (e: LiveEvent) => void) {
           },
           onLive,
           (e) => {
+            if (e.recording_id == null) return;
             const prev = agentResearch.get(e.recording_id) ?? { queries: [], done: false, sources: 0, task: e.task };
             if (e.phase === "tool_call") {
               agentResearch = new Map(agentResearch).set(e.recording_id, {

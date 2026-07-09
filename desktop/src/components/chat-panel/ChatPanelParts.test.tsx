@@ -5,7 +5,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ChatModeView } from "./ChatModeView";
 import { ChatToolbar } from "./ChatToolbar";
 import { SearchModeView } from "./SearchModeView";
-import { buildContextChips } from "./model";
+import { buildContextChips, updateChatResearchToolCalls } from "./model";
 
 const topic: Topic = {
   id: 7,
@@ -57,6 +57,36 @@ describe("chat panel parts", () => {
       { label: "1 Transkriptstelle" },
       { label: "Thema Produkt", title: "Themenbereich: Produkt" },
     ]);
+  });
+
+  it("updates chat research tool calls from streamed events", () => {
+    const started = updateChatResearchToolCalls([], {
+      type: "agent_research",
+      phase: "tool_call",
+      round: 0,
+      tool: "search_knowledge",
+      query: "Budget Risiken",
+      scope: "all",
+    });
+    expect(started).toEqual([
+      {
+        round: 0,
+        tool: "search_knowledge",
+        query: "Budget Risiken",
+        scope: "all",
+        hits: null,
+      },
+    ]);
+
+    expect(
+      updateChatResearchToolCalls(started, {
+        type: "agent_research",
+        phase: "tool_result",
+        round: 0,
+        tool: "search_knowledge",
+        hits: 3,
+      }),
+    ).toEqual([{ ...started[0], hits: 3 }]);
   });
 
   it("renders toolbar controls in isolation", () => {
@@ -114,7 +144,20 @@ describe("chat panel parts", () => {
   it("renders chat messages and composer in isolation", () => {
     const messageHtml = renderToStaticMarkup(
       <ChatModeView
-        messages={[{ role: "assistant", content: "Antwort mit Quelle [1].", sources: [source] }]}
+        messages={[
+          {
+            role: "assistant",
+            content: "Antwort mit Quelle [1].",
+            sources: [source],
+            agent_research: [
+              { round: 0, tool: "search_knowledge", query: "alte Suche 1", scope: "all", hits: 1 },
+              { round: 1, tool: "search_knowledge", query: "alte Suche 2", scope: "all", hits: 2 },
+              { round: 2, tool: "search_knowledge", query: "neue Suche 1", scope: "topic", hits: 3 },
+              { round: 3, tool: "search_knowledge", query: "neue Suche 2", scope: "topic", hits: 4 },
+              { round: 4, tool: "search_knowledge", query: "neue Suche 3", scope: "recording", hits: null },
+            ],
+          },
+        ]}
         sessionLoading={false}
         chatAvailable
         ragOff={false}
@@ -144,6 +187,10 @@ describe("chat panel parts", () => {
     );
 
     expect(text(messageHtml)).toContain("Diese Antwort nutzt");
+    expect(text(messageHtml)).toContain("RAG-Recherche");
+    expect(text(messageHtml)).toContain("Erweitern (2)");
+    expect(text(messageHtml)).not.toContain("alte Suche 1");
+    expect(text(messageHtml)).toContain("neue Suche 3");
     expect(text(messageHtml)).toContain("Wir entscheiden uns");
     expect(text(composerHtml)).toContain("Senden");
   });

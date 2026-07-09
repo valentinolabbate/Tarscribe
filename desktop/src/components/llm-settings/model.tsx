@@ -7,6 +7,41 @@ export const PRESETS: Record<string, string> = {
 
 export const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
 
+export interface ModelSelectOption {
+  value: string;
+  label: string;
+  available: boolean;
+}
+
+export function buildModelSelectOptions(
+  models: string[],
+  currentModel?: string | null,
+): ModelSelectOption[] {
+  const seen = new Set<string>();
+  const options: ModelSelectOption[] = [];
+  const current = currentModel?.trim();
+
+  if (current) {
+    seen.add(current);
+    options.push({
+      value: current,
+      label: current,
+      available: models.some((model) => model.trim() === current),
+    });
+  }
+
+  for (const model of models) {
+    const value = model.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    options.push({ value, label: value, available: true });
+  }
+
+  return options.map((option) =>
+    option.available ? option : { ...option, label: `${option.label} (gespeichert)` },
+  );
+}
+
 export function NumField({
   label,
   enabled,

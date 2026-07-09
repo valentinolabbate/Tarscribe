@@ -37,6 +37,7 @@ class ChatMessageIn(BaseModel):
     role: str
     content: str
     sources: list[dict] | None = None
+    agent_research: list[dict] | None = None
 
 
 def _title_from_text(text: str) -> str:
@@ -78,12 +79,19 @@ def _message_dict(msg: ChatMessage) -> dict:
             sources = json.loads(msg.sources_json)
         except json.JSONDecodeError:
             sources = None
+    agent_research = None
+    if msg.agent_research_json:
+        try:
+            agent_research = json.loads(msg.agent_research_json)
+        except json.JSONDecodeError:
+            agent_research = None
     return {
         "id": msg.id,
         "session_id": msg.session_id,
         "role": msg.role,
         "content": msg.content,
         "sources": sources,
+        "agent_research": agent_research,
         "created_at": msg.created_at.isoformat(),
     }
 
@@ -201,11 +209,17 @@ def append_message(
     if role not in {"user", "assistant", "system"}:
         raise HTTPException(400, "Unbekannte Chat-Rolle.")
     sources_json = json.dumps(payload.sources, ensure_ascii=False) if payload.sources is not None else None
+    agent_research_json = (
+        json.dumps(payload.agent_research, ensure_ascii=False)
+        if payload.agent_research is not None
+        else None
+    )
     msg = ChatMessage(
         session_id=chat.id,
         role=role,
         content=payload.content,
         sources_json=sources_json,
+        agent_research_json=agent_research_json,
     )
     if chat.title == "Neuer Chat" and role == "user":
         chat.title = _title_from_text(payload.content)

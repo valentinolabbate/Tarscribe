@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useKnownSpeakers, usePeopleMemory } from "../hooks/queries";
 import { fmtDate, fmtDuration } from "../lib/format";
 import type { ActionItem, PeopleMemory, PeopleMemoryRecording, TopicThread } from "../lib/types";
-import { SpeakerIdIcon } from "./icons";
+import { ChevronDownIcon, ChevronUpIcon, SpeakerIdIcon } from "./icons";
+
+const PEOPLE_LIST_PREVIEW_LIMIT = 3;
 
 function PersonAvatar({ name, color, large = false }: { name: string; color: string; large?: boolean }) {
   const initials = name
@@ -124,6 +126,63 @@ function ThreadCard({
   );
 }
 
+function ExpandablePeopleList<T>({
+  items,
+  className,
+  empty,
+  itemLabel,
+  getKey,
+  renderItem,
+}: {
+  items: T[];
+  className: string;
+  empty: string;
+  itemLabel: string;
+  getKey: (item: T) => number | string;
+  renderItem: (item: T) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hiddenCount = Math.max(0, items.length - PEOPLE_LIST_PREVIEW_LIMIT);
+  const visibleItems = expanded ? items : items.slice(0, PEOPLE_LIST_PREVIEW_LIMIT);
+
+  if (items.length === 0) {
+    return <div className="people-empty">{empty}</div>;
+  }
+
+  return (
+    <>
+      <div className={`people-collapsible-list ${expanded ? "expanded" : "collapsed"} ${className}`}>
+        {visibleItems.map((item) => (
+          <div key={getKey(item)} className="people-collapsible-item">
+            {renderItem(item)}
+          </div>
+        ))}
+      </div>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className="people-list-toggle"
+          aria-expanded={expanded}
+          aria-label={expanded ? `${itemLabel} einklappen` : `${itemLabel} aufklappen`}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? (
+            <>
+              <ChevronUpIcon width={14} height={14} />
+              Weniger anzeigen
+            </>
+          ) : (
+            <>
+              <ChevronDownIcon width={14} height={14} />
+              {hiddenCount === 1 ? "1 weiteren Eintrag anzeigen" : `${hiddenCount} weitere anzeigen`}
+            </>
+          )}
+        </button>
+      )}
+    </>
+  );
+}
+
 export function PeopleMemoryView({
   memory,
   onOpenRecording,
@@ -140,9 +199,6 @@ export function PeopleMemoryView({
         <div>
           <span className="page-kicker">People Memory</span>
           <h2>{memory.speaker.name}</h2>
-          <p>
-            Belegte Gespräche, Zusagen, Entscheidungen und Themen. Keine Persönlichkeitsbewertung.
-          </p>
         </div>
       </header>
 
@@ -159,23 +215,27 @@ export function PeopleMemoryView({
             <div><span className="page-kicker">Verantwortung</span><h3>Offene Zusagen und Aufgaben</h3></div>
             <span>{openTasks.length}</span>
           </div>
-          {openTasks.length > 0 ? (
-            <div className="people-memory-list">
-              {openTasks.map((item) => (
-                <MemoryItem key={item.id} item={item} onOpenRecording={onOpenRecording} />
-              ))}
-            </div>
-          ) : (
-            <div className="people-empty">Keine offenen Aufgaben erkannt.</div>
-          )}
+          <ExpandablePeopleList
+            key={`${memory.speaker.id}-open-tasks`}
+            items={openTasks}
+            className="people-memory-list"
+            empty="Keine offenen Aufgaben erkannt."
+            itemLabel="Aufgaben"
+            getKey={(item) => item.id}
+            renderItem={(item) => <MemoryItem item={item} onOpenRecording={onOpenRecording} />}
+          />
           {completedTasks.length > 0 && (
             <details className="people-completed">
               <summary>{completedTasks.length} erledigte Aufgaben</summary>
-              <div className="people-memory-list">
-                {completedTasks.map((item) => (
-                  <MemoryItem key={item.id} item={item} onOpenRecording={onOpenRecording} />
-                ))}
-              </div>
+              <ExpandablePeopleList
+                key={`${memory.speaker.id}-completed-tasks`}
+                items={completedTasks}
+                className="people-memory-list"
+                empty="Keine erledigten Aufgaben."
+                itemLabel="erledigte Aufgaben"
+                getKey={(item) => item.id}
+                renderItem={(item) => <MemoryItem item={item} onOpenRecording={onOpenRecording} />}
+              />
             </details>
           )}
         </section>
@@ -185,19 +245,17 @@ export function PeopleMemoryView({
             <div><span className="page-kicker">Verlauf</span><h3>Letzte Gespräche</h3></div>
             <span>{memory.recordings.length}</span>
           </div>
-          {memory.recordings.length > 0 ? (
-            <div className="people-recording-list">
-              {memory.recordings.slice(0, 10).map((recording) => (
-                <RecordingCard
-                  key={recording.id}
-                  recording={recording}
-                  onOpenRecording={onOpenRecording}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="people-empty">Noch keiner Aufnahme eindeutig zugeordnet.</div>
-          )}
+          <ExpandablePeopleList
+            key={`${memory.speaker.id}-recordings`}
+            items={memory.recordings}
+            className="people-recording-list"
+            empty="Noch keiner Aufnahme eindeutig zugeordnet."
+            itemLabel="Gespräche"
+            getKey={(recording) => recording.id}
+            renderItem={(recording) => (
+              <RecordingCard recording={recording} onOpenRecording={onOpenRecording} />
+            )}
+          />
         </section>
 
         <section className="people-section">
@@ -205,15 +263,15 @@ export function PeopleMemoryView({
             <div><span className="page-kicker">Kontext</span><h3>Gemeinsame Themen</h3></div>
             <span>{memory.threads.length}</span>
           </div>
-          {memory.threads.length > 0 ? (
-            <div className="people-thread-list">
-              {memory.threads.map((thread) => (
-                <ThreadCard key={thread.id} thread={thread} onOpenRecording={onOpenRecording} />
-              ))}
-            </div>
-          ) : (
-            <div className="people-empty">Noch keine wiederkehrenden Themen erkannt.</div>
-          )}
+          <ExpandablePeopleList
+            key={`${memory.speaker.id}-threads`}
+            items={memory.threads}
+            className="people-thread-list"
+            empty="Noch keine wiederkehrenden Themen erkannt."
+            itemLabel="Themen"
+            getKey={(thread) => thread.id}
+            renderItem={(thread) => <ThreadCard thread={thread} onOpenRecording={onOpenRecording} />}
+          />
         </section>
 
         <section className="people-section">
@@ -221,15 +279,15 @@ export function PeopleMemoryView({
             <div><span className="page-kicker">Beschlüsse</span><h3>Vergangene Entscheidungen</h3></div>
             <span>{memory.decisions.length}</span>
           </div>
-          {memory.decisions.length > 0 ? (
-            <div className="people-memory-list">
-              {memory.decisions.map((item) => (
-                <MemoryItem key={item.id} item={item} onOpenRecording={onOpenRecording} />
-              ))}
-            </div>
-          ) : (
-            <div className="people-empty">Keine Entscheidungen aus gemeinsamen Gesprächen.</div>
-          )}
+          <ExpandablePeopleList
+            key={`${memory.speaker.id}-decisions`}
+            items={memory.decisions}
+            className="people-memory-list"
+            empty="Keine Entscheidungen aus gemeinsamen Gesprächen."
+            itemLabel="Entscheidungen"
+            getKey={(item) => item.id}
+            renderItem={(item) => <MemoryItem item={item} onOpenRecording={onOpenRecording} />}
+          />
         </section>
       </div>
     </div>

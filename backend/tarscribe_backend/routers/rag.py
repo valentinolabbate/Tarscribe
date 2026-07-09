@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Literal
 
@@ -203,7 +204,7 @@ def semantic_search(payload: SearchIn, session: Session = Depends(get_session)) 
 
 
 @router.post("/chat")
-def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingResponse:
+async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingResponse:
     if not R.rag_enabled():
         raise HTTPException(400, "RAG ist deaktiviert oder sqlite-vec nicht verfügbar.")
     if not payload.messages:
@@ -261,33 +262,63 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
     ]
 
     agent_cfg = AG.get_agent_rag_config("chat")
-    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+    agent_enabled = bool(agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"])
+    agent_topic_id = payload.topic_id
+    if agent_enabled and payload.recording_id is not None and payload.include_topic_context:
+        recording = session.get(Recording, payload.recording_id)
+        if recording is not None:
+            agent_topic_id = recording.topic_id
+    agent_messages_seed = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        *history,
+        {"role": "user", "content": query},
+    ]
+
+    async def run_agent_research(queue: asyncio.Queue[dict]) -> tuple[str, list[dict]]:
+        if not agent_enabled:
+            return "", []
+
+        def broadcast(event: dict) -> None:
+            queue.put_nowait({"type": "agent_research", **event})
+
         try:
-            agent_topic_id = payload.topic_id
-            if payload.recording_id is not None and payload.include_topic_context:
-                recording = session.get(Recording, payload.recording_id)
-                if recording is not None:
-                    agent_topic_id = recording.topic_id
-            _research_notes, research_sources = AG.research_context_sync(
+            return await AG.research_context(
                 session=session,
                 topic_id=agent_topic_id,
                 recording_id=payload.recording_id,
                 task_description=f"Wissensfrage beantworten: {query}",
-                messages_seed=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    *history,
-                    {"role": "user", "content": query},
-                ],
+                messages_seed=agent_messages_seed,
                 cfg=agent_cfg,
+                broadcast_fn=broadcast,
             )
-            known_texts = {source["text"] for source in sources}
+        except AG.ToolSupportError:
+            return "", []
+        except Exception:  # noqa: BLE001
+            return "", []
+
+    async def gen():
+        final_sources = [dict(source) for source in sources]
+        final_messages = [dict(message) for message in messages]
+
+        if agent_enabled:
+            research_events: asyncio.Queue[dict] = asyncio.Queue()
+            research_task = asyncio.create_task(run_agent_research(research_events))
+            while not research_task.done() or not research_events.empty():
+                try:
+                    event = await asyncio.wait_for(research_events.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            _research_notes, research_sources = await research_task
+            known_texts = {source["text"] for source in final_sources}
             agent_context_lines: list[str] = []
             for source in research_sources:
                 text = (source.get("text") or "").strip()
                 if not text or text in known_texts:
                     continue
                 known_texts.add(text)
-                index = len(sources) + 1
+                index = len(final_sources) + 1
                 normalized = {
                     "index": index,
                     "recording_id": source.get("recording_id"),
@@ -300,26 +331,21 @@ def chat(payload: ChatIn, session: Session = Depends(get_session)) -> StreamingR
                     "speaker": source.get("speaker"),
                     "text": text,
                 }
-                sources.append(normalized)
+                final_sources.append(normalized)
                 agent_context_lines.append(
                     f"[{index}] {normalized['recording_title']} "
                     f"({normalized['source_type']}):\n{text}"
                 )
             if agent_context_lines:
-                messages[-1]["content"] += (
+                final_messages[-1]["content"] += (
                     "\n\n--- Zusätzlich agentisch recherchierter Kontext ---\n"
                     + "\n\n".join(agent_context_lines)
                 )
-        except AG.ToolSupportError:
-            pass
-        except Exception:  # noqa: BLE001
-            pass
 
-    def gen():
-        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+        yield f"data: {json.dumps({'type': 'sources', 'sources': final_sources})}\n\n"
         try:
             for delta in L.stream_chat(
-                messages,
+                final_messages,
                 cfg["model"],
                 cfg["base_url"],
                 temperature=cfg.get("temperature", 0.3),

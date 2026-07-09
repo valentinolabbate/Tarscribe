@@ -1,6 +1,14 @@
 import { api } from "../../lib/api";
 import { fmtDuration } from "../../lib/format";
-import type { RagHit, RagSource } from "../../lib/types";
+import type { RagSourceType } from "../../lib/types";
+
+export interface SourceLike {
+  source_type: RagSourceType;
+  document_id?: number | null;
+  source_url?: string | null;
+  recording_id?: number | null;
+  start_sec?: number | null;
+}
 
 export function SourceAction({
   source,
@@ -8,7 +16,7 @@ export function SourceAction({
   onOpenSource,
   onOpenDocument,
 }: {
-  source: RagSource | RagHit;
+  source: SourceLike;
   scoped: boolean;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
   onOpenDocument?: (documentId: number) => void;

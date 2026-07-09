@@ -84,6 +84,7 @@ export function AppContent({
         onMoved={onMovedRecording}
         onOpenSettings={onOpenSettings}
         onOpenDocument={onOpenDocument}
+        onOpenRecording={onOpenRecording}
         initialSeekSec={openRecordingStartSec}
       />
     );

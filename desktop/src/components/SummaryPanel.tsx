@@ -13,8 +13,9 @@ import {
 } from "../hooks/queries";
 import { trackSummaryStart, useAgentResearch, useSummaryStream } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
-import type { SummarySource, SummaryTemplate } from "../lib/types";
+import type { SummaryTemplate } from "../lib/types";
 import { TrashIcon } from "./icons";
+import { SummarySourcesPanel } from "./SummarySourcesPanel";
 import { useToast } from "./Toast";
 
 const SummaryEditorModal = lazy(() =>
@@ -48,54 +49,18 @@ function describeTemplate(t: SummaryTemplate): string {
   return text.length > 150 ? `${text.slice(0, 150)}…` : text;
 }
 
-function parseSources(raw: string | null): SummarySource[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SummarySource[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function sourceTypeLabel(t: SummarySource["source_type"]): string {
-  if (t === "document") return "Datei";
-  if (t === "summary") return "Zusammenfassung";
-  if (t === "web") return "Web";
-  return "Transkript";
-}
-
-/** Chips showing which topic knowledge a summary drew on (RAG enrichment). */
-function SummarySources({ raw }: { raw: string | null }) {
-  const sources = parseSources(raw);
-  if (sources.length === 0) return null;
-  return (
-    <div className="summary-sources">
-      <span className="rec-sub">Einbezogenes Wissen aus dem Themenbereich:</span>
-      <div className="summary-sources-chips">
-        {sources.map((s) => (
-          <span
-            key={s.index}
-            className="badge"
-            title={sourceTypeLabel(s.source_type)}
-            style={{ fontSize: 11 }}
-          >
-            {s.recording_title || "Quelle"} · {sourceTypeLabel(s.source_type)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export function SummaryPanel({
   recordingId,
   recordingTitle,
   onOpenSettings,
+  onOpenSource,
+  onOpenDocument,
 }: {
   recordingId: number;
   recordingTitle: string;
   onOpenSettings?: () => void;
+  onOpenSource?: (recordingId: number, startSec?: number | null) => void;
+  onOpenDocument?: (documentId: number) => void;
 }) {
   const toast = useToast();
   const { data: templates } = useTemplates();
@@ -288,7 +253,13 @@ export function SummaryPanel({
                   Im Editor öffnen
                 </button>
               </div>
-              <SummarySources raw={summaries?.find((s) => s.id === activeSummaryId)?.sources ?? null} />
+              {onOpenSource && (
+                <SummarySourcesPanel
+                  raw={summaries?.find((s) => s.id === activeSummaryId)?.sources ?? null}
+                  onOpenSource={onOpenSource}
+                  onOpenDocument={onOpenDocument}
+                />
+              )}
             </>
           )}
         </div>
@@ -330,8 +301,15 @@ export function SummaryPanel({
                   <TrashIcon width={15} height={15} />
                 </button>
               </div>
+              {onOpenSource && (
+                <SummarySourcesPanel
+                  raw={s.sources}
+                  onOpenSource={onOpenSource}
+                  onOpenDocument={onOpenDocument}
+                />
+              )}
             </div>
-        ))}
+          ))}
       {editorSummaryId != null && (
         <Suspense fallback={<div className="modal-backdrop summary-editor-backdrop" />}>
           <SummaryEditorModal

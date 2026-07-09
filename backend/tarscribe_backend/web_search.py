@@ -14,6 +14,18 @@ class WebSearchError(ValueError):
     pass
 
 
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+)
+_REQUEST_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
+    "Accept-Language": "en-US,en;q=0.5",
+}
+_CHALLENGE_MARKERS = ("anomaly-modal", "complete the following challenge")
+
+
 @dataclass(frozen=True)
 class WebSearchResult:
     title: str
@@ -70,20 +82,7 @@ def search_web(query: str, *, max_results: int = 5, fetch_pages: int = 2) -> lis
     max_results = min(8, max(1, max_results))
     fetch_pages = min(max_results, max(0, fetch_pages))
 
-    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": clean_query})
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Tarscribe-WebSearch/1.0",
-            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=8) as response:
-            raw = response.read(1_500_000)
-            charset = response.headers.get_content_charset() or "utf-8"
-    except OSError as exc:
-        raise WebSearchError(f"DuckDuckGo-Suche fehlgeschlagen: {exc}") from exc
+    raw, charset = _fetch_search_html(clean_query)
 
     parser = _DuckDuckGoHTMLParser()
     parser.feed(raw.decode(charset, errors="replace"))
@@ -124,16 +123,45 @@ def _normalize_ddg_url(value: str) -> str:
     return absolute
 
 
+def _is_challenge_page(body: str) -> bool:
+    lowered = body.lower()
+    return any(marker in lowered for marker in _CHALLENGE_MARKERS)
+
+
+def _fetch_search_html(query: str) -> tuple[bytes, str]:
+    """Fetch the DuckDuckGo HTML results page.
+
+    GET is tried first; if DuckDuckGo answers with an anti-bot challenge page,
+    a POST retry is attempted. A persistent challenge raises a clear error so
+    the caller surfaces a meaningful message instead of silently returning
+    zero results.
+    """
+    encoded = urllib.parse.urlencode({"q": query})
+    attempts: tuple[tuple[str, bytes | None], ...] = (
+        (f"https://html.duckduckgo.com/html/?{encoded}", None),
+        ("https://html.duckduckgo.com/html/", encoded.encode()),
+    )
+    last_error: str | None = None
+    for url, body in attempts:
+        request = urllib.request.Request(url, data=body, headers=_REQUEST_HEADERS)
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                raw = response.read(1_500_000)
+                charset = response.headers.get_content_charset() or "utf-8"
+        except OSError as exc:
+            last_error = f"DuckDuckGo-Suche fehlgeschlagen: {exc}"
+            continue
+        decoded = raw.decode(charset, errors="replace")
+        if not _is_challenge_page(decoded):
+            return raw, charset
+        last_error = "DuckDuckGo anti-bot challenge ausgelöst (keine Ergebnisse)."
+    raise WebSearchError(last_error or "DuckDuckGo-Suche fehlgeschlagen.")
+
+
 def _fetch_page_text(url: str) -> str:
     try:
         _assert_public_host(url)
-        request = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Tarscribe-WebSearch/1.0",
-                "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.1",
-            },
-        )
+        request = urllib.request.Request(url, headers=_REQUEST_HEADERS)
         opener = urllib.request.build_opener(_PublicRedirectHandler)
         with opener.open(request, timeout=8) as response:
             final_url = response.geturl()

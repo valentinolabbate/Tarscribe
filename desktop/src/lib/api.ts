@@ -37,6 +37,7 @@ import type {
   Topic,
   TopicDocument,
   TopicDocumentContent,
+  DocumentSourceKind,
   TopicThread,
   ThreadRebuildResult,
 } from "./types";
@@ -348,10 +349,11 @@ export const api = {
     request<void>(`/api/recordings/${id}`, { method: "DELETE" }),
 
   // ── Reference documents (RAG-indexed) ──────────────────────────────────
-  listDocuments: (params: { topicId?: number; recordingId?: number }) => {
+  listDocuments: (params: { topicId?: number; recordingId?: number; sourceKind?: DocumentSourceKind }) => {
     const qs = new URLSearchParams();
     if (params.recordingId != null) qs.set("recording_id", String(params.recordingId));
     else if (params.topicId != null) qs.set("topic_id", String(params.topicId));
+    if (params.sourceKind) qs.set("source_kind", params.sourceKind);
     return request<TopicDocument[]>(`/api/documents?${qs.toString()}`);
   },
   uploadDocument: (params: { topicId: number; recordingId?: number; file: File; title?: string }) => {
@@ -362,6 +364,24 @@ export const api = {
     form.set("file", params.file);
     return request<TopicDocument>("/api/documents", { method: "POST", body: form });
   },
+  createWebContext: (params: {
+    topicId: number;
+    url: string;
+    title?: string;
+    maxPages?: number;
+    maxDepth?: number;
+  }) =>
+    request<TopicDocument>("/api/documents/web-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        topic_id: params.topicId,
+        url: params.url,
+        title: params.title || null,
+        max_pages: params.maxPages ?? 8,
+        max_depth: params.maxDepth ?? 1,
+      }),
+    }),
   reindexDocument: (id: number) =>
     request<{ enqueued: boolean }>(`/api/documents/${id}/reindex`, { method: "POST" }),
   getDocumentContent: (id: number) =>

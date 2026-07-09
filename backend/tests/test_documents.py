@@ -349,6 +349,7 @@ def test_upload_list_download_delete(client):
     doc = r.json()
     assert doc["title"] == "Handbuch"
     assert doc["recording_id"] is None
+    assert doc["source_kind"] == "upload"
     assert doc["status"] == "uploaded"  # RAG disabled → not indexed
 
     listed = client.get(f"/api/documents?topic_id={topic['id']}").json()
@@ -383,6 +384,71 @@ def test_upload_list_download_delete(client):
 
     assert client.delete(f"/api/documents/{doc['id']}").status_code == 204
     assert client.get(f"/api/documents?topic_id={topic['id']}").json() == []
+
+
+def test_create_web_context_stores_snapshot_and_filters(client, monkeypatch):
+    from tarscribe_backend.web_context import CrawlResult, WebPage
+
+    import tarscribe_backend.routers.documents as documents_router
+
+    topic = client.post("/api/topics", json={"name": "Kontext"}).json()
+
+    def fake_crawl_site(url, *, max_pages, max_depth):
+        assert url == "https://example.com/projekt"
+        assert max_pages == 5
+        assert max_depth == 1
+        return CrawlResult(
+            root_url="https://example.com/projekt",
+            title="Projektwissen",
+            pages=[
+                WebPage(
+                    url="https://example.com/projekt",
+                    title="Projektwissen",
+                    text="Roadmap Kontext fuer die Zusammenfassung.",
+                    html="<html><body>Roadmap Kontext</body></html>",
+                ),
+                WebPage(
+                    url="https://example.com/projekt/details",
+                    title="Details",
+                    text="Budget und Risiken als Hintergrund.",
+                    html="<html><body>Budget</body></html>",
+                ),
+            ],
+            content_markdown="# Projektwissen\n\nRoadmap Kontext fuer die Zusammenfassung.",
+            snapshot_html="<!doctype html><html><body>Snapshot</body></html>",
+        )
+
+    monkeypatch.setattr(documents_router, "crawl_site", fake_crawl_site)
+
+    response = client.post(
+        "/api/documents/web-context",
+        json={
+            "topic_id": topic["id"],
+            "url": "https://example.com/projekt",
+            "title": "Projekt-Kontext",
+            "max_pages": 5,
+            "max_depth": 1,
+        },
+    )
+    assert response.status_code == 201, response.text
+    doc = response.json()
+    assert doc["title"] == "Projekt-Kontext"
+    assert doc["source_kind"] == "web"
+    assert doc["source_url"] == "https://example.com/projekt"
+    assert doc["crawl_pages"] == 2
+    assert doc["content_type"] == "text/html"
+
+    assert client.get(f"/api/documents?topic_id={topic['id']}&source_kind=upload").json() == []
+    listed = client.get(f"/api/documents?topic_id={topic['id']}&source_kind=web").json()
+    assert [item["id"] for item in listed] == [doc["id"]]
+
+    content = client.get(f"/api/documents/{doc['id']}/content")
+    assert content.status_code == 200
+    assert "Roadmap Kontext" in content.json()["content"]
+
+    download = client.get(f"/api/documents/{doc['id']}/file")
+    assert download.status_code == 200
+    assert b"Snapshot" in download.content
 
 
 def test_upload_rejects_unsupported_format(client):

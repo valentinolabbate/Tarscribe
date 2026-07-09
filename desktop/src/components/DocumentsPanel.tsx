@@ -32,7 +32,7 @@ export function DocumentsPanel({
   /** Compact footer variant for secondary document context inside another workflow. */
   compact?: boolean;
 }) {
-  const { data: docs, isLoading } = useDocuments({ topicId, recordingId });
+  const { data: docs, isLoading } = useDocuments({ topicId, recordingId, sourceKind: "upload" });
   const upload = useUploadDocument();
   const del = useDeleteDocument();
   const toast = useToast();

@@ -138,6 +138,9 @@ def _run_lightweight_migrations() -> None:
         ("documents", "content", "TEXT"),
         ("documents", "revision", "INTEGER DEFAULT 0"),
         ("documents", "updated_at", "DATETIME"),
+        ("documents", "source_kind", "TEXT DEFAULT 'upload'"),
+        ("documents", "source_url", "TEXT"),
+        ("documents", "crawl_pages", "INTEGER DEFAULT 0"),
         ("chat_messages", "agent_research_json", "TEXT"),
     ]
     with get_engine().begin() as conn:
@@ -165,6 +168,10 @@ def _run_lightweight_migrations() -> None:
         conn.execute(
             text("UPDATE documents SET updated_at = created_at WHERE updated_at IS NULL")
         )
+        conn.execute(
+            text("UPDATE documents SET source_kind = 'upload' WHERE source_kind IS NULL")
+        )
+        conn.execute(text("UPDATE documents SET crawl_pages = 0 WHERE crawl_pages IS NULL"))
 
     _migrate_rag_chunks_for_documents()
     _migrate_cascade_foreign_keys()

@@ -104,6 +104,13 @@ export const SearchIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const LinkIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.2 1.2" />
+    <path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 1 0 12 20.1l1.2-1.2" />
+  </svg>
+);
+
 /** Document / file icon with a folded corner. */
 export const DocIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>

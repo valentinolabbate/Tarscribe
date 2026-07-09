@@ -14,6 +14,7 @@ export interface Topic {
 }
 
 export type DocumentStatus = "uploaded" | "indexing" | "ready" | "failed";
+export type DocumentSourceKind = "upload" | "web";
 
 export interface TopicDocument {
   id: number;
@@ -22,6 +23,9 @@ export interface TopicDocument {
   recording_id: number | null;
   title: string;
   original_filename: string | null;
+  source_kind: DocumentSourceKind;
+  source_url: string | null;
+  crawl_pages: number;
   file_path: string;
   content_type: string | null;
   text_chars: number;

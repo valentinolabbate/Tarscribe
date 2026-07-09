@@ -111,6 +111,8 @@ export function DocumentEditorModal({
   }
 
   const title = document?.title ?? "Dokument";
+  const isWebContext = document?.source_kind === "web";
+  const editorLabel = isWebContext ? "Web-Kontext" : "Dokument-Kontext";
   const statusLabel =
     saveStatus === "saving"
       ? "Speichert…"
@@ -131,13 +133,13 @@ export function DocumentEditorModal({
       >
         <header className="summary-editor-titlebar">
           <div>
-            <span className="summary-editor-eyebrow">Dokument-Kontext</span>
+            <span className="summary-editor-eyebrow">{editorLabel}</span>
             <h2>{title}</h2>
             <p className={`summary-save-state ${saveStatus}`}>{statusLabel}</p>
           </div>
           <div className="summary-editor-actions">
             <button className="btn" onClick={() => void downloadOriginal()} disabled={!document}>
-              <DownloadIcon width={14} height={14} /> Originaldatei
+              <DownloadIcon width={14} height={14} /> {isWebContext ? "HTML-Snapshot" : "Originaldatei"}
             </button>
             <button className="btn primary" onClick={() => void close()}>
               Schließen
@@ -175,12 +177,12 @@ export function DocumentEditorModal({
         ) : (
           <main className={`summary-editor-workspace mode-${mode}`}>
             {mode !== "preview" && (
-              <section className="summary-editor-pane" aria-label="Dokument-Kontext bearbeiten">
+              <section className="summary-editor-pane" aria-label={`${editorLabel} bearbeiten`}>
                 <MarkdownEditor
                   value={draft}
                   onChange={setDraft}
                   onSave={() => void save()}
-                  placeholderText="Dokument-Kontext bearbeiten…"
+                  placeholderText={`${editorLabel} bearbeiten…`}
                 />
               </section>
             )}

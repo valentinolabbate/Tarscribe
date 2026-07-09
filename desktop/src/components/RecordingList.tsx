@@ -6,6 +6,7 @@ import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format"
 import type { Recording, Topic } from "../lib/types";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { RecordControl } from "./RecordControl";
+import { WebContextPanel } from "./WebContextPanel";
 import { MoreIcon, SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
 
 function RecordingRow({
@@ -79,7 +80,7 @@ export function RecordingList({
   const dragDepth = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const [query, setQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"recordings" | "documents">("recordings");
+  const [activeTab, setActiveTab] = useState<"recordings" | "documents" | "context">("recordings");
 
   async function handleFiles(files: FileList | null) {
     if (!files) return;
@@ -160,6 +161,9 @@ export function RecordingList({
         <button className={activeTab === "documents" ? "active" : ""} onClick={() => setActiveTab("documents")}>
           Dokumente
         </button>
+        <button className={activeTab === "context" ? "active" : ""} onClick={() => setActiveTab("context")}>
+          Kontext
+        </button>
       </nav>
 
       {activeTab === "recordings" && (isLoading ? (
@@ -221,6 +225,7 @@ export function RecordingList({
       ))}
 
       {activeTab === "documents" && <DocumentsPanel topicId={topic.id} onOpenDocument={onOpenDocument} />}
+      {activeTab === "context" && <WebContextPanel topicId={topic.id} onOpenDocument={onOpenDocument} />}
     </div>
   );
 }

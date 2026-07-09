@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
-import type { ActionItem, Topic } from "../lib/types";
+import type { ActionItem, DocumentSourceKind, Topic } from "../lib/types";
 import { trackPendingJob } from "./useJobs";
 
 export function useHardware() {
@@ -109,9 +109,13 @@ export function useUploadRecording() {
 }
 
 // ── Reference documents ───────────────────────────────────────────────────
-export function useDocuments(params: { topicId?: number; recordingId?: number }) {
+export function useDocuments(params: {
+  topicId?: number;
+  recordingId?: number;
+  sourceKind?: DocumentSourceKind;
+}) {
   return useQuery({
-    queryKey: ["documents", params.recordingId ?? null, params.topicId ?? null],
+    queryKey: ["documents", params.recordingId ?? null, params.topicId ?? null, params.sourceKind ?? null],
     queryFn: () => api.listDocuments(params),
     enabled: params.recordingId != null || params.topicId != null,
     // Keep polling while any document is still being indexed.
@@ -126,6 +130,14 @@ export function useUploadDocument() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.uploadDocument,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
+  });
+}
+
+export function useCreateWebContext() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.createWebContext,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["documents"] }),
   });
 }

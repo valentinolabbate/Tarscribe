@@ -235,6 +235,9 @@ class Document(SQLModel, table=True):
     )
     title: str
     original_filename: Optional[str] = None
+    source_kind: str = Field(default="upload", index=True)
+    source_url: Optional[str] = None
+    crawl_pages: int = 0
     # Stored copy of the original upload in the app's documents dir.
     file_path: str
     content_type: Optional[str] = None

@@ -8,6 +8,7 @@ so they surface in semantic/keyword search and the knowledge chat.
 from __future__ import annotations
 
 import shutil
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from ..upload_security import (
     require_child_path,
     require_suffix,
 )
+from ..web_context import WebContextError, crawl_site
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -36,6 +38,14 @@ class DocumentUpdateIn(BaseModel):
     revision: int = Field(ge=0)
 
 
+class WebContextIn(BaseModel):
+    topic_id: int
+    url: str = Field(min_length=4, max_length=2048)
+    title: str | None = Field(default=None, max_length=180)
+    max_pages: int = Field(default=8, ge=1, le=25)
+    max_depth: int = Field(default=1, ge=0, le=3)
+
+
 def _document_payload(doc: Document) -> dict:
     return {
         "id": doc.id,
@@ -43,6 +53,9 @@ def _document_payload(doc: Document) -> dict:
         "recording_id": doc.recording_id,
         "title": doc.title,
         "original_filename": doc.original_filename,
+        "source_kind": doc.source_kind,
+        "source_url": doc.source_url,
+        "crawl_pages": doc.crawl_pages,
         "file_path": doc.file_path,
         "content_type": doc.content_type,
         "text_chars": doc.text_chars,
@@ -67,10 +80,13 @@ def _document_content(doc: Document) -> str:
 def list_documents(
     topic_id: int | None = None,
     recording_id: int | None = None,
+    source_kind: str | None = None,
     session: Session = Depends(get_session),
 ) -> list[dict]:
     """List documents. ``recording_id`` → that recording's docs; ``topic_id`` →
     the topic's *topic-level* docs (those not bound to a recording)."""
+    if source_kind is not None and source_kind not in {"upload", "web"}:
+        raise HTTPException(400, "Unbekannter Dokumenttyp")
     stmt = select(Document).order_by(Document.created_at.desc())
     if recording_id is not None:
         stmt = stmt.where(Document.recording_id == recording_id)
@@ -79,6 +95,8 @@ def list_documents(
             Document.topic_id == topic_id,
             Document.recording_id == None,  # noqa: E711
         )
+    if source_kind is not None:
+        stmt = stmt.where(Document.source_kind == source_kind)
     return [_document_payload(doc) for doc in session.exec(stmt).all()]
 
 
@@ -189,6 +207,50 @@ async def upload_document(
     return _document_payload(doc)
 
 
+@router.post("/web-context", status_code=201)
+def create_web_context(payload: WebContextIn, session: Session = Depends(get_session)) -> dict:
+    if not session.get(Topic, payload.topic_id):
+        raise HTTPException(404, "Themenbereich nicht gefunden")
+
+    try:
+        crawled = crawl_site(
+            payload.url,
+            max_pages=payload.max_pages,
+            max_depth=payload.max_depth,
+        )
+    except WebContextError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    title = (payload.title or crawled.title).strip() or crawled.root_url
+    content = crawled.content_markdown
+    doc = Document(
+        topic_id=payload.topic_id,
+        title=title,
+        original_filename=_web_context_filename(title),
+        source_kind="web",
+        source_url=crawled.root_url,
+        crawl_pages=len(crawled.pages),
+        file_path="",
+        content_type="text/html",
+        content=content,
+        text_chars=len(content.strip()),
+        status="uploaded",
+    )
+    session.add(doc)
+    session.flush()
+    dst = _stored_document_path(doc, ".html")
+    dst.write_text(crawled.snapshot_html, encoding="utf-8")
+    doc.file_path = str(dst)
+    session.add(doc)
+    session.commit()
+    session.refresh(doc)
+
+    from ..jobs import enqueue_document_embedding
+
+    enqueue_document_embedding(doc.id)
+    return _document_payload(doc)
+
+
 @router.post("/{document_id}/reindex")
 def reindex_document(
     document_id: int, session: Session = Depends(get_session)
@@ -246,6 +308,12 @@ def _stored_document_path(doc: Document, suffix: str) -> Path:
     if doc.id is None:
         raise HTTPException(500, "Dokument-ID fehlt")
     return get_settings().documents_dir / f"{doc.id}{suffix}"
+
+
+def _web_context_filename(title: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", title).strip(".-")
+    stem = stem[:80].strip(".-") or "web-kontext"
+    return f"{stem}.html"
 
 
 def _download_path(doc: Document) -> Path:

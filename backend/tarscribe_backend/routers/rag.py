@@ -262,7 +262,7 @@ async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> Stre
     ]
 
     agent_cfg = AG.get_agent_rag_config("chat")
-    agent_enabled = bool(agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"])
+    agent_enabled = AG.research_active(agent_cfg)
     agent_topic_id = payload.topic_id
     if agent_enabled and payload.recording_id is not None and payload.include_topic_context:
         recording = session.get(Recording, payload.recording_id)

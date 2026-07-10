@@ -805,8 +805,9 @@ async def _run_summary_async(
         from . import rag as R
 
         agent_cfg = AG.get_agent_rag_config("summaries")
-        agent_done = False
-        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        knowledge_context_found = False
+        summary_research_sources: list[dict] = []
+        if AG.research_active(agent_cfg):
             try:
                 research_notes = ""
                 research_sources: list[dict] = []
@@ -835,24 +836,26 @@ async def _run_summary_async(
                         broadcast_fn=_broadcast_research,
                     )
                 if research_sources:
-                    _save_summary_sources(summary_id, research_sources)
+                    summary_research_sources.extend(research_sources)
+                    knowledge_context_found = any(
+                        source.get("source_type") != "web" for source in research_sources
+                    )
                 if research_notes:
                     system_prompt += (
-                        "\n\nDir steht recherchierter Kontext aus der Wissensbasis "
-                        "zur Verfügung. Das aktuelle Transkript bleibt immer die "
-                        "Primärquelle. Nutze den Zusatzkontext nur, wo er inhaltlich "
-                        "eindeutig zur Aufnahme passt. Erfinde nichts, übernimm nichts "
-                        "Unpassendes und lehne die Aufgabe nie wegen abweichendem "
-                        "Zusatzkontext ab.\n\n--- Recherchierter Kontext ---\n"
+                        "\n\nDir steht Kontext aus den aktivierten Recherchekanälen "
+                        "zur Verfügung. Das aktuelle Transkript bleibt immer die Primärquelle. "
+                        "Nutze den Zusatzkontext nur, wo er inhaltlich eindeutig zur Aufnahme "
+                        "passt. Erfinde nichts, übernimm nichts Unpassendes und lehne die "
+                        "Aufgabe nie wegen abweichendem Zusatzkontext ab."
+                        "\n\n--- Recherchierter Kontext ---\n"
                         + research_notes
                     )
-                agent_done = True
             except AG.ToolSupportError:
                 traceback.print_exc()
             except Exception:  # noqa: BLE001 - never fail a summary over enrichment
                 traceback.print_exc()
 
-        if not agent_done and use_topic_knowledge and R.rag_enabled():
+        if not knowledge_context_found and use_topic_knowledge and R.rag_enabled():
             try:
                 with session_scope() as s:
                     hits = R.retrieve_topic_knowledge(
@@ -860,7 +863,7 @@ async def _run_summary_async(
                     )
                 block = _format_topic_knowledge(hits)
                 if block:
-                    _save_summary_sources(summary_id, hits)
+                    summary_research_sources.extend(hits)
                     system_prompt += (
                         "\n\nDir steht zusätzlicher Kontext aus demselben Themenbereich "
                         "zur Verfügung (Dateien, andere Transkripte und Zusammenfassungen). "
@@ -876,6 +879,9 @@ async def _run_summary_async(
                     )
             except Exception:  # noqa: BLE001 - never fail a summary over enrichment
                 traceback.print_exc()
+
+        if summary_research_sources:
+            _save_summary_sources(summary_id, summary_research_sources)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -1021,7 +1027,7 @@ async def _run_action_items_async(
             raise RuntimeError("Kein Transkript vorhanden")
 
         agent_cfg = AG.get_agent_rag_config("summaries")
-        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        if AG.research_active(agent_cfg):
             def _broadcast_ai(event: dict) -> None:
                 hub.broadcast({
                     "type": "agent_research",
@@ -1093,7 +1099,7 @@ def _maybe_postprocess_dictation(recording_id: int) -> None:
         return
 
     agent_cfg = AG.get_agent_rag_config("summaries")
-    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+    if AG.research_active(agent_cfg):
         try:
             def _broadcast_dict(event: dict) -> None:
                 hub.broadcast({
@@ -1192,7 +1198,7 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
             raise RuntimeError("Kein Transkript vorhanden")
 
         agent_cfg = AG.get_agent_rag_config("chapters")
-        if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+        if AG.research_active(agent_cfg):
             def _broadcast_ch(event: dict) -> None:
                 hub.broadcast({
                     "type": "agent_research",

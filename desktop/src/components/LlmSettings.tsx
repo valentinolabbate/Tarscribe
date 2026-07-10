@@ -10,6 +10,7 @@ import {
   NumField,
   PRESETS,
 } from "./llm-settings/model";
+import { ResearchChannelControls } from "./llm-settings/ResearchChannelControls";
 import { ChevronDownIcon } from "./icons";
 
 const USE_CASES: Array<{ id: LlmUseCase; label: string; detail: string }> = [
@@ -298,7 +299,7 @@ export function LlmSettings() {
       <label>LLM-Verbindung</label>
       <div className="settings-info-box">
         Anbieter, Endpoint und Zugang gelten gemeinsam. Modell, Thinking-Level und
-        Agent-Recherche stellst du darunter für jeden Einsatz separat ein.
+        Recherchekanäle stellst du darunter für jeden Einsatz separat ein.
       </div>
       <div className="seg llm-provider-toggle">
         {[
@@ -409,32 +410,15 @@ export function LlmSettings() {
                   <option value="high">Hoch</option>
                 </select>
               </label>
-              <label className={profile.agent_mode ? "llm-agent-toggle active" : "llm-agent-toggle"}>
-                <input
-                  type="checkbox"
-                  checked={profile.agent_mode}
-                  onChange={(event) =>
-                    updateProfile(useCase.id, { agent_mode: event.target.checked })
-                  }
-                />
-                <span>
-                  <strong>Agent-Recherche</strong>
-                  <small>Sucht iterativ im Wissensindex</small>
-                </span>
-              </label>
-              <label className={profile.web_search ? "llm-agent-toggle active" : "llm-agent-toggle"}>
-                <input
-                  type="checkbox"
-                  checked={profile.web_search}
-                  onChange={(event) =>
-                    updateProfile(useCase.id, { web_search: event.target.checked })
-                  }
-                />
-                <span>
-                  <strong>Websuche</strong>
-                  <small>DuckDuckGo als externes Tool</small>
-                </span>
-              </label>
+              <ResearchChannelControls
+                knowledgeEnabled={profile.agent_mode}
+                webEnabled={profile.web_search}
+                profileLabel={useCase.label}
+                onKnowledgeChange={(enabled) =>
+                  updateProfile(useCase.id, { agent_mode: enabled })
+                }
+                onWebChange={(enabled) => updateProfile(useCase.id, { web_search: enabled })}
+              />
             </section>
           );
         })}
@@ -502,7 +486,7 @@ export function LlmSettings() {
           />
         </div>
         <div className="llm-tuning-title llm-agent-limits-title">
-          <strong>Grenzen der Agent-Recherche</strong>
+          <strong>Grenzen der Recherche</strong>
           <span>Gemeinsames Sicherheits- und Kontextbudget für aktivierte Profile.</span>
         </div>
         <div className="tuning-row">

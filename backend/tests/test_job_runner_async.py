@@ -170,6 +170,75 @@ def test_llm_scheduler_falls_back_when_bound_loop_is_closed(db_env):
     assert ran.is_set()
 
 
+@pytest.mark.asyncio()
+async def test_summary_empty_agent_result_keeps_one_shot_rag_fallback(db_env, monkeypatch):
+    import json
+
+    import tarscribe_backend.agent as agent
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.llm as llm
+    import tarscribe_backend.rag as rag
+    from tarscribe_backend.models import Summary
+    from tarscribe_backend.settings_store import save_prefs
+
+    recording_id, template_id, summary_id, job_id = _summary_job(db_env)
+    save_prefs({"summary_use_topic_knowledge": True})
+    captured: dict = {}
+    retrieval_calls: list[str] = []
+
+    monkeypatch.setattr(
+        llm,
+        "get_llm_config",
+        lambda *_args: {"model": "local-test", "base_url": "http://llm"},
+    )
+    monkeypatch.setattr(
+        agent,
+        "get_agent_rag_config",
+        lambda *_args: {
+            "enabled": True,
+            "model": "local-test",
+            "base_url": "http://llm",
+            "rag_enabled": True,
+            "knowledge_search_enabled": True,
+            "web_search_enabled": True,
+        },
+    )
+
+    async def empty_research(**_kwargs):
+        return "", []
+
+    def retrieve_topic_knowledge(_session, query, *_args, **_kwargs):
+        retrieval_calls.append(query)
+        return [
+            {
+                "recording_id": 42,
+                "recording_title": "Referenzmeeting",
+                "document_id": None,
+                "source_type": "transcript",
+                "text": "Belastbarer interner Kontext.",
+            }
+        ]
+
+    async def fake_astream_chat(messages, *_args, **_kwargs):
+        captured["messages"] = messages
+        yield "Zusammenfassung"
+
+    monkeypatch.setattr(agent, "research_context", empty_research)
+    monkeypatch.setattr(rag, "rag_enabled", lambda: True)
+    monkeypatch.setattr(rag, "retrieve_topic_knowledge", retrieve_topic_knowledge)
+    monkeypatch.setattr(llm, "astream_chat", fake_astream_chat)
+    monkeypatch.setattr(jobs, "schedule_reindex", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(jobs.hub, "broadcast", lambda *_args, **_kwargs: None)
+
+    await jobs._run_summary_async(recording_id, job_id, template_id, summary_id)
+
+    assert retrieval_calls == ["Hallo"]
+    assert "Belastbarer interner Kontext" in captured["messages"][1]["content"]
+    with Session(db_env.get_engine()) as session:
+        summary = session.get(Summary, summary_id)
+        assert json.loads(summary.sources)[0]["recording_title"] == "Referenzmeeting"
+
+
 def test_cancel_llm_job_closes_streaming_request(db_env, monkeypatch):
     import tarscribe_backend.jobs as jobs
     import tarscribe_backend.llm as llm

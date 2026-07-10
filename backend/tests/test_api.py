@@ -111,7 +111,7 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
     assert llm.get_llm_config("chat")["model"] == "chat-model"
     client.put(
         "/api/llm/config",
-        json={"profiles": {"summaries": {"agent_mode": False}}},
+        json={"profiles": {"summaries": {"agent_mode": False, "web_search": False}}},
     )
 
 

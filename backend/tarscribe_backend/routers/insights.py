@@ -777,7 +777,7 @@ Quellen:
     # Agentic RAG: let the LLM iteratively search the knowledge base before
     # generating the digest. Falls back to plain digest on any failure.
     agent_cfg = AG.get_agent_rag_config("summaries")
-    if agent_cfg["enabled"] and agent_cfg["rag_enabled"] and agent_cfg["model"]:
+    if AG.research_active(agent_cfg):
         try:
             from ..db import session_scope
 

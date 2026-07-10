@@ -31,10 +31,16 @@ function fmtDueDate(iso: string): string {
 export function ActionItemRow({
   item,
   showRecording = false,
+  showKind = true,
+  showDue = true,
+  compact = false,
   onOpenRecording,
 }: {
   item: ActionItem;
   showRecording?: boolean;
+  showKind?: boolean;
+  showDue?: boolean;
+  compact?: boolean;
   onOpenRecording?: (recordingId: number) => void;
 }) {
   const update = useUpdateActionItem();
@@ -85,13 +91,55 @@ export function ActionItemRow({
           : item.calendar_status === "not_configured"
             ? "Kalender offen"
             : null;
+  const completionLabel =
+    item.kind === "decision"
+      ? item.done
+        ? "Entscheidung reaktivieren"
+        : "Entscheidung archivieren"
+      : item.done
+        ? "Als offen markieren"
+        : "Als erledigt markieren";
+  const calendarControl = calendarLabel ? (
+    item.calendar_status === "pending_approval" || item.calendar_status === "failed" ? (
+      <button
+        type="button"
+        className={`action-calendar ${item.calendar_status}`}
+        title={item.calendar_error ?? "In CalDAV-Kalender exportieren"}
+        disabled={syncCalendar.isPending}
+        onClick={() => syncCalendar.mutate(item.id)}
+      >
+        <CalendarIcon width={12} height={12} />
+        {item.calendar_status === "failed" ? "Erneut versuchen" : "In Kalender"}
+      </button>
+    ) : (
+      <span
+        className={`action-calendar ${item.calendar_status}`}
+        title={item.calendar_error ?? undefined}
+      >
+        <CalendarIcon width={12} height={12} />
+        {calendarLabel}
+      </span>
+    )
+  ) : null;
+
+  function deleteItem() {
+    undoDelete.schedule(
+      item.id,
+      () => del.mutate(item.id),
+      item.kind === "decision" ? "Entscheidung gelöscht" : "Aufgabe gelöscht",
+    );
+  }
+
   return (
-    <div className={`action-item ${item.done ? "done" : ""} ${overdue ? "overdue" : ""}`}>
+    <div
+      className={`action-item ${compact ? "compact" : ""} ${item.done ? "done" : ""} ${overdue ? "overdue" : ""}`}
+    >
       <input
         type="checkbox"
         checked={item.done}
         onChange={(e) => update.mutate({ id: item.id, patch: { done: e.target.checked } })}
-        title={item.done ? "Als offen markieren" : "Als erledigt markieren"}
+        title={completionLabel}
+        aria-label={`${completionLabel}: ${item.text}`}
       />
       <div className="action-item-body">
         {editing ? (
@@ -153,10 +201,22 @@ export function ActionItemRow({
         ) : (
           <>
             <span className="action-item-text">{item.text}</span>
-            <span className="action-item-meta">
-              <span className={`action-kind ${item.kind}`}>
-                {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
-              </span>
+            <div className="action-item-meta">
+              {showKind && (
+                <span className={`action-kind ${item.kind}`}>
+                  {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
+                </span>
+              )}
+              {showRecording && item.recording_title && (
+                <button
+                  type="button"
+                  className="action-item-rec"
+                  onClick={() => onOpenRecording?.(item.recording_id)}
+                  title="Aufnahme öffnen"
+                >
+                  Quelle: {item.recording_title}
+                </button>
+              )}
               {item.assignee && <span>{item.assignee}</span>}
               {item.is_mine ? (
                 <span className="action-mine" title="Dir zugeordnet">Ich</span>
@@ -166,77 +226,66 @@ export function ActionItemRow({
                   className={`action-import ${item.include_in_tasks ? "on" : ""}`}
                   title={
                     item.include_in_tasks
-                      ? "Aus „Meine Aufgaben“ entfernen"
-                      : "Zu „Meine Aufgaben“ hinzufügen"
+                      ? "Aus meiner Liste entfernen"
+                      : "In meine Liste übernehmen"
                   }
                   onClick={() =>
                     update.mutate({ id: item.id, patch: { include_in_tasks: !item.include_in_tasks } })
                   }
                 >
-                  {item.include_in_tasks ? "★ Meine Aufgabe" : "☆ Übernehmen"}
+                  {item.include_in_tasks ? "★ In meiner Liste" : "☆ Übernehmen"}
                 </button>
               )}
-              {!item.due_date && item.due && <span>{item.due}</span>}
-              <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
-                {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}
-                <input
-                  type="date"
-                  value={item.due_date ?? ""}
-                  onChange={(e) =>
-                    update.mutate({ id: item.id, patch: { due_date: e.target.value } })
-                  }
-                />
-              </label>
-              <button type="button" className="action-edit-trigger" onClick={startEditing}>
-                Bearbeiten
-              </button>
-              {showRecording && item.recording_title && (
-                <button
-                  className="action-item-rec"
-                  onClick={() => onOpenRecording?.(item.recording_id)}
-                  title="Aufnahme öffnen"
-                >
-                  {item.recording_title}
-                </button>
+              {showDue && !item.due_date && item.due && <span>{item.due}</span>}
+              {showDue && (
+                <label className={`action-due ${overdue ? "overdue" : ""}`} title="Fälligkeitsdatum setzen">
+                  {item.due_date ? `📅 ${fmtDueDate(item.due_date)}` : "+ Frist"}
+                  <input
+                    type="date"
+                    value={item.due_date ?? ""}
+                    onChange={(e) =>
+                      update.mutate({ id: item.id, patch: { due_date: e.target.value } })
+                    }
+                  />
+                </label>
               )}
-              {calendarLabel && (
-                item.calendar_status === "pending_approval" || item.calendar_status === "failed" ? (
-                  <button
-                    className={`action-calendar ${item.calendar_status}`}
-                    title={item.calendar_error ?? "In CalDAV-Kalender exportieren"}
-                    disabled={syncCalendar.isPending}
-                    onClick={() => syncCalendar.mutate(item.id)}
-                  >
-                    <CalendarIcon width={12} height={12} />
-                    {item.calendar_status === "failed" ? "Retry" : "In Kalender"}
+              {compact ? (
+                <details className="action-item-more">
+                  <summary role="button" aria-label="Weitere Aktionen">•••</summary>
+                  <div className="action-item-more-panel">
+                    <button type="button" onClick={startEditing}>
+                      Bearbeiten
+                    </button>
+                    {showDue && calendarControl}
+                    <button type="button" className="danger" onClick={deleteItem}>
+                      <TrashIcon width={13} height={13} />
+                      Löschen
+                    </button>
+                  </div>
+                </details>
+              ) : (
+                <>
+                  <button type="button" className="action-edit-trigger" onClick={startEditing}>
+                    Bearbeiten
                   </button>
-                ) : (
-                  <span
-                    className={`action-calendar ${item.calendar_status}`}
-                    title={item.calendar_error ?? undefined}
-                  >
-                    <CalendarIcon width={12} height={12} />
-                    {calendarLabel}
-                  </span>
-                )
+                  {calendarControl}
+                </>
               )}
-            </span>
+            </div>
           </>
         )}
       </div>
-      <button
-        className="topic-del"
-        title="Eintrag löschen"
-        onClick={() =>
-          undoDelete.schedule(
-            item.id,
-            () => del.mutate(item.id),
-            item.kind === "decision" ? "Entscheidung gelöscht" : "Aufgabe gelöscht",
-          )
-        }
-      >
-        <TrashIcon width={13} height={13} />
-      </button>
+      {!compact && (
+        <button
+          type="button"
+          className="topic-del"
+          title="Eintrag löschen"
+          aria-label={`Eintrag löschen: ${item.text}`}
+          onClick={deleteItem}
+        >
+          <TrashIcon width={13} height={13} />
+        </button>
+      )}
     </div>
   );
 }

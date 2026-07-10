@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import type { Summary } from "../lib/types";
 import { DownloadIcon } from "./icons";
-import { SummarySourcesPanel } from "./SummarySourcesPanel";
 import { useToast } from "./Toast";
 import { A4Preview } from "./summary-editor/A4Preview";
 import { MarkdownEditor } from "./summary-editor/MarkdownEditor";
@@ -188,25 +187,18 @@ export function SummaryEditorModal({
         ) : error ? (
           <div className="summary-editor-loading error">{(error as Error).message}</div>
         ) : (
-          <>
-            <SummarySourcesPanel
-              raw={summary?.sources ?? null}
-              onOpenSource={() => {}}
-              onOpenDocument={(docId) => void api.openDocument(docId).catch(() => {})}
-            />
-            <main className={`summary-editor-workspace mode-${mode}`}>
-              {mode !== "preview" && (
-                <section className="summary-editor-pane" aria-label="Markdown bearbeiten">
-                  <MarkdownEditor value={draft} onChange={setDraft} onSave={() => void save()} />
-                </section>
-              )}
-              {mode !== "edit" && (
-                <section className="summary-preview-pane" aria-label="A4-Vorschau">
-                  <A4Preview content={draft} title={recordingTitle} />
-                </section>
-              )}
-            </main>
-          </>
+          <main className={`summary-editor-workspace mode-${mode}`}>
+            {mode !== "preview" && (
+              <section className="summary-editor-pane" aria-label="Markdown bearbeiten">
+                <MarkdownEditor value={draft} onChange={setDraft} onSave={() => void save()} />
+              </section>
+            )}
+            {mode !== "edit" && (
+              <section className="summary-preview-pane" aria-label="A4-Vorschau">
+                <A4Preview content={draft} title={recordingTitle} />
+              </section>
+            )}
+          </main>
         )}
       </div>
     </div>

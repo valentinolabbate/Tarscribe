@@ -1,6 +1,8 @@
 import { api } from "../../lib/api";
 import { fmtDuration } from "../../lib/format";
+import { openExternalUrl } from "../../lib/openExternalUrl";
 import type { RagSourceType } from "../../lib/types";
+import { useToast } from "../Toast";
 
 export interface SourceLike {
   source_type: RagSourceType;
@@ -21,6 +23,7 @@ export function SourceAction({
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
   onOpenDocument?: (documentId: number) => void;
 }) {
+  const toast = useToast();
   if (source.source_type === "document" && source.document_id != null) {
     const docId = source.document_id;
     return (
@@ -41,7 +44,11 @@ export function SourceAction({
       <button
         className="btn ghost"
         style={{ padding: "2px 8px", fontSize: 11.5 }}
-        onClick={() => window.open(source.source_url ?? "", "_blank", "noopener,noreferrer")}
+        onClick={() => {
+          void openExternalUrl(source.source_url ?? "").catch(() =>
+            toast("Webseite konnte nicht geöffnet werden", "error"),
+          );
+        }}
       >
         Web öffnen
       </button>

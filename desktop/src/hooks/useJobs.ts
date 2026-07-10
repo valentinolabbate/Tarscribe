@@ -15,6 +15,12 @@ export interface SummaryStream {
 }
 let summaries = new Map<number, SummaryStream>();
 
+export interface SummaryRun {
+  summaryId: number;
+  jobId: number;
+}
+let summaryRuns = new Map<number, SummaryRun>();
+
 // Agent research events: recording_id -> list of tool-call events.
 export interface AgentResearchState {
   queries: { query: string; scope: string; hits: number; round: number }[];
@@ -37,6 +43,9 @@ function snapshot() {
 function summariesSnapshot() {
   return summaries;
 }
+function summaryRunsSnapshot() {
+  return summaryRuns;
+}
 function agentResearchSnapshot() {
   return agentResearch;
 }
@@ -49,6 +58,15 @@ export function useJobFor(recordingId: number): JobEvent | undefined {
 export function useSummaryStream(summaryId: number | null): SummaryStream | undefined {
   const map = useSyncExternalStore(subscribe, summariesSnapshot, summariesSnapshot);
   return summaryId != null ? map.get(summaryId) : undefined;
+}
+
+export function useSummaryRun(recordingId: number): SummaryRun | undefined {
+  const map = useSyncExternalStore(subscribe, summaryRunsSnapshot, summaryRunsSnapshot);
+  return map.get(recordingId);
+}
+
+export function getSummaryRun(recordingId: number): SummaryRun | undefined {
+  return summaryRuns.get(recordingId);
 }
 
 export function useAgentResearch(recordingId: number | null): AgentResearchState | undefined {
@@ -97,9 +115,11 @@ export function trackPendingJob(recordingId: number, jobId: number, phase: strin
   emit();
 }
 
-export function trackSummaryStart(summaryId: number) {
-  if (summaries.has(summaryId)) return;
+export function trackSummaryStart(recordingId: number, summaryId: number, jobId: number) {
   summaries = new Map(summaries).set(summaryId, { text: "", done: false });
+  summaryRuns = new Map(summaryRuns).set(recordingId, { summaryId, jobId });
+  agentResearch = new Map(agentResearch);
+  agentResearch.delete(recordingId);
   emit();
 }
 

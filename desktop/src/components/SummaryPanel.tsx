@@ -11,7 +11,12 @@ import {
   useSummarize,
   useTemplates,
 } from "../hooks/queries";
-import { trackSummaryStart, useAgentResearch, useSummaryStream } from "../hooks/useJobs";
+import {
+  trackSummaryStart,
+  useAgentResearch,
+  useSummaryRun,
+  useSummaryStream,
+} from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { SummaryTemplate } from "../lib/types";
 import { TrashIcon } from "./icons";
@@ -74,11 +79,12 @@ export function SummaryPanel({
     const raw = localStorage.getItem(LAST_TEMPLATE_KEY);
     return raw ? Number(raw) : null;
   });
-  const [activeSummaryId, setActiveSummaryId] = useState<number | null>(null);
-  const [activeJobId, setActiveJobId] = useState<number | null>(null);
   const [clarification, setClarification] = useState("");
   const [editorSummaryId, setEditorSummaryId] = useState<number | null>(null);
   const autoOpenedRef = useRef<number | null>(null);
+  const summaryRun = useSummaryRun(recordingId);
+  const activeSummaryId = summaryRun?.summaryId ?? null;
+  const activeJobId = summaryRun?.jobId ?? null;
   const stream = useSummaryStream(activeSummaryId);
   const agentResearch = useAgentResearch(recordingId);
   const { data: progress } = useSummaryProgress(recordingId, activeSummaryId, activeJobId);
@@ -111,10 +117,8 @@ export function SummaryPanel({
       templateId: effectiveTemplate,
       clarification: clarification.trim() || undefined,
     });
-    trackSummaryStart(res.summary_id);
+    trackSummaryStart(recordingId, res.summary_id, res.job_id);
     autoOpenedRef.current = null;
-    setActiveSummaryId(res.summary_id);
-    setActiveJobId(res.job_id);
   }
 
   const polledText = progress?.summary.content ?? "";

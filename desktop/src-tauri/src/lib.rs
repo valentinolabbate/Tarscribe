@@ -1,3 +1,4 @@
+mod autostart;
 mod mcp;
 mod menu;
 mod sidecar;
@@ -140,10 +141,7 @@ fn install_global_shortcut_plugin(app: &tauri::AppHandle) -> Result<(), String> 
                     })
                     .unwrap_or(false);
                 if matches_current && event.state() == ShortcutState::Pressed {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    menu::show_main_window(app);
                     let _ = app.emit("menu", "dictation-toggle");
                 }
             })
@@ -277,6 +275,10 @@ fn configure_meeting_detection(_enabled: bool, _apps: Vec<String>) -> Result<(),
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -296,6 +298,8 @@ pub fn run() {
             sidecar::setup_environment,
             set_dictation_shortcut,
             configure_meeting_detection,
+            autostart::get_autostart_status,
+            autostart::set_autostart_enabled,
             menu::set_update_badge,
             menu::set_tray_recording_state,
             mcp::mcp_register_host,
@@ -314,6 +318,21 @@ pub fn run() {
             remove_quarantine();
 
             let handle = app.handle().clone();
+            let background_launch = std::env::args_os().any(|arg| arg == "--background");
+            if background_launch {
+                menu::enter_background_mode(&handle);
+            } else {
+                menu::show_main_window(&handle);
+            }
+            if let Err(e) = autostart::initialize_default(&handle) {
+                eprintln!("Autostart konnte nicht initialisiert werden: {e}");
+            }
+            if let Err(e) = menu::build_menu(&handle) {
+                eprintln!("Menü-Aufbau fehlgeschlagen: {e}");
+            }
+            if let Err(e) = menu::build_tray(&handle) {
+                eprintln!("Tray-Aufbau fehlgeschlagen: {e}");
+            }
             #[cfg(desktop)]
             if let Err(e) = install_global_shortcut_plugin(&handle) {
                 eprintln!("Globaler Diktat-Hotkey konnte nicht registriert werden: {e}");
@@ -330,12 +349,6 @@ pub fn run() {
                     let _ = tauri::Emitter::emit(&handle, "needs-setup", true);
                 }
                 Err(e) => eprintln!("Sidecar-Start fehlgeschlagen: {e}"),
-            }
-            if let Err(e) = menu::build_menu(&handle) {
-                eprintln!("Menü-Aufbau fehlgeschlagen: {e}");
-            }
-            if let Err(e) = menu::build_tray(&handle) {
-                eprintln!("Tray-Aufbau fehlgeschlagen: {e}");
             }
             if let Some(window) = app.get_webview_window("main") {
                 let handle = handle.clone();

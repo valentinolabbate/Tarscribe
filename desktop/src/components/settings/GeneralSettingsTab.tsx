@@ -2,29 +2,55 @@ import type { ReactNode } from "react";
 import { api } from "../../lib/api";
 import type { AppSettings } from "../../lib/types";
 import type { RecordingDevice } from "../../lib/recorder";
-import type { SystemAudioCapability } from "../../lib/tauri";
+import type { AutostartStatus, SystemAudioCapability } from "../../lib/tauri";
 
 export function GeneralSettingsTab({
   settings,
   setSettings,
   recordingDevices,
   systemAudioCapability,
+  autostartStatus,
+  autostartBusy,
   statusEl,
   refreshRecordingDevices,
   saveDictationShortcut,
   saveMeetingDetection,
+  saveAutostartEnabled,
 }: {
   settings: AppSettings;
   setSettings: (settings: AppSettings) => void;
   recordingDevices: RecordingDevice[];
   systemAudioCapability: SystemAudioCapability | null;
+  autostartStatus: AutostartStatus;
+  autostartBusy: boolean;
   statusEl: ReactNode;
   refreshRecordingDevices: () => void;
   saveDictationShortcut: (value: string) => void;
   saveMeetingDetection: (next: Pick<AppSettings, "meeting_detection_enabled" | "meeting_detection_apps">) => void;
+  saveAutostartEnabled: (enabled: boolean) => void;
 }) {
   return (
     <>
+      <div className="settings-section-title">
+        <span>App</span>
+      </div>
+      <div className="field">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={autostartStatus.enabled}
+            disabled={!autostartStatus.supported || autostartBusy}
+            onChange={(event) => saveAutostartEnabled(event.target.checked)}
+          />
+          <span>Bei der Anmeldung starten</span>
+        </label>
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          {autostartStatus.supported
+            ? "Tarscribe startet ohne Fenster und bleibt über die Menüleiste erreichbar."
+            : "Autostart kann nur in der installierten Tarscribe-App geändert werden."}
+        </div>
+      </div>
+
       <div className="settings-section-title">
         <span>Aufnahme</span>
       </div>

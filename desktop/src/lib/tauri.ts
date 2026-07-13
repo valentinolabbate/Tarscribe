@@ -38,6 +38,21 @@ export async function getSystemAudioCapability(): Promise<SystemAudioCapability>
   return invoke<SystemAudioCapability>("system_audio_capability");
 }
 
+export interface AutostartStatus {
+  supported: boolean;
+  enabled: boolean;
+}
+
+export async function getAutostartStatus(): Promise<AutostartStatus> {
+  if (!isTauri()) return { supported: false, enabled: false };
+  return invoke<AutostartStatus>("get_autostart_status");
+}
+
+export async function setAutostartEnabled(enabled: boolean): Promise<AutostartStatus> {
+  if (!isTauri()) return { supported: false, enabled: false };
+  return invoke<AutostartStatus>("set_autostart_enabled", { enabled });
+}
+
 export type TrayRecordingState =
   | "idle"
   | "starting"

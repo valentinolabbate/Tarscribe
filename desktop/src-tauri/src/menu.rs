@@ -420,6 +420,8 @@ fn tray_tooltip(meta: &TrayMeta) -> String {
 
 pub(crate) fn show_main_window(app: &AppHandle) {
     cancel_pending_hide(app);
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -438,11 +440,18 @@ pub(crate) fn hide_main_window_on_close(app: &AppHandle, window: WebviewWindow) 
             std::thread::sleep(FULLSCREEN_CLOSE_HIDE_DELAY);
             if is_current_hide_request(&app, request_id) && window.is_visible().unwrap_or(true) {
                 let _ = window.hide();
+                enter_background_mode(&app);
             }
         });
     } else {
         let _ = window.hide();
+        enter_background_mode(app);
     }
+}
+
+pub(crate) fn enter_background_mode(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 }
 
 fn next_hide_request(app: &AppHandle) -> u64 {

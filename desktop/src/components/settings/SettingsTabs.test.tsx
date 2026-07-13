@@ -95,15 +95,19 @@ describe("settings tabs", () => {
           minimum_macos_version: "13.0",
           reason: null,
         }}
+        autostartStatus={{ supported: true, enabled: true }}
+        autostartBusy={false}
         statusEl={null}
         refreshRecordingDevices={vi.fn()}
         saveDictationShortcut={vi.fn()}
         saveMeetingDetection={vi.fn()}
+        saveAutostartEnabled={vi.fn()}
       />,
     );
 
     expect(text(html)).toContain("Standard-Mikrofon");
     expect(text(html)).toContain("Studio Mic");
+    expect(text(html)).toContain("Bei der Anmeldung starten");
   });
 
   it("renders the models settings tab in isolation", () => {

@@ -1149,6 +1149,41 @@ def test_summary_editor_saves_revisions_and_exports_current_pdf(client, monkeypa
     assert "•" in text
 
 
+def test_database_init_sanitizes_existing_summaries(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Summary, Topic
+
+    with Session(db.get_engine()) as session:
+        topic = Topic(name="Reasoning-Leak")
+        session.add(topic)
+        session.flush()
+        recording = Recording(
+            topic_id=topic.id,
+            title="Altbestand",
+            audio_path="/tmp/reasoning-leak.wav",
+        )
+        session.add(recording)
+        session.flush()
+        summary = Summary(
+            recording_id=recording.id,
+            model="test",
+            content="<think>Intern</think>\n# Sichtbar",
+            generated_content="<think>Intern</think>\n# Sichtbar",
+        )
+        session.add(summary)
+        session.commit()
+        summary_id = summary.id
+
+    db.init_db()
+
+    with Session(db.get_engine()) as session:
+        summary = session.get(Summary, summary_id)
+        assert summary.content == "# Sichtbar"
+        assert summary.generated_content == "# Sichtbar"
+
+
 def test_summary_appends_existing_tasks_without_sending_them_to_summary_llm(
     client, monkeypatch
 ):

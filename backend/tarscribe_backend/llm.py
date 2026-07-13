@@ -7,6 +7,7 @@ self-hosted servers, and custom OpenAI-compatible endpoints.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Literal
@@ -19,6 +20,81 @@ from .settings_store import get_llm_api_key, load_prefs
 CHAR_BUDGET = 48_000
 LlmUseCase = Literal["chapters", "summaries", "chat"]
 LLM_USE_CASES: tuple[LlmUseCase, ...] = ("chapters", "summaries", "chat")
+
+_THINK_START_RE = re.compile(r"<think(?:\s[^>]*)?>", re.IGNORECASE)
+_THINK_END_RE = re.compile(r"</think\s*>", re.IGNORECASE)
+_THINK_BLOCK_RE = re.compile(
+    r"<think(?:\s[^>]*)?>.*?</think\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_UNCLOSED_THINK_RE = re.compile(
+    r"<think(?:\s[^>]*)?>.*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_thinking_blocks(content: str) -> str:
+    if not content:
+        return content
+    starts_with_thinking = bool(re.match(r"\s*<think(?:\s|>)", content, re.IGNORECASE))
+    cleaned = _THINK_BLOCK_RE.sub("", content)
+    cleaned = _UNCLOSED_THINK_RE.sub("", cleaned)
+    return cleaned.lstrip() if starts_with_thinking else cleaned
+
+
+class _ThinkingBlockFilter:
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside = False
+
+    def feed(self, chunk: str) -> str:
+        self._buffer += chunk
+        visible: list[str] = []
+        while self._buffer:
+            if self._inside:
+                match = _THINK_END_RE.search(self._buffer)
+                if match is None:
+                    self._buffer = self._buffer[-32:]
+                    break
+                self._buffer = self._buffer[match.end() :]
+                self._inside = False
+                continue
+
+            match = _THINK_START_RE.search(self._buffer)
+            if match is not None:
+                visible.append(self._buffer[: match.start()])
+                self._buffer = self._buffer[match.end() :]
+                self._inside = True
+                continue
+
+            last_open = self._buffer.rfind("<")
+            if last_open >= 0:
+                tail = self._buffer[last_open:].lower()
+                if "<think".startswith(tail) or (
+                    tail.startswith("<think") and ">" not in tail
+                ):
+                    visible.append(self._buffer[:last_open])
+                    self._buffer = self._buffer[last_open:]
+                    break
+            visible.append(self._buffer)
+            self._buffer = ""
+        return "".join(visible)
+
+    def finish(self) -> str:
+        if self._inside or self._buffer.lower().startswith("<think"):
+            self._buffer = ""
+            return ""
+        content = self._buffer
+        self._buffer = ""
+        return content
+
+
+def _clean_choice_message(message: dict | None) -> dict:
+    cleaned = dict(message or {"role": "assistant", "content": "", "tool_calls": None})
+    content = cleaned.get("content")
+    if isinstance(content, str):
+        cleaned["content"] = strip_thinking_blocks(content)
+    return cleaned
 
 
 def get_llm_profiles() -> dict[str, dict]:
@@ -159,6 +235,7 @@ def stream_chat(
         reasoning_effort,
         provider,
     )
+    thinking_filter = _ThinkingBlockFilter()
     with httpx.stream(
         "POST",
         f"{base_url}/chat/completions",
@@ -172,7 +249,12 @@ def stream_chat(
                 break
             delta = _parse_stream_line(line)
             if delta:
-                yield delta
+                visible = thinking_filter.feed(delta)
+                if visible:
+                    yield visible
+    tail = thinking_filter.finish()
+    if tail:
+        yield tail
 
 
 async def astream_chat(
@@ -198,6 +280,7 @@ async def astream_chat(
         reasoning_effort,
         provider,
     )
+    thinking_filter = _ThinkingBlockFilter()
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream(
             "POST",
@@ -211,7 +294,12 @@ async def astream_chat(
                     break
                 delta = _parse_stream_line(line)
                 if delta:
-                    yield delta
+                    visible = thinking_filter.feed(delta)
+                    if visible:
+                        yield visible
+    tail = thinking_filter.finish()
+    if tail:
+        yield tail
 
 
 async def achat_complete(
@@ -260,7 +348,7 @@ async def achat_complete(
         return {"message": {"role": "assistant", "content": "", "tool_calls": None}, "finish_reason": None}
     choice = choices[0]
     return {
-        "message": choice.get("message") or {"role": "assistant", "content": "", "tool_calls": None},
+        "message": _clean_choice_message(choice.get("message")),
         "finish_reason": choice.get("finish_reason"),
     }
 
@@ -309,7 +397,7 @@ def chat_complete(
         return {"message": {"role": "assistant", "content": "", "tool_calls": None}, "finish_reason": None}
     choice = choices[0]
     return {
-        "message": choice.get("message") or {"role": "assistant", "content": "", "tool_calls": None},
+        "message": _clean_choice_message(choice.get("message")),
         "finish_reason": choice.get("finish_reason"),
     }
 

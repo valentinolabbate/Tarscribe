@@ -1,8 +1,19 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useKnownSpeakers, usePeopleMemory } from "../hooks/queries";
 import { fmtDate, fmtDuration } from "../lib/format";
 import type { ActionItem, PeopleMemory, PeopleMemoryRecording, TopicThread } from "../lib/types";
-import { ChevronDownIcon, ChevronUpIcon, SpeakerIdIcon } from "./icons";
+import {
+  ActivityIcon,
+  ChatIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  LinkIcon,
+  SearchIcon,
+  SpeakerIdIcon,
+  SummaryIcon,
+  TasksIcon,
+  WaveIcon,
+} from "./icons";
 
 const PEOPLE_LIST_PREVIEW_LIMIT = 3;
 
@@ -14,7 +25,10 @@ function PersonAvatar({ name, color, large = false }: { name: string; color: str
     .map((part) => part[0]?.toUpperCase())
     .join("");
   return (
-    <span className={`people-avatar ${large ? "large" : ""}`} style={{ background: color }}>
+    <span
+      className={`people-avatar ${large ? "large" : ""}`}
+      style={{ "--people-color": color } as CSSProperties}
+    >
       {initials || "?"}
     </span>
   );
@@ -37,8 +51,11 @@ function SourceButton({
       onClick={() => onOpenRecording(recordingId, startSec)}
       title="Belegende Aufnahme öffnen"
     >
-      {startSec != null ? `▶ ${fmtDuration(startSec)}` : "Aufnahme öffnen"}
-      {title ? ` · ${title}` : ""}
+      <LinkIcon width={11} height={11} />
+      <span>
+        {startSec != null ? fmtDuration(startSec) : "Aufnahme öffnen"}
+        {title ? ` · ${title}` : ""}
+      </span>
     </button>
   );
 }
@@ -183,6 +200,31 @@ function ExpandablePeopleList<T>({
   );
 }
 
+function PeopleSectionHeading({
+  eyebrow,
+  title,
+  count,
+  icon,
+}: {
+  eyebrow: string;
+  title: string;
+  count: number;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="people-section-head">
+      <div className="people-section-title">
+        <span className="people-section-icon">{icon}</span>
+        <div>
+          <span className="page-kicker">{eyebrow}</span>
+          <h3>{title}</h3>
+        </div>
+      </div>
+      <span className="people-section-count">{count}</span>
+    </div>
+  );
+}
+
 export function PeopleMemoryView({
   memory,
   onOpenRecording,
@@ -192,29 +234,55 @@ export function PeopleMemoryView({
 }) {
   const openTasks = memory.tasks.filter((item) => !item.done);
   const completedTasks = memory.tasks.filter((item) => item.done);
+  const lastSeen = memory.stats.last_seen_at ? fmtDate(memory.stats.last_seen_at) : "Noch kein Gespräch";
   return (
-    <div className="people-memory-view">
+    <div
+      className="people-memory-view"
+      style={{ "--people-color": memory.speaker.color } as CSSProperties}
+    >
       <header className="people-hero">
-        <PersonAvatar name={memory.speaker.name} color={memory.speaker.color} large />
-        <div>
-          <span className="page-kicker">People Memory</span>
-          <h2>{memory.speaker.name}</h2>
+        <div className="people-hero-row">
+          <div className="people-hero-identity">
+            <PersonAvatar name={memory.speaker.name} color={memory.speaker.color} large />
+            <div className="people-hero-copy">
+              <span className="page-kicker">People Memory</span>
+              <h2>{memory.speaker.name}</h2>
+              <p>Quellenbasiertes Profil aus gemeinsamen Gesprächen</p>
+              <div className="people-hero-meta">
+                <span>Zuletzt {lastSeen}</span>
+                <span>{fmtDuration(memory.stats.talk_sec)} Sprechzeit</span>
+                <span>
+                  {memory.speaker.sample_count} {memory.speaker.sample_count === 1 ? "Stimmprobe" : "Stimmproben"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="people-voiceprint" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+        <div className="people-scoreboard">
+          <div><WaveIcon width={16} height={16} /><strong>{memory.stats.recording_count}</strong><span>Gespräche</span></div>
+          <div><TasksIcon width={16} height={16} /><strong>{memory.stats.open_task_count}</strong><span>Offene Zusagen</span></div>
+          <div><SummaryIcon width={16} height={16} /><strong>{memory.stats.decision_count}</strong><span>Entscheidungen</span></div>
+          <div><ChatIcon width={16} height={16} /><strong>{memory.stats.thread_count}</strong><span>Gemeinsame Themen</span></div>
         </div>
       </header>
 
-      <div className="people-scoreboard">
-        <div><strong>{memory.stats.recording_count}</strong><span>Gespräche</span></div>
-        <div><strong>{memory.stats.open_task_count}</strong><span>offene Zusagen</span></div>
-        <div><strong>{memory.stats.decision_count}</strong><span>Entscheidungen</span></div>
-        <div><strong>{memory.stats.thread_count}</strong><span>Themen-Threads</span></div>
-      </div>
-
       <div className="people-memory-grid">
         <section className="people-section people-tasks">
-          <div className="people-section-head">
-            <div><span className="page-kicker">Verantwortung</span><h3>Offene Zusagen und Aufgaben</h3></div>
-            <span>{openTasks.length}</span>
-          </div>
+          <PeopleSectionHeading
+            eyebrow="Verantwortung"
+            title="Offene Zusagen und Aufgaben"
+            count={openTasks.length}
+            icon={<TasksIcon width={16} height={16} />}
+          />
           <ExpandablePeopleList
             key={`${memory.speaker.id}-open-tasks`}
             items={openTasks}
@@ -241,10 +309,12 @@ export function PeopleMemoryView({
         </section>
 
         <section className="people-section people-recordings">
-          <div className="people-section-head">
-            <div><span className="page-kicker">Verlauf</span><h3>Letzte Gespräche</h3></div>
-            <span>{memory.recordings.length}</span>
-          </div>
+          <PeopleSectionHeading
+            eyebrow="Verlauf"
+            title="Letzte Gespräche"
+            count={memory.recordings.length}
+            icon={<ActivityIcon width={16} height={16} />}
+          />
           <ExpandablePeopleList
             key={`${memory.speaker.id}-recordings`}
             items={memory.recordings}
@@ -258,11 +328,13 @@ export function PeopleMemoryView({
           />
         </section>
 
-        <section className="people-section">
-          <div className="people-section-head">
-            <div><span className="page-kicker">Kontext</span><h3>Gemeinsame Themen</h3></div>
-            <span>{memory.threads.length}</span>
-          </div>
+        <section className="people-section people-topics">
+          <PeopleSectionHeading
+            eyebrow="Kontext"
+            title="Gemeinsame Themen"
+            count={memory.threads.length}
+            icon={<ChatIcon width={16} height={16} />}
+          />
           <ExpandablePeopleList
             key={`${memory.speaker.id}-threads`}
             items={memory.threads}
@@ -274,11 +346,13 @@ export function PeopleMemoryView({
           />
         </section>
 
-        <section className="people-section">
-          <div className="people-section-head">
-            <div><span className="page-kicker">Beschlüsse</span><h3>Vergangene Entscheidungen</h3></div>
-            <span>{memory.decisions.length}</span>
-          </div>
+        <section className="people-section people-decisions">
+          <PeopleSectionHeading
+            eyebrow="Beschlüsse"
+            title="Vergangene Entscheidungen"
+            count={memory.decisions.length}
+            icon={<SummaryIcon width={16} height={16} />}
+          />
           <ExpandablePeopleList
             key={`${memory.speaker.id}-decisions`}
             items={memory.decisions}
@@ -301,7 +375,11 @@ export function PeoplePage({
 }) {
   const { data: speakers, isLoading: speakersLoading } = useKnownSpeakers();
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
   const { data: memory, isLoading: memoryLoading } = usePeopleMemory(selectedId);
+  const visibleSpeakers = speakers?.filter((speaker) =>
+    speaker.name.toLocaleLowerCase("de").includes(query.trim().toLocaleLowerCase("de")),
+  );
 
   useEffect(() => {
     if (!speakers?.length) {
@@ -325,22 +403,44 @@ export function PeoplePage({
   }
 
   return (
-    <div className="people-page">
+    <div className="people-page people-page-dossier">
       <aside className="people-list" aria-label="Bekannte Personen">
         <div className="people-list-head">
-          <span className="page-kicker">Gedächtnis</span>
-          <h3>Personen</h3>
+          <div>
+            <span className="page-kicker">Gedächtnis</span>
+            <h3>Personen</h3>
+          </div>
+          <span className="people-list-count">{speakers.length}</span>
         </div>
-        {speakers.map((speaker) => (
-          <button
-            key={speaker.id}
-            className={speaker.id === selectedId ? "active" : ""}
-            onClick={() => setSelectedId(speaker.id)}
-          >
-            <PersonAvatar name={speaker.name} color={speaker.color} />
-            <span><strong>{speaker.name}</strong><small>{speaker.sample_count} Stimmproben</small></span>
-          </button>
-        ))}
+        <label className="people-search">
+          <SearchIcon width={14} height={14} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Person suchen"
+            aria-label="Person suchen"
+          />
+        </label>
+        <div className="people-directory">
+          {visibleSpeakers?.map((speaker) => (
+            <button
+              key={speaker.id}
+              className={speaker.id === selectedId ? "active" : ""}
+              style={{ "--people-color": speaker.color } as CSSProperties}
+              aria-pressed={speaker.id === selectedId}
+              onClick={() => setSelectedId(speaker.id)}
+            >
+              <PersonAvatar name={speaker.name} color={speaker.color} />
+              <span>
+                <strong>{speaker.name}</strong>
+                <small>
+                  {speaker.sample_count} {speaker.sample_count === 1 ? "Stimmprobe" : "Stimmproben"}
+                </small>
+              </span>
+            </button>
+          ))}
+          {visibleSpeakers?.length === 0 && <div className="people-list-empty">Keine Person gefunden</div>}
+        </div>
       </aside>
       <main className="people-profile">
         {memoryLoading && <div className="people-empty-page">Profil wird aufgebaut…</div>}

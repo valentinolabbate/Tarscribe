@@ -793,7 +793,8 @@ async def _run_summary_async(
         system_prompt += (
             "\n\nErstelle, ergänze und formuliere keine Aufgaben, To-dos oder nächsten Schritte. "
             "Aufgaben werden außerhalb dieses Modells separat extrahiert und nachträglich "
-            "unverändert an die Zusammenfassung angehängt."
+            "unverändert an die Zusammenfassung angehängt. Gib ausschließlich die fertige "
+            "Zusammenfassung aus, ohne Analyse, internes Reasoning oder Think-Tags."
         )
 
         # Enrich the summary with relevant knowledge. Two strategies:

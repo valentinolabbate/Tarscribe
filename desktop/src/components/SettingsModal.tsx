@@ -29,6 +29,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     setShowTemplates,
     recordingDevices,
     systemAudioCapability,
+    autostartStatus,
+    autostartBusy,
     hardware,
     modelStatus,
     modelStatusLoading,
@@ -38,6 +40,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     chooseDigestFolder,
     saveDictationShortcut,
     saveMeetingDetection,
+    saveAutostartEnabled,
     savePerformanceProfile,
     saveAsrEngine,
     saveAsrModel,
@@ -67,7 +70,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     {
       id: "general",
       label: "Allgemein",
-      description: "Audio, Sprache, Hotkeys",
+      description: "Start, Audio, Sprache",
       icon: <SettingsIcon width={16} height={16} />,
     },
     {
@@ -147,10 +150,13 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 setSettings={(next) => setSettings(next)}
                 recordingDevices={recordingDevices}
                 systemAudioCapability={systemAudioCapability}
+                autostartStatus={autostartStatus}
+                autostartBusy={autostartBusy}
                 statusEl={statusEl}
                 refreshRecordingDevices={refreshRecordingDevices}
                 saveDictationShortcut={saveDictationShortcut}
                 saveMeetingDetection={saveMeetingDetection}
+                saveAutostartEnabled={saveAutostartEnabled}
               />
             )}
 

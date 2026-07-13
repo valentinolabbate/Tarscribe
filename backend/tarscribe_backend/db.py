@@ -11,7 +11,7 @@ from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from .config import get_settings
-from .models import SummaryTemplate
+from .models import Summary, SummaryTemplate
 
 _engine: Engine | None = None
 
@@ -179,6 +179,30 @@ def _run_lightweight_migrations() -> None:
     _ensure_fts_table()
     _mark_stale_live_sessions()
     _mark_stale_jobs()
+    _sanitize_summary_thinking_blocks()
+
+
+def _sanitize_summary_thinking_blocks() -> None:
+    from .llm import strip_thinking_blocks
+
+    with Session(get_engine()) as session:
+        summaries = session.exec(select(Summary)).all()
+        changed = False
+        for summary in summaries:
+            content = strip_thinking_blocks(summary.content)
+            generated = (
+                strip_thinking_blocks(summary.generated_content)
+                if summary.generated_content is not None
+                else None
+            )
+            if content == summary.content and generated == summary.generated_content:
+                continue
+            summary.content = content
+            summary.generated_content = generated
+            session.add(summary)
+            changed = True
+        if changed:
+            session.commit()
 
 
 def _migrate_rag_chunks_for_documents() -> None:

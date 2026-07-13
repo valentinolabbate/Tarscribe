@@ -2,7 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { validateHttpUrl } from "../../lib/formValidation";
 import { errorMessage, listRecordingDevices, type RecordingDevice } from "../../lib/recorder";
-import { getSystemAudioCapability, invoke, isTauri, pickFolder, type SystemAudioCapability } from "../../lib/tauri";
+import {
+  getAutostartStatus,
+  getSystemAudioCapability,
+  invoke,
+  isTauri,
+  pickFolder,
+  setAutostartEnabled,
+  type AutostartStatus,
+  type SystemAudioCapability,
+} from "../../lib/tauri";
 import type { AppSettings, HardwareInfo, ModelStatusPayload, PerformanceProfile } from "../../lib/types";
 import {
   ASR_MODEL_SUGGESTIONS,
@@ -23,6 +32,8 @@ export function useSettingsModalState() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [recordingDevices, setRecordingDevices] = useState<RecordingDevice[]>([]);
   const [systemAudioCapability, setSystemAudioCapability] = useState<SystemAudioCapability | null>(null);
+  const [autostartStatus, setAutostartStatus] = useState<AutostartStatus>({ supported: false, enabled: false });
+  const [autostartBusy, setAutostartBusy] = useState(false);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatusPayload | null>(null);
   const [modelStatusLoading, setModelStatusLoading] = useState(false);
@@ -43,6 +54,7 @@ export function useSettingsModalState() {
     refreshModelStatus();
     listRecordingDevices().then(setRecordingDevices).catch(() => {});
     getSystemAudioCapability().then(setSystemAudioCapability).catch(() => {});
+    getAutostartStatus().then(setAutostartStatus).catch(() => {});
   }, []);
   async function refreshRecordingDevices() {
     try {
@@ -85,6 +97,26 @@ export function useSettingsModalState() {
         ok: false,
         msg: `Meeting-Erkennung konnte nicht gespeichert werden: ${(error as Error).message}`,
       });
+    }
+  }
+  async function saveAutostartEnabled(enabled: boolean) {
+    const previous = autostartStatus;
+    setAutostartStatus({ ...autostartStatus, enabled });
+    setAutostartBusy(true);
+    try {
+      const next = await setAutostartEnabled(enabled);
+      setAutostartStatus(next);
+      setStatus({
+        ok: true,
+        msg: next.enabled
+          ? "Tarscribe startet künftig automatisch im Hintergrund."
+          : "Autostart wurde deaktiviert.",
+      });
+    } catch (error) {
+      setAutostartStatus(previous);
+      setStatus({ ok: false, msg: `Autostart konnte nicht geändert werden: ${(error as Error).message}` });
+    } finally {
+      setAutostartBusy(false);
     }
   }
   async function savePerformanceProfile(performance_profile: PerformanceProfile) {
@@ -284,6 +316,8 @@ export function useSettingsModalState() {
     setShowTemplates,
     recordingDevices,
     systemAudioCapability,
+    autostartStatus,
+    autostartBusy,
     hardware,
     modelStatus,
     modelStatusLoading,
@@ -293,6 +327,7 @@ export function useSettingsModalState() {
     chooseDigestFolder,
     saveDictationShortcut,
     saveMeetingDetection,
+    saveAutostartEnabled,
     savePerformanceProfile,
     saveAsrEngine,
     saveAsrModel,

@@ -44,6 +44,7 @@ jobs:
 
           TAG="${GITHUB_REF_NAME}"
           NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
           OBJECT_TYPE="$(git cat-file -t "refs/tags/$TAG" 2>/dev/null || true)"
 
           if [[ "$OBJECT_TYPE" == "tag" ]]; then

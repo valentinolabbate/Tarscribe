@@ -1184,7 +1184,71 @@ def test_database_init_sanitizes_existing_summaries(client):
         assert summary.generated_content == "# Sichtbar"
 
 
-def test_summary_appends_existing_tasks_without_sending_them_to_summary_llm(
+def test_database_init_separates_legacy_tasks_from_summaries(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Summary, Topic
+
+    legacy = (
+        "# Überblick\n\nNur die Zusammenfassung.\n\n"
+        "## Aufgaben\n\n- [ ] Bericht schreiben — Anna, bis Freitag"
+    )
+    manually_edited = "# Eigene Fassung\n\n## Aufgaben\n\n- [ ] Bewusst notierte Aufgabe"
+    with Session(db.get_engine()) as session:
+        topic = Topic(name="Legacy-Summary")
+        session.add(topic)
+        session.flush()
+        recording = Recording(
+            topic_id=topic.id,
+            title="Altbestand mit Aufgaben",
+            audio_path="/tmp/legacy-summary.wav",
+        )
+        session.add(recording)
+        session.flush()
+        automatic = Summary(
+            recording_id=recording.id,
+            model="test",
+            content=legacy,
+            generated_content=legacy,
+        )
+        revised = Summary(
+            recording_id=recording.id,
+            model="test",
+            content=manually_edited,
+            generated_content=legacy,
+            revision=1,
+        )
+        unmarked_legacy = Summary(
+            recording_id=recording.id,
+            model="test",
+            content=manually_edited,
+            generated_content=None,
+            revision=0,
+        )
+        session.add(automatic)
+        session.add(revised)
+        session.add(unmarked_legacy)
+        session.commit()
+        automatic_id = automatic.id
+        revised_id = revised.id
+        unmarked_legacy_id = unmarked_legacy.id
+
+    db.init_db()
+
+    with Session(db.get_engine()) as session:
+        automatic = session.get(Summary, automatic_id)
+        revised = session.get(Summary, revised_id)
+        unmarked_legacy = session.get(Summary, unmarked_legacy_id)
+        assert automatic.content == "# Überblick\n\nNur die Zusammenfassung."
+        assert automatic.generated_content == "# Überblick\n\nNur die Zusammenfassung."
+        assert revised.content == manually_edited
+        assert revised.generated_content == "# Überblick\n\nNur die Zusammenfassung."
+        assert unmarked_legacy.content == manually_edited
+        assert unmarked_legacy.generated_content is None
+
+
+def test_summary_keeps_existing_tasks_separate_from_summary(
     client, monkeypatch
 ):
     from sqlmodel import Session, select
@@ -1274,12 +1338,10 @@ def test_summary_appends_existing_tasks_without_sending_them_to_summary_llm(
 
     assert len(summary_messages) == 1
     assert all("Bericht schreiben" not in message["content"] for message in summary_messages[0])
+    assert "ausschließlich im Zeitstrahl geführt" in summary_messages[0][0]["content"]
     assert "Das Produkt heißt Tarscribe." in summary_messages[0][1]["content"]
-    assert content == (
-        "Nur die Zusammenfassung.\n\n"
-        "## Aufgaben\n\n"
-        "- [ ] Bericht schreiben — Anna, bis Freitag"
-    )
+    assert content == "Nur die Zusammenfassung."
+    assert "## Aufgaben" not in content
     assert [item.text for item in items] == ["Bericht schreiben"]
 
 

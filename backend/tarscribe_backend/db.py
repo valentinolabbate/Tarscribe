@@ -194,18 +194,27 @@ def _run_lightweight_migrations() -> None:
 
 
 def _sanitize_summary_thinking_blocks() -> None:
-    from .llm import strip_thinking_blocks
+    from .llm import strip_legacy_summary_task_append, strip_thinking_blocks
 
     with Session(get_engine()) as session:
         summaries = session.exec(select(Summary)).all()
         changed = False
         for summary in summaries:
             content = strip_thinking_blocks(summary.content)
-            generated = (
+            generated_before_tasks = (
                 strip_thinking_blocks(summary.generated_content)
                 if summary.generated_content is not None
                 else None
             )
+            generated = (
+                strip_legacy_summary_task_append(generated_before_tasks)
+                if generated_before_tasks is not None
+                else None
+            )
+            if generated_before_tasks is not None and generated != generated_before_tasks:
+                legacy_suffix = generated_before_tasks[len(generated) :].strip()
+                if legacy_suffix and content.rstrip().endswith(legacy_suffix):
+                    content = content.rstrip()[: -len(legacy_suffix)].rstrip()
             if content == summary.content and generated == summary.generated_content:
                 continue
             summary.content = content

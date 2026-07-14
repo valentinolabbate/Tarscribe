@@ -82,13 +82,32 @@ function groupWords(words: LiveWord[]): UtteranceGroup[] {
   return groups;
 }
 
+function groupWordsByTime(words: LiveWord[]): UtteranceGroup[] {
+  const groups: UtteranceGroup[] = [];
+  for (const word of words) {
+    const last = groups[groups.length - 1];
+    const groupStart = last?.words[0]?.start ?? word.start;
+    const previousText = last?.words[last.words.length - 1]?.text.trimEnd() ?? "";
+    const sentenceBreak = /[.!?]$/.test(previousText) && word.start - groupStart >= 4;
+    if (!last || word.start - groupStart >= 12 || sentenceBreak) {
+      groups.push({ speakerId: null, words: [word], hasProvisional: !word.is_final });
+    } else {
+      last.words.push(word);
+      if (!word.is_final) last.hasProvisional = true;
+    }
+  }
+  return groups;
+}
+
 function LiveTranscript({
   snapshot,
   speakers,
+  showSpeakers,
   bodyRef,
 }: {
   snapshot: LiveTranscriptSnapshot | null;
   speakers: LiveSpeaker[];
+  showSpeakers: boolean;
   bodyRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const [autoScroll, setAutoScroll] = useState(true);
@@ -122,7 +141,7 @@ function LiveTranscript({
     );
   }
 
-  const groups = groupWords(snapshot.words);
+  const groups = showSpeakers ? groupWords(snapshot.words) : groupWordsByTime(snapshot.words);
   const speakerMap = new Map(speakers.map((s) => [s.id, s]));
 
   return (
@@ -142,7 +161,9 @@ function LiveTranscript({
       <div className="live-transcript">
         {groups.map((grp, i) => {
           const sp = grp.speakerId ? speakerMap.get(grp.speakerId) : null;
-          const name = sp?.display_name ?? (grp.speakerId ? "Unbekannt" : "");
+          const name = showSpeakers
+            ? sp?.display_name ?? (grp.speakerId ? "Unbekannt" : "")
+            : fmt(grp.words[0]?.start ?? 0);
           // trimStart: faster-whisper prefixes words with a space; the first word of
           // a new group would otherwise render with a leading blank.
           const text = grp.words.map((w) => w.text).join("").trimStart();
@@ -178,6 +199,7 @@ interface Props {
   elapsed: number;
   state: "starting" | "recording" | "paused" | "saving" | "transcribing";
   handle: LiveRecordingHandle | null;
+  showLiveSpeakers: boolean;
   finalTranscriptionJob: {
     jobId: number;
     progress: number;
@@ -194,6 +216,7 @@ export function LiveRecordingDetail({
   elapsed,
   state,
   handle,
+  showLiveSpeakers,
   finalTranscriptionJob,
   onPause,
   onResume,
@@ -202,6 +225,7 @@ export function LiveRecordingDetail({
   const isActive = state === "recording" || state === "paused";
   const bodyRef = useRef<HTMLDivElement>(null);
   const transcriptSnapshot = handle?.transcriptSnapshot ?? null;
+  const showSpeakers = transcriptSnapshot?.speaker_detection_enabled ?? showLiveSpeakers;
   const speakerSnapshot = handle?.speakerSnapshot ?? null;
   const activeSpeakerIds = new Set(
     (transcriptSnapshot?.words ?? [])
@@ -251,7 +275,7 @@ export function LiveRecordingDetail({
             hasError={handle.hasUploadError}
             receivedSec={handle.receivedDurationSec}
           />
-          {handle.degraded && (
+          {handle.degraded && showSpeakers && (
             <span className="live-degraded-badge" title={handle.degradedReason ?? undefined}>
               {handle.degradedReason === "no_hf_token"
                 ? "Kein HF-Token — Sprechererkennung deaktiviert"
@@ -277,12 +301,13 @@ export function LiveRecordingDetail({
         </div>
       )}
 
-      <SpeakerChips snapshot={visibleSpeakerSnapshot} />
+      {showSpeakers && <SpeakerChips snapshot={visibleSpeakerSnapshot} />}
 
       <div className="live-detail-body" ref={bodyRef}>
         <LiveTranscript
           snapshot={transcriptSnapshot}
-          speakers={visibleSpeakers}
+          speakers={showSpeakers ? visibleSpeakers : []}
+          showSpeakers={showSpeakers}
           bodyRef={bodyRef}
         />
       </div>

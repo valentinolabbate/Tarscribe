@@ -4,6 +4,7 @@ import { AudioPlayer, type PlayerHandle } from "./AudioPlayer";
 import {
   useDiarization,
   useDiarize,
+  useRecordingActionItems,
   useSpeakerEdits,
   useLatestJob,
   useRetryJob,
@@ -17,6 +18,7 @@ import { api } from "../lib/api";
 import type { Recording, Topic } from "../lib/types";
 import { useToast } from "./Toast";
 import { ChaptersBar } from "./ChaptersBar";
+import { MeetingTimeline } from "./MeetingTimeline";
 import { AskWorkspace } from "./recording-detail/AskWorkspace";
 import { DetailEmptyState } from "./recording-detail/DetailEmptyState";
 import { DetailTabs } from "./recording-detail/DetailTabs";
@@ -61,6 +63,7 @@ export function RecordingDetail({
   const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, isTranscribed);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
   const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
+  const { data: actionItems } = useRecordingActionItems(recording.id, isTranscribed && !!transcript);
   const transcriptPending = isTranscribed && transcriptLoading;
   const [showTuning, setShowTuning] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("transcript");
@@ -97,6 +100,7 @@ export function RecordingDetail({
       : null;
   const labels = diar?.speakers.map((s) => s.label) ?? [];
   const summaryCount = summaries?.filter((summary) => summary.content).length ?? 0;
+  const timelineCount = actionItems?.filter((item) => item.review_state !== "rejected").length ?? 0;
   const wordCount = transcript?.words.length ?? 0;
   const wordLabel = `${wordCount} ${wordCount === 1 ? "Wort" : "Wörter"}`;
   const transcriptMeta = diar
@@ -109,6 +113,11 @@ export function RecordingDetail({
     () => [
       { id: "transcript" as const, label: "Transkript", meta: transcript ? wordLabel : "" },
       {
+        id: "timeline" as const,
+        label: "Zeitstrahl",
+        meta: timelineCount ? `${timelineCount}` : "",
+      },
+      {
         id: "summary" as const,
         label: "Zusammenfassung",
         meta: summaryCount > 0 ? `${summaryCount}` : "",
@@ -120,7 +129,7 @@ export function RecordingDetail({
         meta: diar ? `${diar.speakers.length}` : "",
       },
     ],
-    [diar, summaryCount, transcriptMeta],
+    [diar, summaryCount, timelineCount, transcriptMeta],
   );
 
   async function exportRecording(format: string) {
@@ -282,6 +291,20 @@ export function RecordingDetail({
               />
             )}
 
+            {activeTab === "timeline" && (
+              <MeetingTimeline
+                recordingId={recording.id}
+                diarization={diar}
+                currentTime={currentTime}
+                playing={playing}
+                onSeek={(seconds) => playerRef.current?.seek(seconds)}
+                onOpenTranscript={(seconds) => {
+                  setActiveTab("transcript");
+                  requestAnimationFrame(() => playerRef.current?.seek(seconds));
+                }}
+              />
+            )}
+
             {activeTab === "summary" && (
               <SummaryWorkspace
                 recordingId={recording.id}
@@ -290,6 +313,7 @@ export function RecordingDetail({
                 playerRef={playerRef}
                 onOpenRecording={onOpenRecording}
                 onOpenDocument={onOpenDocument}
+                onOpenTimeline={() => setActiveTab("timeline")}
               />
             )}
 

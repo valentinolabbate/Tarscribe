@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+import math
 import re
 import threading
 import time
@@ -391,6 +392,10 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         _maybe_postprocess_dictation(recording_id)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
+        try:
+            maybe_enqueue_action_items(recording_id)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     except JobCanceled:
         _update_job(job_id, status=JobStatus.canceled)
         _set_recording_status_after_cancel(recording_id)
@@ -614,7 +619,9 @@ def _format_topic_knowledge(hits: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
+def _replace_action_items(
+    recording_id: int, items: list[dict], *, replace_existing: bool = True
+) -> list[dict]:
     from . import analysis
     from .calendar_sync import sync_action_item
 
@@ -623,6 +630,8 @@ def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
         old = s.exec(
             select(ActionItem).where(ActionItem.recording_id == recording_id)
         ).all()
+        if old and not replace_existing:
+            return []
         old_by_text = {analysis._norm_text(item.text): item for item in old}
         for item in old:
             s.delete(item)
@@ -681,6 +690,48 @@ def _source_quote_position(transcript: str, quote: str) -> float | None:
         hours, minutes, seconds = (int(match.group(i)) for i in range(1, 4))
         return float(hours * 3600 + minutes * 60 + seconds)
     return None
+
+
+def _word_source_quote_position(
+    recording_id: int,
+    quote: str,
+    hint: float | None = None,
+) -> float | None:
+    quote_tokens = re.findall(r"\w+", quote.casefold())
+    if len(" ".join(quote_tokens)) < 8:
+        return None
+    with session_scope() as session:
+        transcript = session.exec(
+            select(Transcript)
+            .where(Transcript.recording_id == recording_id)
+            .order_by(Transcript.created_at.desc(), Transcript.id.desc())
+        ).first()
+        if not transcript:
+            return None
+        words = session.exec(
+            select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
+        ).all()
+        word_parts = [(word.start, word.text) for word in words]
+
+    tokens: list[tuple[str, float]] = []
+    for start, text in word_parts:
+        tokens.extend((token, start) for token in re.findall(r"\w+", text.casefold()))
+    candidates = [
+        tokens[index][1]
+        for index in range(len(tokens) - len(quote_tokens) + 1)
+        if [token for token, _start in tokens[index : index + len(quote_tokens)]]
+        == quote_tokens
+    ]
+    if not candidates:
+        return None
+    if hint is not None:
+        try:
+            parsed_hint = float(hint)
+        except (TypeError, ValueError):
+            parsed_hint = None
+        if parsed_hint is not None and math.isfinite(parsed_hint):
+            return min(candidates, key=lambda start: abs(start - parsed_hint))
+    return candidates[0]
 
 
 def _memory_enrichment_candidates(session, recording_id: int | None = None) -> list[ActionItem]:
@@ -799,7 +850,15 @@ async def _run_memory_enrichment_async(run_id: int) -> None:
                     for item in _memory_enrichment_candidates(session, recording_id):
                         result = result_by_id.get(item.id)
                         quote = str((result or {}).get("source_quote") or item.source_quote or "")
-                        position = _source_quote_position(transcript, quote) if quote else None
+                        position = (
+                            _word_source_quote_position(
+                                recording_id,
+                                quote,
+                                item.source_start_sec,
+                            )
+                            if quote
+                            else None
+                        )
                         if position is not None:
                             if not item.source_quote:
                                 item.source_quote = quote
@@ -870,26 +929,6 @@ def enqueue_memory_enrichment(*, retry_no_match: bool = False) -> int:
     return run_id
 
 
-def _format_summary_tasks(items: list[dict]) -> str:
-    tasks = [item for item in items if item.get("kind") == "task"]
-    if not tasks:
-        return ""
-    lines = ["## Aufgaben", ""]
-    for item in tasks:
-        text = " ".join(str(item.get("text") or "").split())
-        details = []
-        if item.get("assignee"):
-            details.append(str(item["assignee"]).strip())
-        if item.get("due"):
-            details.append(str(item["due"]).strip())
-        elif item.get("due_date"):
-            details.append(str(item["due_date"]).strip())
-        suffix = f" — {', '.join(details)}" if details else ""
-        checked = "x" if item.get("done") else " "
-        lines.append(f"- [{checked}] {text}{suffix}")
-    return "\n".join(lines)
-
-
 def _summary_clarification_block(clarification: str | None) -> str:
     text = (clarification or "").strip()
     if not text:
@@ -947,21 +986,6 @@ async def _run_summary_async(
             tpl_system = tpl.system_prompt
             tpl_user = tpl.user_prompt_template
             text, speakers = _assemble_transcript(s, recording_id)
-            stored_action_items = [
-                {
-                    "kind": item.kind,
-                    "text": item.text,
-                    "assignee": item.assignee,
-                    "due": item.due,
-                    "due_date": item.due_date,
-                    "done": item.done,
-                }
-                for item in s.exec(
-                    select(ActionItem)
-                    .where(ActionItem.recording_id == recording_id)
-                    .order_by(ActionItem.id)
-                ).all()
-            ]
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")
 
@@ -998,7 +1022,6 @@ async def _run_summary_async(
             return content
 
         clarification_block = _summary_clarification_block(clarification)
-        task_block = _format_summary_tasks(stored_action_items)
 
         chunks = L.chunk_text(text, size=chunk_size)
         if len(chunks) > 1:
@@ -1040,8 +1063,8 @@ async def _run_summary_async(
         system_prompt = tpl_system or "Du bist ein hilfreicher Assistent."
         system_prompt += (
             "\n\nErstelle, ergänze und formuliere keine Aufgaben, To-dos oder nächsten Schritte. "
-            "Aufgaben werden außerhalb dieses Modells separat extrahiert und nachträglich "
-            "unverändert an die Zusammenfassung angehängt. Gib ausschließlich die fertige "
+            "Aufgaben werden separat extrahiert und ausschließlich im Zeitstrahl geführt. "
+            "Gib ausschließlich die fertige "
             "Zusammenfassung aus, ohne Analyse, internes Reasoning oder Think-Tags."
         )
 
@@ -1160,19 +1183,7 @@ async def _run_summary_async(
                 {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": delta, "done": False}
             )
 
-        task_delta = ("\n\n" if acc.strip() else "") + task_block if task_block else ""
-        acc += task_delta
         _finalize_summary_content(summary_id, acc, model)
-        if task_delta:
-            hub.broadcast(
-                {
-                    "type": "summary",
-                    "recording_id": recording_id,
-                    "summary_id": summary_id,
-                    "delta": task_delta,
-                    "done": False,
-                }
-            )
         hub.broadcast(
             {"type": "summary", "recording_id": recording_id, "summary_id": summary_id, "delta": "", "done": True}
         )
@@ -1253,13 +1264,21 @@ def _llm_chat_fn_async(use_case: LlmUseCase = "summaries"):
 
 
 def _run_action_items(
-    recording_id: int, job_id: int, clarification: str | None = None
+    recording_id: int,
+    job_id: int,
+    clarification: str | None = None,
+    replace_existing: bool = True,
 ) -> None:
-    asyncio.run(_run_action_items_async(recording_id, job_id, clarification))
+    asyncio.run(
+        _run_action_items_async(recording_id, job_id, clarification, replace_existing)
+    )
 
 
 async def _run_action_items_async(
-    recording_id: int, job_id: int, clarification: str | None = None
+    recording_id: int,
+    job_id: int,
+    clarification: str | None = None,
+    replace_existing: bool = True,
 ) -> None:
     from . import agent as AG
     from . import analysis
@@ -1276,7 +1295,7 @@ async def _run_action_items_async(
             raise RuntimeError("Kein Transkript vorhanden")
 
         agent_cfg = AG.get_agent_rag_config("summaries")
-        if AG.research_active(agent_cfg):
+        if replace_existing and AG.research_active(agent_cfg):
             def _broadcast_ai(event: dict) -> None:
                 hub.broadcast({
                     "type": "agent_research",
@@ -1312,9 +1331,20 @@ async def _run_action_items_async(
             reference_date=reference_date,
             clarification=clarification,
         )
+        for item in items:
+            quote = item.get("source_quote") or ""
+            item["source_start_sec"] = (
+                _word_source_quote_position(
+                    recording_id,
+                    quote,
+                    item.get("source_start_sec"),
+                )
+                if quote
+                else None
+            )
         _raise_if_canceled(job_id)
 
-        _replace_action_items(recording_id, items)
+        _replace_action_items(recording_id, items, replace_existing=replace_existing)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
     except (JobCanceled, asyncio.CancelledError):
         _update_job(job_id, status=JobStatus.canceled)
@@ -1507,14 +1537,53 @@ async def _run_chapters_async(recording_id: int, job_id: int) -> None:
             _update_job(job_id, status=JobStatus.failed, error=str(exc))
 
 
-def enqueue_action_items(recording_id: int, clarification: str | None = None) -> int:
+def enqueue_action_items(
+    recording_id: int,
+    clarification: str | None = None,
+    *,
+    replace_existing: bool = True,
+) -> int:
     with session_scope() as s:
         job = Job(recording_id=recording_id, phase=JobPhase.action_items, status=JobStatus.pending)
         s.add(job)
         s.flush()
         job_id = job.id
-    _submit_llm_job(job_id, _run_action_items_async, recording_id, job_id, clarification)
+    _submit_llm_job(
+        job_id,
+        _run_action_items_async,
+        recording_id,
+        job_id,
+        clarification,
+        replace_existing,
+    )
     return job_id
+
+
+def maybe_enqueue_action_items(recording_id: int) -> int | None:
+    from . import llm as L
+
+    if not L.get_llm_config("summaries").get("model"):
+        return None
+    with session_scope() as session:
+        recording = session.get(Recording, recording_id)
+        if not recording or recording.kind == "dictation":
+            return None
+        if session.exec(
+            select(ActionItem.id).where(ActionItem.recording_id == recording_id)
+        ).first() is not None:
+            return None
+        if session.exec(
+            select(Job.id).where(
+                Job.recording_id == recording_id,
+                Job.phase == JobPhase.action_items,
+            )
+        ).first() is not None:
+            return None
+        if session.exec(
+            select(Transcript.id).where(Transcript.recording_id == recording_id)
+        ).first() is None:
+            return None
+    return enqueue_action_items(recording_id, replace_existing=False)
 
 
 def enqueue_chapters(recording_id: int) -> int:

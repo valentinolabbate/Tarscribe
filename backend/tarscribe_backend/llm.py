@@ -31,6 +31,11 @@ _UNCLOSED_THINK_RE = re.compile(
     r"<think(?:\s[^>]*)?>.*\Z",
     re.IGNORECASE | re.DOTALL,
 )
+_LEGACY_SUMMARY_TASK_APPEND_RE = re.compile(
+    r"(?:\r?\n){2,}## Aufgaben[ \t]*\r?\n"
+    r"(?:[ \t]*\r?\n)?"
+    r"(?:- \[[ xX]\] [^\r\n]*(?:\r?\n|$))+\s*\Z"
+)
 
 
 def strip_thinking_blocks(content: str) -> str:
@@ -40,6 +45,12 @@ def strip_thinking_blocks(content: str) -> str:
     cleaned = _THINK_BLOCK_RE.sub("", content)
     cleaned = _UNCLOSED_THINK_RE.sub("", cleaned)
     return cleaned.lstrip() if starts_with_thinking else cleaned
+
+
+def strip_legacy_summary_task_append(content: str) -> str:
+    if not content:
+        return content
+    return _LEGACY_SUMMARY_TASK_APPEND_RE.sub("", content).rstrip()
 
 
 class _ThinkingBlockFilter:

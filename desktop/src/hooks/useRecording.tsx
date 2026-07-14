@@ -41,6 +41,7 @@ interface RecordingContextValue {
   elapsed: number;
   topicId: number | null;
   topicName: string | null;
+  liveDiarizationEnabled: boolean;
   liveHandle: LiveRecordingHandle | null;
   finalTranscriptionJob: FinalTranscriptionJob | null;
   /** Set after a successful stop — App.tsx uses this to auto-open the recording detail. */
@@ -68,6 +69,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const [elapsed, setElapsed] = useState(0);
   const [topicId, setTopicId] = useState<number | null>(null);
   const [topicName, setTopicName] = useState<string | null>(null);
+  const [liveDiarizationEnabled, setLiveDiarizationEnabled] = useState(true);
   const [finalTranscriptionJob, setFinalTranscriptionJob] = useState<FinalTranscriptionJob | null>(null);
   const [lastFinishedRecording, setLastFinishedRecording] = useState<Recording | null>(null);
   const clearLastFinished = useCallback(() => setLastFinishedRecording(null), []);
@@ -122,6 +124,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       let next: Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null = null;
       try {
         const settings = await api.getSettings();
+        setLiveDiarizationEnabled(settings.live_speaker_detection_enabled);
         next = settings.recording_source === "system_audio"
           ? new NativeSystemAudioRecorder()
           : settings.recording_source === "system_audio_and_microphone"
@@ -323,7 +326,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   return (
     <RecordingContext.Provider
       value={{
-        state, elapsed, topicId, topicName, liveHandle,
+        state, elapsed, topicId, topicName, liveDiarizationEnabled, liveHandle,
         finalTranscriptionJob,
         lastFinishedRecording, clearLastFinished,
         start, pause, resume, stop, dispatchLiveEvent,

@@ -82,6 +82,9 @@ export interface AppSettings {
   recording_device_id: string;
   diarization_model: string;
   speaker_match_threshold: number;
+  live_transcription_enabled: boolean;
+  live_speaker_detection_enabled: boolean;
+  live_speaker_matching_enabled: boolean;
   /** Known-speaker id treated as "me" for the Tasks area. 0/null = unset. */
   my_speaker_id: number | null;
   llm: { provider: string; base_url: string; model: string | null };
@@ -456,6 +459,7 @@ export interface LiveWord {
 export interface LiveTranscriptSnapshot {
   revision: number;
   duration_sec: number;
+  speaker_detection_enabled?: boolean;
   words: LiveWord[];
 }
 

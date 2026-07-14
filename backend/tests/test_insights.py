@@ -460,6 +460,50 @@ def test_memory_enrichment_source_time_uses_quote_starting_line():
     assert _source_quote_position(transcript, "Ich schicke den Bericht bis Freitag.") == 36
 
 
+def test_source_quote_uses_exact_word_timestamp_instead_of_prompt_block(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.jobs import _word_source_quote_position
+    from tarscribe_backend.models import Transcript, Word
+
+    recording_id, _topic_id = _make_recording()
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=recording_id, asr_model="test")
+        session.add(transcript)
+        session.flush()
+        for index, (start, text) in enumerate(
+            [
+                (0.0, "Einleitung "),
+                (29.4, "Ich "),
+                (29.8, "schicke "),
+                (30.2, "den "),
+                (30.5, "Bericht "),
+                (31.0, "bis "),
+                (31.3, "Freitag."),
+            ]
+        ):
+            session.add(
+                Word(
+                    transcript_id=transcript.id,
+                    idx=index,
+                    start=start,
+                    end=start + 0.3,
+                    text=text,
+                )
+            )
+        session.commit()
+
+    assert (
+        _word_source_quote_position(
+            recording_id,
+            "Ich schicke den Bericht bis Freitag.",
+            hint=24,
+        )
+        == 29.4
+    )
+
+
 def test_memory_item_marks_direct_and_recording_involvement():
     from tarscribe_backend.models import ActionItem
     from tarscribe_backend.routers.insights import _item_dict
@@ -547,7 +591,7 @@ def test_extract_endpoint_forwards_optional_clarification(client, monkeypatch):
     )
 
     assert r.status_code == 200
-    assert submitted[0][-1] == "Das Produkt heißt Tarscribe."
+    assert submitted[0][-2:] == ("Das Produkt heißt Tarscribe.", True)
 
 
 def test_run_action_items_persists_llm_due_date(client, monkeypatch):

@@ -136,6 +136,7 @@ export function useJobSocket(onLive?: (e: LiveEvent) => void) {
             emit();
             if (e.status === "done" || e.status === "failed") {
               qc.invalidateQueries({ queryKey: ["recordings"] });
+              qc.invalidateQueries({ queryKey: ["jobs", "recording", e.recording_id] });
               qc.invalidateQueries({ queryKey: ["transcript", e.recording_id] });
               qc.invalidateQueries({ queryKey: ["diarization", e.recording_id] });
               if (e.phase === "action_items") {

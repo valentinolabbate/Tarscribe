@@ -56,6 +56,7 @@ export function AppContent({
         elapsed={recording.elapsed}
         state={recording.state}
         handle={recording.liveHandle}
+        showLiveSpeakers={recording.liveDiarizationEnabled}
         finalTranscriptionJob={recording.finalTranscriptionJob}
         onPause={recording.pause}
         onResume={recording.resume}
@@ -82,6 +83,7 @@ export function AppContent({
   if (openRecording) {
     return (
       <RecordingDetail
+        key={openRecording.id}
         recording={openRecording}
         topics={topics}
         onBack={onBackFromRecording}

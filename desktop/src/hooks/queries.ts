@@ -226,6 +226,22 @@ export function useLatestJob(recordingId: number, shouldPoll: boolean) {
   });
 }
 
+export function useRecordingJobs(recordingId: number, enabled = true) {
+  return useQuery({
+    queryKey: ["jobs", "recording", recordingId],
+    queryFn: () => api.getJobs(recordingId),
+    enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some(
+        (job) =>
+          job.phase === "action_items" &&
+          (job.status === "pending" || job.status === "running"),
+      )
+        ? 1000
+        : false,
+  });
+}
+
 export function useActiveJobs() {
   return useQuery({
     queryKey: ["jobs", "active"],
@@ -384,6 +400,7 @@ export function useExtractActionItems(recordingId: number) {
     onSuccess: (data) => {
       trackPendingJob(recordingId, data.job_id, "action_items");
       qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
+      qc.invalidateQueries({ queryKey: ["jobs", "recording", recordingId] });
     },
   });
 }

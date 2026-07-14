@@ -25,6 +25,9 @@ const settings: AppSettings = {
   recording_device_id: "",
   diarization_model: "pyannote/speaker-diarization-community-1",
   speaker_match_threshold: 0.5,
+  live_transcription_enabled: true,
+  live_speaker_detection_enabled: true,
+  live_speaker_matching_enabled: true,
   my_speaker_id: 1,
   llm: { provider: "ollama", base_url: "http://localhost:11434/v1", model: "llama" },
   hf_token_set: false,
@@ -108,6 +111,8 @@ describe("settings tabs", () => {
     expect(text(html)).toContain("Standard-Mikrofon");
     expect(text(html)).toContain("Studio Mic");
     expect(text(html)).toContain("Bei der Anmeldung starten");
+    expect(text(html)).toContain("Live-Diarisierung");
+    expect(text(html)).toContain("Live-Speaker-Matching");
   });
 
   it("renders the models settings tab in isolation", () => {

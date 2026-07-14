@@ -41,6 +41,7 @@ class PrefsIn(BaseModel):
     my_speaker_id: int | None = None
     live_transcription_enabled: bool | None = None
     live_speaker_detection_enabled: bool | None = None
+    live_speaker_matching_enabled: bool | None = None
     llm_chunk_size: int | None = None
     summary_use_topic_knowledge: bool | None = None
     agent_rag_enabled: bool | None = None

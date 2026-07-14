@@ -43,6 +43,16 @@ def _speaker_snapshot_from_words(
     }
 
 
+def _clear_known_speaker_matches(state: object) -> None:
+    for index, cluster in enumerate(getattr(state, "clusters", {}).values(), start=1):
+        suffix = str(getattr(cluster, "id", "")).rsplit("-", 1)[-1]
+        cluster.display_name = f"Sprecher {suffix if suffix.isdigit() else index}"
+        cluster.known_speaker_id = None
+        cluster.similarity = None
+        cluster.match_status = "none"
+        cluster.consecutive_matches = 0
+
+
 class LiveAnalysisService:
     """Manages rolling ASR + diarization for the active live session."""
 
@@ -166,7 +176,10 @@ class LiveAnalysisService:
             except Exception:
                 pass
 
-        language = load_prefs().get("language")
+        prefs = load_prefs()
+        language = prefs.get("language")
+        live_diarization_enabled = prefs.get("live_speaker_detection_enabled", True)
+        live_speaker_matching_enabled = prefs.get("live_speaker_matching_enabled", True)
 
         # ── ASR ──────────────────────────────────────────────────────────
         if not asr_lock.acquire(timeout=0):
@@ -188,10 +201,18 @@ class LiveAnalysisService:
         now = time.monotonic()
         speakers_snap: dict | None = None
         should_diarize = (
-            not self._diar_degraded
+            live_diarization_enabled
+            and not self._diar_degraded
             and duration >= DIAR_MIN_AUDIO_SEC
             and now - self._last_diar_at >= DIAR_INTERVAL_SEC
         )
+
+        if not live_diarization_enabled:
+            self._diar_state = None
+            self._diar_backend = None
+            self._diar_degraded = False
+            new_words = [{**word, "speaker_id": None} for word in new_words]
+            speakers_snap = {"revision": prev_spk_revision + 1, "speakers": []}
 
         if should_diarize:
             self._last_diar_at = now
@@ -203,9 +224,14 @@ class LiveAnalysisService:
 
         if self._diar_state is not None:
             from .ml.live_diarization import assign_speakers_to_words
+            if not live_speaker_matching_enabled:
+                _clear_known_speaker_matches(self._diar_state)
             new_words = assign_speakers_to_words(new_words, self._diar_state.segments)
 
-        if should_diarize and self._diar_state is not None:
+        if (
+            self._diar_state is not None
+            and (should_diarize or not live_speaker_matching_enabled)
+        ):
             speakers_snap = _speaker_snapshot_from_words(
                 self._diar_state,
                 new_words,
@@ -216,6 +242,7 @@ class LiveAnalysisService:
         transcript_snap = {
             "revision": prev_revision + 1,
             "duration_sec": round(duration, 2),
+            "speaker_detection_enabled": live_diarization_enabled,
             "words": new_words,
         }
 
@@ -251,15 +278,16 @@ class LiveAnalysisService:
         channels: int,
     ) -> object | None:
         """Run one diarization analysis. Returns updated DiarizationState or None on failure."""
-        from .ml.lifecycle import diar_lock
-        from .ml.live_diarization import DiarizationState, match_known_speakers, run_window
-        from .ml.diarization import DiarizationBackend
         from .settings_store import get_hf_token, load_prefs
-        from .performance_profiles import resolve_diarization_selection
 
         prefs = load_prefs()
         if not prefs.get("live_speaker_detection_enabled", True):
             return None
+
+        from .ml.lifecycle import diar_lock
+        from .ml.live_diarization import DiarizationState, match_known_speakers, run_window
+        from .ml.diarization import DiarizationBackend
+        from .performance_profiles import resolve_diarization_selection
 
         if self._diar_backend is None:
             token = get_hf_token()
@@ -310,7 +338,11 @@ class LiveAnalysisService:
 
         # Known-speaker matching (best-effort, same diar_lock is released above).
         try:
+            if not prefs.get("live_speaker_matching_enabled", True):
+                _clear_known_speaker_matches(state)
+                return state
             if not diarization_selection.get("speaker_matching_enabled", True):
+                _clear_known_speaker_matches(state)
                 return state
             threshold = float(prefs.get("speaker_match_threshold", 0.5))
             with session_scope() as s:

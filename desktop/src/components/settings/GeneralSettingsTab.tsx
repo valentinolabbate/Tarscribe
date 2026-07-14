@@ -122,6 +122,45 @@ export function GeneralSettingsTab({
         </select>
       </div>
 
+      <div className="field">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={settings.live_speaker_detection_enabled}
+            onChange={(event) => {
+              const live_speaker_detection_enabled = event.target.checked;
+              setSettings({ ...settings, live_speaker_detection_enabled });
+              api.updateSettings({ live_speaker_detection_enabled });
+            }}
+          />
+          <span>Live-Diarisierung</span>
+        </label>
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          Trennt Sprecher schon während der Aufnahme. Ausgeschaltet zeigt die Live-Ansicht
+          nur Zeitmarken und Transkripttext; die Verarbeitung nach der Aufnahme bleibt unverändert.
+        </div>
+      </div>
+
+      <div className="field">
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={settings.live_speaker_matching_enabled}
+            disabled={!settings.live_speaker_detection_enabled}
+            onChange={(event) => {
+              const live_speaker_matching_enabled = event.target.checked;
+              setSettings({ ...settings, live_speaker_matching_enabled });
+              api.updateSettings({ live_speaker_matching_enabled });
+            }}
+          />
+          <span>Live-Speaker-Matching</span>
+        </label>
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          Ordnet live getrennte Stimmen bekannten Personen zu. Benötigt Live-Diarisierung;
+          deine Auswahl bleibt gespeichert, wenn diese vorübergehend ausgeschaltet ist.
+        </div>
+      </div>
+
       <div className="settings-section-title">
         <span>Kurzbefehle</span>
       </div>

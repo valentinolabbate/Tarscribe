@@ -9,7 +9,7 @@ import threading
 import time
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 
 @pytest.fixture()
@@ -122,6 +122,72 @@ def test_llm_jobs_do_not_use_cpu_executor(db_env, monkeypatch):
         "_run_chapters_async",
         "_run_summary_async",
     ]
+
+
+def test_automatic_action_item_analysis_queues_once(db_env, monkeypatch):
+    import tarscribe_backend.jobs as jobs
+    import tarscribe_backend.llm as llm
+    from tarscribe_backend.models import Job, JobPhase, JobStatus, Transcript, Word
+
+    recording_id = _recording(db_env)
+    with Session(db_env.get_engine()) as session:
+        transcript = Transcript(recording_id=recording_id, asr_model="test")
+        session.add(transcript)
+        session.flush()
+        session.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Hallo"))
+        session.commit()
+
+    queued: list[tuple[int, bool]] = []
+    monkeypatch.setattr(llm, "get_llm_config", lambda *_args: {"model": "local-test"})
+    monkeypatch.setattr(
+        jobs,
+        "enqueue_action_items",
+        lambda rec_id, **kwargs: queued.append((rec_id, kwargs["replace_existing"])) or 77,
+    )
+
+    assert jobs.maybe_enqueue_action_items(recording_id) == 77
+    assert queued == [(recording_id, False)]
+
+    with Session(db_env.get_engine()) as session:
+        session.add(
+            Job(
+                recording_id=recording_id,
+                phase=JobPhase.action_items,
+                status=JobStatus.done,
+            )
+        )
+        session.commit()
+
+    assert jobs.maybe_enqueue_action_items(recording_id) is None
+
+
+def test_automatic_action_item_persist_never_replaces_existing_items(db_env):
+    import tarscribe_backend.jobs as jobs
+    from tarscribe_backend.models import ActionItem
+
+    recording_id = _recording(db_env)
+    with Session(db_env.get_engine()) as session:
+        session.add(
+            ActionItem(
+                recording_id=recording_id,
+                kind="task",
+                text="Bestehende Aufgabe",
+                done=True,
+            )
+        )
+        session.commit()
+
+    jobs._replace_action_items(
+        recording_id,
+        [{"kind": "task", "text": "Neue automatische Aufgabe"}],
+        replace_existing=False,
+    )
+
+    with Session(db_env.get_engine()) as session:
+        stored = session.exec(
+            select(ActionItem).where(ActionItem.recording_id == recording_id)
+        ).all()
+        assert [(item.text, item.done) for item in stored] == [("Bestehende Aufgabe", True)]
 
 
 def test_embedding_job_rebuilds_semantic_threads(db_env, monkeypatch):

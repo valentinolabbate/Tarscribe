@@ -121,7 +121,7 @@ export function useRecordingFlowSteps({
         : summaryCount > 0
           ? `${summaryCount} gespeicherte Zusammenfassung${summaryCount === 1 ? "" : "en"}`
           : transcript
-            ? "Aufgaben optional prüfen, dann zusammenfassen."
+            ? "Aufgabenstatus prüfen, dann zusammenfassen."
             : "Nach dem Transkript verfügbar.",
       state: analysisActive ? "active" : summaryCount > 0 ? "done" : transcript ? "next" : "waiting",
       progress: analysisActive ? activeProgress : null,

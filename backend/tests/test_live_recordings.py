@@ -29,7 +29,6 @@ def client(monkeypatch):
     import tarscribe_backend.live_analysis as la
 
     monkeypatch.setattr(la.LiveAnalysisService, "tick", lambda self, sid: None)
-    monkeypatch.setattr(la.LiveAnalysisService, "_diarization_tick", lambda *a, **kw: None)
     la._service = None
 
     import tarscribe_backend.jobs as jobs
@@ -317,12 +316,154 @@ def test_live_transcription_enabled_flag_defaults_true(client):
     body = r.json()
     assert body["live_transcription_enabled"] is True
     assert body["live_speaker_detection_enabled"] is True
+    assert body["live_speaker_matching_enabled"] is True
 
 
 def test_live_transcription_enabled_flag_can_be_disabled(client):
     r = client.put("/api/settings", json={"live_transcription_enabled": False})
     assert r.status_code == 200
     assert r.json()["live_transcription_enabled"] is False
+
+
+def test_live_speaker_preferences_can_be_disabled_independently(client):
+    r = client.put(
+        "/api/settings",
+        json={
+            "live_speaker_detection_enabled": False,
+            "live_speaker_matching_enabled": False,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["live_speaker_detection_enabled"] is False
+    assert body["live_speaker_matching_enabled"] is False
+
+
+def test_live_diarization_tick_does_no_model_work_when_disabled(client, monkeypatch, tmp_path):
+    import tarscribe_backend.live_analysis as live_analysis
+    import tarscribe_backend.ml.live_diarization as live_diarization
+
+    client.put("/api/settings", json={"live_speaker_detection_enabled": False})
+    monkeypatch.setattr(
+        live_diarization,
+        "run_window",
+        lambda **kwargs: pytest.fail(
+            "Live-Diarisierung wurde trotz deaktivierter Option ausgeführt"
+        ),
+    )
+
+    service = live_analysis.LiveAnalysisService()
+    result = service._diarization_tick("session", tmp_path / "audio.pcm", 10, 16000, 1)
+
+    assert result is None
+
+
+def test_disabling_live_diarization_clears_active_live_speakers(client, monkeypatch):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.live_analysis as live_analysis
+    import tarscribe_backend.ml.live_asr as live_asr
+    from tarscribe_backend.models import LiveRecordingSession
+
+    topic_id = _make_topic(client)
+    sid = client.post("/api/live-recordings", json={"topic_id": topic_id}).json()["id"]
+    assert _upload_chunk(client, sid, 0, _make_pcm_chunk()).status_code == 200
+    with Session(db.get_engine()) as session:
+        live = session.get(LiveRecordingSession, sid)
+        live.speaker_snapshot_json = json.dumps(
+            {
+                "revision": 2,
+                "speakers": [
+                    {
+                        "id": "live-speaker-1",
+                        "display_name": "Valentino",
+                        "known_speaker_id": 7,
+                        "similarity": 0.91,
+                        "match_status": "probable",
+                    }
+                ],
+            }
+        )
+        session.add(live)
+        session.commit()
+
+    client.put("/api/settings", json={"live_speaker_detection_enabled": False})
+    monkeypatch.setattr(
+        live_asr,
+        "analyze_window",
+        lambda **kwargs: [
+            {
+                "id": "w1",
+                "start": 1.2,
+                "end": 1.8,
+                "text": "Hallo",
+                "confidence": 0.9,
+                "is_final": True,
+                "speaker_id": "live-speaker-1",
+            }
+        ],
+    )
+
+    service = live_analysis.LiveAnalysisService()
+    try:
+        service._analyze(sid)
+    finally:
+        service._executor.shutdown(wait=True)
+
+    live = client.get(f"/api/live-recordings/{sid}").json()
+    transcript_snapshot = json.loads(live["transcript_snapshot_json"])
+    speaker_snapshot = json.loads(live["speaker_snapshot_json"])
+    assert transcript_snapshot["speaker_detection_enabled"] is False
+    assert transcript_snapshot["words"][0]["speaker_id"] is None
+    assert speaker_snapshot["speakers"] == []
+
+
+def test_live_speaker_matching_does_no_matching_work_when_disabled(client, monkeypatch, tmp_path):
+    import tarscribe_backend.live_analysis as live_analysis
+    import tarscribe_backend.ml.live_diarization as live_diarization
+    import tarscribe_backend.ml.lifecycle as lifecycle
+
+    class LockStub:
+        def acquire(self, timeout):
+            return True
+
+        def release(self):
+            return None
+
+    client.put(
+        "/api/settings",
+        json={
+            "live_speaker_detection_enabled": True,
+            "live_speaker_matching_enabled": False,
+        },
+    )
+    state = live_diarization.DiarizationState()
+    cluster = state.new_cluster()
+    cluster.display_name = "Valentino"
+    cluster.known_speaker_id = 7
+    cluster.similarity = 0.91
+    cluster.match_status = "probable"
+    cluster.consecutive_matches = 2
+    monkeypatch.setattr(live_diarization, "run_window", lambda **kwargs: state)
+    monkeypatch.setattr(lifecycle, "diar_lock", LockStub())
+    monkeypatch.setattr(
+        live_diarization,
+        "match_known_speakers",
+        lambda **kwargs: pytest.fail(
+            "Live-Speaker-Matching wurde trotz deaktivierter Option ausgeführt"
+        ),
+    )
+
+    service = live_analysis.LiveAnalysisService()
+    service._diar_backend = type("DiarizationBackendStub", (), {"diarize": lambda *args: []})()
+    result = service._diarization_tick("session", tmp_path / "audio.pcm", 10, 16000, 1)
+
+    assert result is state
+    assert cluster.display_name == "Sprecher 1"
+    assert cluster.known_speaker_id is None
+    assert cluster.similarity is None
+    assert cluster.match_status == "none"
 
 
 def test_recording_source_defaults_to_microphone_and_accepts_native_modes(client):

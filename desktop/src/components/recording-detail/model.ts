@@ -11,7 +11,7 @@ const SPEAKER_COLORS = [
   "#4d7c0f",
 ];
 
-export type DetailTab = "transcript" | "summary" | "ask" | "speakers";
+export type DetailTab = "transcript" | "timeline" | "summary" | "ask" | "speakers";
 export type FlowStepState = "done" | "active" | "next" | "waiting" | "optional" | "error";
 
 export interface Sentence {

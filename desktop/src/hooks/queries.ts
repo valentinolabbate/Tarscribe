@@ -361,6 +361,14 @@ export function useStartMemoryEnrichment() {
   });
 }
 
+export function useRetryMemoryEnrichment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.retryMemoryEnrichment,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["memory-enrichment"] }),
+  });
+}
+
 export function useRecordingActionItems(recordingId: number, enabled = true) {
   return useQuery({
     queryKey: ["action-items", "recording", recordingId],

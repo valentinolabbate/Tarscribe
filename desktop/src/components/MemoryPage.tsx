@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useMemoryEnrichmentStatus,
   useProjectMemory,
+  useRetryMemoryEnrichment,
   useStartMemoryEnrichment,
   useUpdateActionItem,
 } from "../hooks/queries";
@@ -14,6 +15,7 @@ import {
   MemoryIcon,
   RefreshIcon,
   SearchIcon,
+  SpeakerIdIcon,
   TasksIcon,
 } from "./icons";
 
@@ -327,6 +329,7 @@ function MemoryEnrichmentPanel() {
   const queryClient = useQueryClient();
   const { data: status, isLoading } = useMemoryEnrichmentStatus();
   const start = useStartMemoryEnrichment();
+  const retry = useRetryMemoryEnrichment();
   const run = status?.latest_run;
   const active = run?.status === "pending" || run?.status === "running";
   const terminal = run?.status === "done" || run?.status === "partial" || run?.status === "failed";
@@ -336,7 +339,7 @@ function MemoryEnrichmentPanel() {
   }, [queryClient, run?.id, terminal]);
 
   if (isLoading || !status) return null;
-  if (!status.eligible_items && !active && !run) return null;
+  if (!status.restartable_items && !active && !run) return null;
 
   if (active && run) {
     const percent = Math.round(Math.max(0, Math.min(1, run.progress)) * 100);
@@ -359,25 +362,28 @@ function MemoryEnrichmentPanel() {
     );
   }
 
-  if (status.eligible_items > 0) {
+  if (status.restartable_items > 0) {
+    const isRestart = status.retryable_items > 0;
+    const action = isRestart ? retry : start;
     return (
       <section className="memory-enrichment ready">
         <div className="memory-enrichment-icon"><MemoryIcon width={21} height={21} /></div>
         <div className="memory-enrichment-copy">
-          <span className="page-kicker">Altbestand integrieren</span>
+          <span className="page-kicker">{isRestart ? "Altbestand erneut prüfen" : "Altbestand integrieren"}</span>
           <h3>
-            {status.eligible_items} {status.eligible_items === 1 ? "bestehender Eintrag braucht" : "bestehende Einträge brauchen"} eine Belegspur
+            {status.restartable_items} {status.restartable_items === 1 ? "bestehender Eintrag braucht" : "bestehende Einträge brauchen"} eine Belegspur
           </h3>
           <p>
-            Ein spezieller Abgleich ergänzt nur Zitat, Zeitmarke und Empfänger. Erledigt-Status,
-            Text, Frist und manuelle Änderungen bleiben erhalten.
+            {isRestart
+              ? "Der Neustart prüft nur weiterhin unbelegte Einträge. Bereits gefundene Belege und jeder Aufgabenfortschritt bleiben erhalten."
+              : "Ein spezieller Abgleich ergänzt nur Zitat, Zeitmarke und Empfänger. Erledigt-Status, Text, Frist und manuelle Änderungen bleiben erhalten."}
           </p>
           {run?.status === "failed" && <span className="memory-enrichment-error">{run.error || "Der letzte Lauf ist fehlgeschlagen."}</span>}
         </div>
         <div className="memory-enrichment-cta">
-          <span>{status.eligible_recordings} {status.eligible_recordings === 1 ? "Aufnahme" : "Aufnahmen"}</span>
-          <button className="btn primary" disabled={start.isPending} onClick={() => start.mutate()}>
-            {start.isPending ? "Wird vorbereitet…" : "Jetzt anreichern"}
+          <span>{status.restartable_recordings} {status.restartable_recordings === 1 ? "Aufnahme" : "Aufnahmen"}</span>
+          <button className="btn primary" disabled={action.isPending} onClick={() => action.mutate()}>
+            {action.isPending ? "Wird vorbereitet…" : isRestart ? "Erneut starten" : "Jetzt anreichern"}
           </button>
         </div>
       </section>
@@ -421,10 +427,12 @@ export function MemoryPage({
   const [radarFilter, setRadarFilter] = useState<RadarFilter>("attention");
   const [topicId, setTopicId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [involvementOnly, setInvolvementOnly] = useState(true);
 
   const updateItem = (id: number, patch: MemoryPatch) => update.mutate({ id, patch });
   const normalizedSearch = search.trim().toLocaleLowerCase("de-DE");
   const topicMatches = (item: ActionItem) => topicId == null || item.topic_id === topicId;
+  const involvementMatches = (item: ActionItem) => !involvementOnly || item.is_involved;
   const searchMatches = (item: ActionItem) =>
     !normalizedSearch ||
     [item.text, item.assignee, item.recipient, item.topic_name, item.source_quote]
@@ -434,6 +442,7 @@ export function MemoryPage({
   const commitments = useMemo(() => {
     const items = (memory?.commitments ?? [])
       .filter(topicMatches)
+      .filter(involvementMatches)
       .filter(searchMatches)
       .filter((item) => {
         if (radarFilter === "all") return true;
@@ -445,21 +454,25 @@ export function MemoryPage({
         );
       });
     return items.sort((a, b) => priority(a) - priority(b) || (a.due_date ?? "9").localeCompare(b.due_date ?? "9"));
-  }, [memory, normalizedSearch, radarFilter, topicId]);
+  }, [involvementOnly, memory, normalizedSearch, radarFilter, topicId]);
 
   const decisions = useMemo(
     () => (memory?.decisions ?? [])
       .filter(topicMatches)
+      .filter(involvementMatches)
       .filter(searchMatches)
       .sort((a, b) =>
         (b.recording_created_at ?? b.created_at).localeCompare(a.recording_created_at ?? a.created_at),
       ),
-    [memory, normalizedSearch, topicId],
+    [involvementOnly, memory, normalizedSearch, topicId],
   );
 
   const archived = useMemo(
-    () => (memory?.rejected ?? []).filter(topicMatches).filter(searchMatches),
-    [memory, normalizedSearch, topicId],
+    () => (memory?.rejected ?? [])
+      .filter(topicMatches)
+      .filter(involvementMatches)
+      .filter(searchMatches),
+    [involvementOnly, memory, normalizedSearch, topicId],
   );
 
   if (isLoading) return <div className="memory-empty">Projektgedächtnis wird aufgebaut…</div>;
@@ -517,6 +530,14 @@ export function MemoryPage({
           <SearchIcon width={14} height={14} />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Zusagen und Entscheidungen durchsuchen" />
         </label>
+        <button
+          type="button"
+          className={`memory-involvement-filter ${involvementOnly ? "active" : ""}`}
+          aria-pressed={involvementOnly}
+          onClick={() => setInvolvementOnly((value) => !value)}
+        >
+          <SpeakerIdIcon width={15} height={15} /> Eigene Involvierung
+        </button>
         <label>
           <span>Bereich</span>
           <select value={topicId ?? ""} onChange={(event) => setTopicId(event.target.value ? Number(event.target.value) : null)}>

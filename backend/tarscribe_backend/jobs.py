@@ -692,6 +692,28 @@ def _memory_enrichment_candidates(session, recording_id: int | None = None) -> l
     return list(session.exec(stmt.order_by(ActionItem.recording_id, ActionItem.id)).all())
 
 
+def _memory_enrichment_retry_candidates(
+    session, recording_id: int | None = None
+) -> list[ActionItem]:
+    stmt = select(ActionItem).where(
+        ActionItem.enrichment_state == "no_match",
+        (ActionItem.source_quote == None) | (ActionItem.source_start_sec == None),  # noqa: E711
+    )
+    if recording_id is not None:
+        stmt = stmt.where(ActionItem.recording_id == recording_id)
+    return list(session.exec(stmt.order_by(ActionItem.recording_id, ActionItem.id)).all())
+
+
+def _reset_memory_enrichment_retry_candidates(session) -> list[ActionItem]:
+    items = _memory_enrichment_retry_candidates(session)
+    for item in items:
+        item.enrichment_state = "pending"
+        item.enriched_at = None
+        session.add(item)
+    session.flush()
+    return items
+
+
 def _update_memory_enrichment_run(run_id: int, **changes) -> None:
     with session_scope() as session:
         run = session.get(MemoryEnrichmentRun, run_id)
@@ -820,7 +842,7 @@ async def _run_memory_enrichment_async(run_id: int) -> None:
         _update_memory_enrichment_run(run_id, status="failed", error=str(exc))
 
 
-def enqueue_memory_enrichment() -> int:
+def enqueue_memory_enrichment(*, retry_no_match: bool = False) -> int:
     with session_scope() as session:
         active = session.exec(
             select(MemoryEnrichmentRun)
@@ -829,6 +851,8 @@ def enqueue_memory_enrichment() -> int:
         ).first()
         if active:
             return active.id
+        if retry_no_match:
+            _reset_memory_enrichment_retry_candidates(session)
         candidates = _memory_enrichment_candidates(session)
         total_items = len(candidates)
         run = MemoryEnrichmentRun(

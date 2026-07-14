@@ -628,6 +628,7 @@ export interface ActionItem {
   done: boolean;
   /** Assigned to the configured "me" speaker (computed server-side). */
   is_mine: boolean;
+  is_involved: boolean;
   /** Explicitly pinned into the global Tasks area despite not being "mine". */
   include_in_tasks: boolean;
   calendar_status: "idle" | "pending_approval" | "synced" | "skipped" | "failed" | "not_configured";
@@ -675,6 +676,9 @@ export interface MemoryEnrichmentRun {
 export interface MemoryEnrichmentStatus {
   eligible_items: number;
   eligible_recordings: number;
+  retryable_items: number;
+  restartable_items: number;
+  restartable_recordings: number;
   latest_run: MemoryEnrichmentRun | null;
   preserved_fields: string[];
 }

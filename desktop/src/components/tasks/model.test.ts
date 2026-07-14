@@ -30,6 +30,7 @@ function item(id: number, patch: Partial<ActionItem> = {}): ActionItem {
     attention_flags: [],
     done: false,
     is_mine: true,
+    is_involved: true,
     include_in_tasks: false,
     calendar_status: "idle",
     calendar_error: null,

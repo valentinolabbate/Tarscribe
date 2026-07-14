@@ -351,6 +351,8 @@ async def test_memory_enrichment_preserves_existing_item_state(client, monkeypat
     status = client.get("/api/memory/enrichment")
     assert status.status_code == 200
     assert status.json()["eligible_items"] == 0
+    assert status.json()["retryable_items"] == 0
+    assert status.json()["restartable_items"] == 0
     assert "done" in status.json()["preserved_fields"]
 
 
@@ -363,6 +365,60 @@ def test_memory_enrichment_start_without_candidates_finishes_immediately(client)
     assert run["progress"] == 1.0
 
 
+def test_memory_enrichment_retry_resets_only_unmatched_metadata(client, monkeypatch):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    from tarscribe_backend.models import ActionItem, MemoryEnrichmentRun
+
+    rec_id, _ = _make_recording()
+    with Session(db.get_engine()) as session:
+        item = ActionItem(
+            recording_id=rec_id,
+            kind="task",
+            text="Bericht verschicken",
+            assignee="Anna",
+            due_date="2026-07-17",
+            done=True,
+            enrichment_state="no_match",
+        )
+        run = MemoryEnrichmentRun(status="done", total_recordings=1, total_items=1)
+        session.add(item)
+        session.add(run)
+        session.commit()
+        item_id = item.id
+        run_id = run.id
+
+    status = client.get("/api/memory/enrichment").json()
+    assert status["eligible_items"] == 0
+    assert status["retryable_items"] == 1
+    assert status["restartable_items"] == 1
+    assert status["restartable_recordings"] == 1
+
+    with Session(db.get_engine()) as session:
+        reset = jobs._reset_memory_enrichment_retry_candidates(session)
+        session.commit()
+        assert [candidate.id for candidate in reset] == [item_id]
+        stored = session.get(ActionItem, item_id)
+        assert stored.enrichment_state == "pending"
+        assert stored.text == "Bericht verschicken"
+        assert stored.assignee == "Anna"
+        assert stored.due_date == "2026-07-17"
+        assert stored.done is True
+
+    called = {}
+
+    def fake_enqueue(*, retry_no_match=False):
+        called["retry_no_match"] = retry_no_match
+        return run_id
+
+    monkeypatch.setattr(jobs, "enqueue_memory_enrichment", fake_enqueue)
+    response = client.post("/api/memory/enrichment/retry")
+    assert response.status_code == 200
+    assert called == {"retry_no_match": True}
+
+
 def test_memory_enrichment_source_time_uses_quote_starting_line():
     from tarscribe_backend.jobs import _source_quote_position
 
@@ -371,6 +427,30 @@ def test_memory_enrichment_source_time_uses_quote_starting_line():
         "[00:00:36] Transkript: Ich schicke den Bericht bis Freitag."
     )
     assert _source_quote_position(transcript, "Ich schicke den Bericht bis Freitag.") == 36
+
+
+def test_memory_item_marks_direct_and_recording_involvement():
+    from tarscribe_backend.models import ActionItem
+    from tarscribe_backend.routers.insights import _item_dict
+
+    recipient_item = ActionItem(
+        recording_id=7,
+        kind="task",
+        text="Bericht senden",
+        assignee="Anna",
+        recipient="Valentino",
+    )
+    recipient_payload = _item_dict(recipient_item, my_name="Valentino L'Abbate")
+    assert recipient_payload["is_mine"] is False
+    assert recipient_payload["is_involved"] is True
+
+    decision = ActionItem(recording_id=8, kind="decision", text="Beta startet")
+    decision_payload = _item_dict(
+        decision,
+        my_name="Valentino L'Abbate",
+        involved_recording_ids={8},
+    )
+    assert decision_payload["is_involved"] is True
 
 
 def test_action_items_mine_flagging_and_import(client):

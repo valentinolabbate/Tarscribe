@@ -76,6 +76,23 @@ def my_speaker_name(session: Session) -> str | None:
     return sp.name if sp else None
 
 
+def my_involved_recording_ids(session: Session) -> set[int]:
+    sid = load_prefs().get("my_speaker_id") or None
+    if not sid:
+        return set()
+    try:
+        speaker_id = int(sid)
+    except (TypeError, ValueError):
+        return set()
+    return set(
+        session.exec(
+            select(SpeakerLabel.recording_id).where(
+                SpeakerLabel.known_speaker_id == speaker_id
+            )
+        ).all()
+    )
+
+
 def _is_mine(assignee: str | None, my_name: str | None) -> bool:
     """Whether an action item's assignee refers to the configured "me" speaker.
 
@@ -102,6 +119,7 @@ def _item_dict(
     rec: Recording | None = None,
     topic: Topic | None = None,
     my_name: str | None = None,
+    involved_recording_ids: set[int] | None = None,
 ) -> dict:
     attention_flags: list[str] = []
     today = datetime.now(timezone.utc).date()
@@ -125,6 +143,12 @@ def _item_dict(
                     attention_flags.append("due_soon")
             except ValueError:
                 attention_flags.append("missing_due")
+    is_mine = _is_mine(item.assignee, my_name)
+    is_involved = (
+        is_mine
+        or _is_mine(item.recipient, my_name)
+        or item.recording_id in (involved_recording_ids or set())
+    )
     return {
         "id": item.id,
         "recording_id": item.recording_id,
@@ -150,7 +174,8 @@ def _item_dict(
         "calendar_exported_at": item.calendar_exported_at.isoformat()
         if item.calendar_exported_at
         else None,
-        "is_mine": _is_mine(item.assignee, my_name),
+        "is_mine": is_mine,
+        "is_involved": is_involved,
         "created_at": item.created_at.isoformat(),
         "updated_at": (item.updated_at or item.created_at).isoformat(),
         "recording_title": rec.title if rec else None,
@@ -220,7 +245,11 @@ def get_project_memory(session: Session = Depends(get_session)) -> dict:
         .order_by(Recording.created_at.desc(), ActionItem.id.desc())
     ).all()
     my_name = my_speaker_name(session)
-    items = [_item_dict(item, rec, topic, my_name) for item, rec, topic in rows]
+    involved_recording_ids = my_involved_recording_ids(session)
+    items = [
+        _item_dict(item, rec, topic, my_name, involved_recording_ids)
+        for item, rec, topic in rows
+    ]
     visible = [item for item in items if item["review_state"] != "rejected"]
     commitments = [item for item in visible if item["kind"] == "task"]
     decisions = [item for item in visible if item["kind"] == "decision"]
@@ -274,15 +303,20 @@ def _enrichment_run_dict(run: MemoryEnrichmentRun | None) -> dict | None:
 
 @router.get("/memory/enrichment")
 def get_memory_enrichment_status(session: Session = Depends(get_session)) -> dict:
-    from ..jobs import _memory_enrichment_candidates
+    from ..jobs import _memory_enrichment_candidates, _memory_enrichment_retry_candidates
 
     candidates = _memory_enrichment_candidates(session)
+    retry_candidates = _memory_enrichment_retry_candidates(session)
+    restart_candidates = [*candidates, *retry_candidates]
     latest = session.exec(
         select(MemoryEnrichmentRun).order_by(MemoryEnrichmentRun.id.desc())
     ).first()
     return {
         "eligible_items": len(candidates),
         "eligible_recordings": len({item.recording_id for item in candidates}),
+        "retryable_items": len(retry_candidates),
+        "restartable_items": len(restart_candidates),
+        "restartable_recordings": len({item.recording_id for item in restart_candidates}),
         "latest_run": _enrichment_run_dict(latest),
         "preserved_fields": [
             "text",
@@ -303,6 +337,15 @@ def start_memory_enrichment(session: Session = Depends(get_session)) -> dict:
     from ..jobs import enqueue_memory_enrichment
 
     run_id = enqueue_memory_enrichment()
+    run = session.get(MemoryEnrichmentRun, run_id)
+    return {"run": _enrichment_run_dict(run)}
+
+
+@router.post("/memory/enrichment/retry")
+def retry_memory_enrichment(session: Session = Depends(get_session)) -> dict:
+    from ..jobs import enqueue_memory_enrichment
+
+    run_id = enqueue_memory_enrichment(retry_no_match=True)
     run = session.get(MemoryEnrichmentRun, run_id)
     return {"run": _enrichment_run_dict(run)}
 

@@ -685,6 +685,10 @@ export const api = {
     request<{ run: MemoryEnrichmentStatus["latest_run"] }>("/api/memory/enrichment", {
       method: "POST",
     }),
+  retryMemoryEnrichment: () =>
+    request<{ run: MemoryEnrichmentStatus["latest_run"] }>("/api/memory/enrichment/retry", {
+      method: "POST",
+    }),
   updateActionItem: (
     id: number,
     patch: Partial<

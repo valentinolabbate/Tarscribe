@@ -616,10 +616,12 @@ export interface ActionItem {
   superseded_by_id: number | null;
   enrichment_state: "pending" | "complete" | "enriched" | "no_match";
   enriched_at: string | null;
+  evidence_reviewed_at: string | null;
   attention_flags: Array<
     | "needs_review"
     | "low_confidence"
     | "missing_source"
+    | "needs_evidence_review"
     | "missing_owner"
     | "missing_due"
     | "overdue"
@@ -648,6 +650,7 @@ export interface ProjectMemory {
     open_commitments: number;
     overdue_commitments: number;
     needs_review: number;
+    unsupported_tasks: number;
     current_decisions: number;
     superseded_decisions: number;
     attention_count: number;

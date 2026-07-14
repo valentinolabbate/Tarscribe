@@ -229,6 +229,7 @@ def test_project_memory_radar_and_decision_ledger(client):
 
     rec_id, _ = _make_recording()
     yesterday = (date.today() - timedelta(days=1)).isoformat()
+    later = (date.today() + timedelta(days=30)).isoformat()
     with Session(db.get_engine()) as s:
         decision = ActionItem(
             recording_id=rec_id,
@@ -254,19 +255,49 @@ def test_project_memory_radar_and_decision_ledger(client):
                 confidence=0.88,
             )
         )
+        s.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Unbelegte Aufgabe prüfen",
+                assignee="Ada",
+                due_date=later,
+                review_state="confirmed",
+                confidence=0.9,
+            )
+        )
         s.commit()
 
     response = client.get("/api/memory")
     assert response.status_code == 200
     memory = response.json()
-    assert memory["stats"]["open_commitments"] == 1
+    assert memory["stats"]["open_commitments"] == 2
     assert memory["stats"]["overdue_commitments"] == 1
     assert memory["stats"]["needs_review"] == 1
+    assert memory["stats"]["unsupported_tasks"] == 1
     assert memory["stats"]["current_decisions"] == 1
-    commitment = memory["commitments"][0]
+    commitment = next(item for item in memory["commitments"] if item["text"] == "Migration prüfen")
     assert {"overdue", "needs_review"} <= set(commitment["attention_flags"])
     assert commitment["source_start_sec"] == 120
     assert memory["decisions"][0]["source_quote"] == "Wir bleiben bei SQLite."
+
+    unsupported = next(
+        item for item in memory["commitments"] if item["text"] == "Unbelegte Aufgabe prüfen"
+    )
+    assert {"missing_source", "needs_evidence_review"} <= set(
+        unsupported["attention_flags"]
+    )
+    assert unsupported["evidence_reviewed_at"] is None
+
+    edited = client.patch(
+        f"/api/action-items/{unsupported['id']}",
+        json={"text": "Manuell geprüfte Aufgabe"},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["evidence_reviewed_at"] is not None
+    assert "missing_source" in edited.json()["attention_flags"]
+    assert "needs_evidence_review" not in edited.json()["attention_flags"]
+    assert client.get("/api/memory").json()["stats"]["unsupported_tasks"] == 0
 
 
 @pytest.mark.asyncio

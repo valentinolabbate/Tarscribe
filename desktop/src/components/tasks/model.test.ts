@@ -27,6 +27,7 @@ function item(id: number, patch: Partial<ActionItem> = {}): ActionItem {
     superseded_by_id: null,
     enrichment_state: "complete",
     enriched_at: null,
+    evidence_reviewed_at: null,
     attention_flags: [],
     done: false,
     is_mine: true,

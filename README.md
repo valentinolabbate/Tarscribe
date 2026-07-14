@@ -5,7 +5,7 @@ Zusammenfassungen und Wissenssuche über Audioinhalte. Die Audioverarbeitung lä
 Apple Silicon; optionale Chat- und Embedding-Funktionen nutzt du über frei
 konfigurierbare Anbieter oder Endpoints.
 
-**Aktueller Stand:** v0.16.1 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.17.0 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 

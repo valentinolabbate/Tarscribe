@@ -60,45 +60,48 @@ export function Sidebar({
         <SpeakerIdIcon width={16} height={16} /> Personen
       </button>
 
-      <div className="section-label">
-        <span>Bibliothek</span>
-        <button className="btn ghost" style={{ padding: 2 }} title="Neuer Themenbereich" onClick={onNewTopic}>
-          <PlusIcon width={15} height={15} />
+      <div className="sidebar-library">
+        <div className="section-label">
+          <span>Bibliothek</span>
+          <button className="btn ghost" style={{ padding: 2 }} title="Neuer Themenbereich" onClick={onNewTopic}>
+            <PlusIcon width={15} height={15} />
+          </button>
+        </div>
+
+        <div className="topic-list">
+          {topics.map((topic, index) => (
+            <TopicRow
+              key={topic.id}
+              topic={topic}
+              active={topic.id === activeTopic && !showHome && !showTasks && !showMemory && !showPeople && !showJobs}
+              canMoveUp={index > 0}
+              canMoveDown={index < topics.length - 1}
+              onSelect={() => onSelectTopic(topic.id)}
+              onMoveUp={() => onMoveTopic(topic.id, -1)}
+              onMoveDown={() => onMoveTopic(topic.id, 1)}
+            />
+          ))}
+
+          {topics.length === 0 && (
+            <button className="topic-item" onClick={onNewTopic}>
+              <PlusIcon width={15} height={15} /> Ersten Bereich anlegen
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="sidebar-footer">
+        <div className="sidebar-status" title="Audio, Transkripte und Chat bleiben auf diesem Mac.">
+          <span className="sidebar-status-dot" />
+          <strong>Lokal bereit</strong>
+        </div>
+        <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={onJobs}>
+          <ActivityIcon width={16} height={16} /> Verarbeitung
+        </button>
+        <button className="topic-item" onClick={onSettings}>
+          <SettingsIcon width={16} height={16} /> Einstellungen
         </button>
       </div>
-
-      <div className="topic-list">
-        {topics.map((topic, index) => (
-          <TopicRow
-            key={topic.id}
-            topic={topic}
-            active={topic.id === activeTopic && !showHome && !showTasks && !showMemory && !showPeople && !showJobs}
-            canMoveUp={index > 0}
-            canMoveDown={index < topics.length - 1}
-            onSelect={() => onSelectTopic(topic.id)}
-            onMoveUp={() => onMoveTopic(topic.id, -1)}
-            onMoveDown={() => onMoveTopic(topic.id, 1)}
-          />
-        ))}
-      </div>
-
-      {topics.length === 0 && (
-        <button className="topic-item" onClick={onNewTopic}>
-          <PlusIcon width={15} height={15} /> Ersten Bereich anlegen
-        </button>
-      )}
-
-      <div style={{ flex: 1 }} />
-      <div className="sidebar-status" title="Audio, Transkripte und Chat bleiben auf diesem Mac.">
-        <span className="sidebar-status-dot" />
-        <strong>Lokal bereit</strong>
-      </div>
-      <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={onJobs}>
-        <ActivityIcon width={16} height={16} /> Verarbeitung
-      </button>
-      <button className="topic-item" onClick={onSettings}>
-        <SettingsIcon width={16} height={16} /> Einstellungen
-      </button>
     </aside>
   );
 }

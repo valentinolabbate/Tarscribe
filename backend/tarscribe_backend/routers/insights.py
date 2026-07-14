@@ -127,8 +127,11 @@ def _item_dict(
         attention_flags.append("needs_review")
     if item.confidence < 0.65:
         attention_flags.append("low_confidence")
-    if not item.source_quote:
+    missing_source = not item.source_quote or item.source_start_sec is None
+    if missing_source:
         attention_flags.append("missing_source")
+    if item.kind == "task" and missing_source and item.evidence_reviewed_at is None:
+        attention_flags.append("needs_evidence_review")
     if item.kind == "task" and not item.done and item.review_state != "rejected":
         if not item.assignee:
             attention_flags.append("missing_owner")
@@ -166,6 +169,9 @@ def _item_dict(
         "superseded_by_id": item.superseded_by_id,
         "enrichment_state": item.enrichment_state,
         "enriched_at": item.enriched_at.isoformat() if item.enriched_at else None,
+        "evidence_reviewed_at": item.evidence_reviewed_at.isoformat()
+        if item.evidence_reviewed_at
+        else None,
         "attention_flags": attention_flags,
         "done": item.done,
         "include_in_tasks": item.include_in_tasks,
@@ -258,7 +264,14 @@ def get_project_memory(session: Session = Depends(get_session)) -> dict:
         for item in visible
         if any(
             flag in item["attention_flags"]
-            for flag in ("overdue", "due_soon", "needs_review", "low_confidence", "missing_owner")
+            for flag in (
+                "needs_evidence_review",
+                "overdue",
+                "due_soon",
+                "needs_review",
+                "low_confidence",
+                "missing_owner",
+            )
         )
     ]
     return {
@@ -266,6 +279,9 @@ def get_project_memory(session: Session = Depends(get_session)) -> dict:
             "open_commitments": sum(not item["done"] for item in commitments),
             "overdue_commitments": sum("overdue" in item["attention_flags"] for item in commitments),
             "needs_review": sum(item["review_state"] == "pending" for item in visible),
+            "unsupported_tasks": sum(
+                "needs_evidence_review" in item["attention_flags"] for item in commitments
+            ),
             "current_decisions": sum(
                 item["decision_status"] in ("current", "proposed") for item in decisions
             ),
@@ -379,6 +395,10 @@ def update_action_item(
     if "due_date" in data:
         # Normalize: empty string clears the date.
         data["due_date"] = (data["due_date"] or "").strip() or None
+    evidence_fields = {"text", "assignee", "recipient", "due", "due_date"}
+    missing_source = not item.source_quote or item.source_start_sec is None
+    if item.kind == "task" and missing_source and evidence_fields.intersection(data):
+        item.evidence_reviewed_at = datetime.now(timezone.utc)
     for key, value in data.items():
         setattr(item, key, value)
     item.updated_at = datetime.now(timezone.utc)

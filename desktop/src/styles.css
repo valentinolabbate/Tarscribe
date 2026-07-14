@@ -90,9 +90,10 @@ button {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 16px 12px 12px;
   gap: 4px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .brand {
@@ -301,12 +302,28 @@ button {
   opacity: 0.25;
   cursor: default;
 }
+.sidebar-library {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .topic-list {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 2px;
-  min-height: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding-bottom: 8px;
+  scrollbar-gutter: stable;
+}
+.sidebar-footer {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
 }
 .topic-edit {
   width: 100%;
@@ -3374,7 +3391,7 @@ select:focus {
 }
 .memory-status-line {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elevated);
@@ -3405,6 +3422,9 @@ select:focus {
 }
 .memory-status-line .urgent strong {
   color: var(--danger);
+}
+.memory-status-line .evidence strong {
+  color: var(--warn);
 }
 .memory-view-tabs {
   display: flex;
@@ -3520,6 +3540,9 @@ select:focus {
   scrollbar-width: none;
 }
 .memory-radar-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 30px;
   padding: 0 11px;
   border: 1px solid var(--border);
@@ -3528,6 +3551,16 @@ select:focus {
   color: var(--text-dim);
   font-size: 11.5px;
   white-space: nowrap;
+}
+.memory-radar-filters button span {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--bg-elevated));
+  color: var(--warn);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 .memory-radar-filters button:hover,
 .memory-radar-filters button.active {
@@ -3596,6 +3629,16 @@ select:focus {
 .memory-commitment.review .memory-card-marker {
   background: color-mix(in srgb, var(--warn) 26%, var(--border));
 }
+.memory-commitment.evidence {
+  border-color: color-mix(in srgb, var(--warn) 38%, var(--border));
+  background: color-mix(in srgb, var(--warn) 4%, var(--bg-elevated));
+}
+.memory-commitment.evidence .memory-card-marker {
+  background: color-mix(in srgb, var(--warn) 32%, var(--border));
+}
+.memory-commitment.evidence .memory-card-marker::after {
+  background: var(--warn);
+}
 .memory-commitment.review .memory-card-marker::after {
   background: var(--warn);
 }
@@ -3631,6 +3674,10 @@ select:focus {
 }
 .memory-commitment.review .memory-attention-label {
   border-color: color-mix(in srgb, var(--warn) 38%, var(--border));
+  color: var(--warn);
+}
+.memory-commitment.evidence .memory-attention-label {
+  border-color: color-mix(in srgb, var(--warn) 44%, var(--border));
   color: var(--warn);
 }
 .memory-card-context {
@@ -3673,6 +3720,19 @@ select:focus {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
   background: color-mix(in srgb, var(--accent) 5%, var(--bg-input));
 }
+.memory-source.missing {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  background: color-mix(in srgb, var(--warn) 6%, var(--bg-input));
+  cursor: default;
+}
+.memory-source.missing:hover {
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
+  background: color-mix(in srgb, var(--warn) 6%, var(--bg-input));
+}
+.memory-source.missing .memory-source-pin {
+  color: var(--warn);
+}
 .memory-source-pin {
   display: grid;
   place-items: center;
@@ -3692,6 +3752,10 @@ select:focus {
 .memory-source-copy > span {
   color: var(--text-faint);
   font-size: 10.5px;
+}
+.memory-source-copy > strong {
+  color: var(--text-dim);
+  font-size: 11.5px;
 }
 .memory-source q,
 .memory-source em {
@@ -3951,7 +4015,7 @@ select:focus {
     border-right: none;
   }
   .memory-status-line > div:last-child {
-    grid-column: 1 / -1;
+    grid-column: auto;
     border-right: none;
   }
   .memory-view-tabs {

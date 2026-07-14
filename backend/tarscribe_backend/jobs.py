@@ -644,6 +644,7 @@ def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
                 decision_status=previous.decision_status if previous else "current",
                 superseded_by_id=previous.superseded_by_id if previous else None,
                 enrichment_state="complete",
+                evidence_reviewed_at=previous.evidence_reviewed_at if previous else None,
                 done=previous.done if previous else False,
                 include_in_tasks=previous.include_in_tasks if previous else False,
             )

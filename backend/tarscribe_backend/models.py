@@ -341,6 +341,7 @@ class ActionItem(SQLModel, table=True):
     )
     enrichment_state: str = "complete"  # pending | complete | enriched | no_match
     enriched_at: Optional[datetime] = None
+    evidence_reviewed_at: Optional[datetime] = None
     done: bool = False
     # User opt-in to surface a not-"mine" item in the global Tasks area (which by
     # default only shows items assigned to the configured "me" speaker).

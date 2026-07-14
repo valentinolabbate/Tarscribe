@@ -134,6 +134,7 @@ def _run_lightweight_migrations() -> None:
         ("action_items", "updated_at", "DATETIME"),
         ("action_items", "enrichment_state", "TEXT DEFAULT 'pending'"),
         ("action_items", "enriched_at", "DATETIME"),
+        ("action_items", "evidence_reviewed_at", "DATETIME"),
         ("action_items", "include_in_tasks", "INTEGER DEFAULT 0"),
         ("action_items", "calendar_uid", "TEXT"),
         ("action_items", "calendar_href", "TEXT"),

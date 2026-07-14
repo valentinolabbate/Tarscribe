@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  useDeleteActionItem,
   useMemoryEnrichmentStatus,
   useProjectMemory,
   useRetryMemoryEnrichment,
   useStartMemoryEnrichment,
   useUpdateActionItem,
 } from "../hooks/queries";
+import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import { fmtDate, fmtDuration } from "../lib/format";
 import type { ActionItem, Topic } from "../lib/types";
 import {
@@ -17,10 +19,12 @@ import {
   SearchIcon,
   SpeakerIdIcon,
   TasksIcon,
+  TrashIcon,
 } from "./icons";
+import { needsEvidenceReview } from "./memory/model";
 
 type MemoryView = "radar" | "ledger" | "archive";
-type RadarFilter = "attention" | "overdue" | "soon" | "undated" | "all";
+type RadarFilter = "attention" | "evidence" | "overdue" | "soon" | "undated" | "all";
 type MemoryPatch = Partial<
   Pick<
     ActionItem,
@@ -44,15 +48,17 @@ const decisionLabels: Record<ActionItem["decision_status"], string> = {
 };
 
 function priority(item: ActionItem): number {
-  if (item.attention_flags.includes("overdue")) return 0;
-  if (item.attention_flags.includes("needs_review")) return 1;
-  if (item.attention_flags.includes("due_soon")) return 2;
-  if (item.attention_flags.includes("missing_owner")) return 3;
-  if (item.attention_flags.includes("missing_due")) return 4;
-  return 5;
+  if (needsEvidenceReview(item)) return 0;
+  if (item.attention_flags.includes("overdue")) return 1;
+  if (item.attention_flags.includes("needs_review")) return 2;
+  if (item.attention_flags.includes("due_soon")) return 3;
+  if (item.attention_flags.includes("missing_owner")) return 4;
+  if (item.attention_flags.includes("missing_due")) return 5;
+  return 6;
 }
 
 function attentionLabel(item: ActionItem): string {
+  if (needsEvidenceReview(item)) return "Ohne Beleg";
   if (item.attention_flags.includes("overdue")) return "Überfällig";
   if (item.attention_flags.includes("needs_review")) return "Bitte prüfen";
   if (item.attention_flags.includes("due_soon")) return "Bald fällig";
@@ -68,6 +74,19 @@ function SourceTrace({
   item: ActionItem;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
+  if (item.attention_flags.includes("missing_source")) {
+    return (
+      <div className="memory-source missing">
+        <span className="memory-source-pin">
+          <LinkIcon width={12} height={12} />
+        </span>
+        <span className="memory-source-copy">
+          <strong>Keine vollständige Belegspur gefunden</strong>
+          <em>Zitat oder Zeitmarke fehlt. Prüfe die Aufgabe und korrigiere oder lösche sie.</em>
+        </span>
+      </div>
+    );
+  }
   return (
     <button
       type="button"
@@ -185,14 +204,19 @@ function MemoryEditor({
 function CommitmentCard({
   item,
   onUpdate,
+  onDelete,
   onOpenRecording,
 }: {
   item: ActionItem;
   onUpdate: (id: number, patch: MemoryPatch) => void;
+  onDelete: (item: ActionItem) => void;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const tone = item.attention_flags.includes("overdue")
+  const evidenceMissing = needsEvidenceReview(item);
+  const tone = evidenceMissing
+    ? "evidence"
+    : item.attention_flags.includes("overdue")
     ? "urgent"
     : item.review_state === "pending"
       ? "review"
@@ -223,17 +247,23 @@ function CommitmentCard({
             </div>
             <SourceTrace item={item} onOpenRecording={onOpenRecording} />
             <div className="memory-card-actions">
-              <ReviewControls item={item} onUpdate={onUpdate} />
+              {!evidenceMissing && <ReviewControls item={item} onUpdate={onUpdate} />}
               <button type="button" className="btn ghost compact" onClick={() => setEditing(true)}>
                 Bearbeiten
               </button>
-              <button
-                type="button"
-                className="btn ghost compact"
-                onClick={() => onUpdate(item.id, { done: !item.done })}
-              >
-                {item.done ? "Wieder öffnen" : "Erledigt"}
-              </button>
+              {evidenceMissing ? (
+                <button type="button" className="btn ghost danger compact" onClick={() => onDelete(item)}>
+                  <TrashIcon width={12} height={12} /> Löschen
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn ghost compact"
+                  onClick={() => onUpdate(item.id, { done: !item.done })}
+                >
+                  {item.done ? "Wieder öffnen" : "Erledigt"}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -423,6 +453,8 @@ export function MemoryPage({
 }) {
   const { data: memory, isLoading, isError, error } = useProjectMemory();
   const update = useUpdateActionItem();
+  const remove = useDeleteActionItem();
+  const { isPending: isDeletePending, schedule: scheduleDelete } = useUndoableDelete();
   const [view, setView] = useState<MemoryView>("radar");
   const [radarFilter, setRadarFilter] = useState<RadarFilter>("attention");
   const [topicId, setTopicId] = useState<number | null>(null);
@@ -430,6 +462,9 @@ export function MemoryPage({
   const [involvementOnly, setInvolvementOnly] = useState(true);
 
   const updateItem = (id: number, patch: MemoryPatch) => update.mutate({ id, patch });
+  const deleteItem = (item: ActionItem) => {
+    scheduleDelete(item.id, () => remove.mutate(item.id), "Aufgabe gelöscht");
+  };
   const normalizedSearch = search.trim().toLocaleLowerCase("de-DE");
   const topicMatches = (item: ActionItem) => topicId == null || item.topic_id === topicId;
   const involvementMatches = (item: ActionItem) => !involvementOnly || item.is_involved;
@@ -438,23 +473,38 @@ export function MemoryPage({
     [item.text, item.assignee, item.recipient, item.topic_name, item.source_quote]
       .filter(Boolean)
       .some((value) => value!.toLocaleLowerCase("de-DE").includes(normalizedSearch));
+  const unsupportedCount = (memory?.commitments ?? [])
+    .filter((item) => !isDeletePending(item.id))
+    .filter(topicMatches)
+    .filter(involvementMatches)
+    .filter(searchMatches)
+    .filter(needsEvidenceReview)
+    .length;
 
   const commitments = useMemo(() => {
     const items = (memory?.commitments ?? [])
+      .filter((item) => !isDeletePending(item.id))
       .filter(topicMatches)
       .filter(involvementMatches)
       .filter(searchMatches)
       .filter((item) => {
         if (radarFilter === "all") return true;
+        if (radarFilter === "evidence") return needsEvidenceReview(item);
         if (radarFilter === "overdue") return item.attention_flags.includes("overdue");
         if (radarFilter === "soon") return item.attention_flags.includes("due_soon");
         if (radarFilter === "undated") return item.attention_flags.includes("missing_due");
-        return !item.done && item.attention_flags.some((flag) =>
-          ["overdue", "due_soon", "needs_review", "low_confidence", "missing_owner"].includes(flag),
+        return (
+          needsEvidenceReview(item) ||
+          (!item.done &&
+            item.attention_flags.some((flag) =>
+              ["overdue", "due_soon", "needs_review", "low_confidence", "missing_owner"].includes(
+                flag,
+              ),
+            ))
         );
       });
     return items.sort((a, b) => priority(a) - priority(b) || (a.due_date ?? "9").localeCompare(b.due_date ?? "9"));
-  }, [involvementOnly, memory, normalizedSearch, radarFilter, topicId]);
+  }, [involvementOnly, isDeletePending, memory, normalizedSearch, radarFilter, topicId]);
 
   const decisions = useMemo(
     () => (memory?.decisions ?? [])
@@ -508,6 +558,9 @@ export function MemoryPage({
           <strong>{memory.stats.overdue_commitments}</strong><span>überfällig</span>
         </div>
         <div><strong>{memory.stats.needs_review}</strong><span>zu prüfen</span></div>
+        <div className={unsupportedCount ? "evidence" : ""}>
+          <strong>{unsupportedCount}</strong><span>ohne Beleg</span>
+        </div>
         <div><strong>{memory.stats.open_commitments}</strong><span>offene Zusagen</span></div>
         <div><strong>{memory.stats.current_decisions}</strong><span>gültige Beschlüsse</span></div>
         <div><strong>{memory.stats.superseded_decisions}</strong><span>ersetzte Beschlüsse</span></div>
@@ -552,6 +605,7 @@ export function MemoryPage({
           <div className="memory-radar-filters" aria-label="Radar eingrenzen">
             {([
               ["attention", "Im Fokus"],
+              ["evidence", "Ohne Beleg"],
               ["overdue", "Überfällig"],
               ["soon", "Bald fällig"],
               ["undated", "Ohne Frist"],
@@ -559,17 +613,40 @@ export function MemoryPage({
             ] as Array<[RadarFilter, string]>).map(([id, label]) => (
               <button key={id} className={radarFilter === id ? "active" : ""} onClick={() => setRadarFilter(id)}>
                 {label}
+                {id === "evidence" && unsupportedCount > 0 && (
+                  <span>{unsupportedCount}</span>
+                )}
               </button>
             ))}
           </div>
           <div className="memory-section-head">
-            <div><span className="page-kicker">Aufmerksamkeit</span><h3>{commitments.length} {commitments.length === 1 ? "Zusage" : "Zusagen"}</h3></div>
-            <span>Dringendes zuerst</span>
+            <div>
+              <span className="page-kicker">
+                {radarFilter === "evidence" ? "Belegprüfung" : "Aufmerksamkeit"}
+              </span>
+              <h3>
+                {commitments.length}{" "}
+                {radarFilter === "evidence"
+                  ? commitments.length === 1
+                    ? "unbelegte Aufgabe"
+                    : "unbelegte Aufgaben"
+                  : commitments.length === 1
+                    ? "Zusage"
+                    : "Zusagen"}
+              </h3>
+            </div>
+            <span>{radarFilter === "evidence" ? "Bearbeiten oder löschen" : "Dringendes zuerst"}</span>
           </div>
           {commitments.length ? (
             <div className="memory-commitment-list">
               {commitments.map((item) => (
-                <CommitmentCard key={item.id} item={item} onUpdate={updateItem} onOpenRecording={onOpenRecording} />
+                <CommitmentCard
+                  key={item.id}
+                  item={item}
+                  onUpdate={updateItem}
+                  onDelete={deleteItem}
+                  onOpenRecording={onOpenRecording}
+                />
               ))}
             </div>
           ) : (

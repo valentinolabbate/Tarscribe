@@ -22,7 +22,7 @@ export function TasksPage({
   onOpenRecording,
 }: {
   topics: Topic[];
-  onOpenRecording: (recordingId: number) => void;
+  onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
   const [topicFilter, setTopicFilter] = useState<number | null>(null);
   const [ownerFilter, setOwnerFilter] = useState<OwnerFilter>("mine");

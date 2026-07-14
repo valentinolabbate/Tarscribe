@@ -6,6 +6,7 @@ import { LiveRecordingDetail } from "../LiveRecordingDetail";
 import { RecordingDetail } from "../RecordingDetail";
 import { RecordingList } from "../RecordingList";
 import { PeoplePage } from "../PeoplePage";
+import { MemoryPage } from "../MemoryPage";
 import { StartPage } from "../StartPage";
 import { TasksPage } from "../TasksPage";
 
@@ -16,6 +17,7 @@ export function AppContent({
   currentTopic,
   showJobs,
   showTasks,
+  showMemory,
   showPeople,
   showHome,
   openRecording,
@@ -34,6 +36,7 @@ export function AppContent({
   currentTopic: Topic | undefined;
   showJobs: boolean;
   showTasks: boolean;
+  showMemory: boolean;
   showPeople: boolean;
   showHome: boolean;
   openRecording: Recording | null;
@@ -63,6 +66,7 @@ export function AppContent({
 
   if (showJobs) return <JobsPage onOpenRecording={onOpenRecording} />;
   if (showTasks) return <TasksPage topics={topics} onOpenRecording={onOpenRecording} />;
+  if (showMemory) return <MemoryPage topics={topics} onOpenRecording={onOpenRecording} />;
   if (showPeople) return <PeoplePage onOpenRecording={onOpenRecording} />;
   if (showHome) {
     return (

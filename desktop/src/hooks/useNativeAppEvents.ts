@@ -26,6 +26,7 @@ export function useDetectedMeetingStarter({
   setActiveTopic,
   setShowHome,
   setShowTasks,
+  setShowMemory,
   setShowPeople,
   setShowJobs,
   setOpenRecording,
@@ -38,6 +39,7 @@ export function useDetectedMeetingStarter({
   setActiveTopic: Dispatch<SetStateAction<number | null>>;
   setShowHome: Dispatch<SetStateAction<boolean>>;
   setShowTasks: Dispatch<SetStateAction<boolean>>;
+  setShowMemory: Dispatch<SetStateAction<boolean>>;
   setShowPeople: Dispatch<SetStateAction<boolean>>;
   setShowJobs: Dispatch<SetStateAction<boolean>>;
   setOpenRecording: Dispatch<SetStateAction<Recording | null>>;
@@ -58,6 +60,7 @@ export function useDetectedMeetingStarter({
       setActiveTopic(topic.id);
       setShowHome(false);
       setShowTasks(false);
+      setShowMemory(false);
       setShowPeople(false);
       setShowJobs(false);
       setOpenRecording(null);
@@ -74,6 +77,7 @@ export function useDetectedMeetingStarter({
     setOpenRecording,
     setShowHome,
     setShowJobs,
+    setShowMemory,
     setShowPeople,
     setShowTasks,
     toast,

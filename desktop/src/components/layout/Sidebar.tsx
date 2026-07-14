@@ -1,5 +1,5 @@
 import type { Topic } from "../../lib/types";
-import { ActivityIcon, HomeIcon, PlusIcon, SettingsIcon, SpeakerIdIcon, TasksIcon } from "../icons";
+import { ActivityIcon, HomeIcon, MemoryIcon, PlusIcon, SettingsIcon, SpeakerIdIcon, TasksIcon } from "../icons";
 import { TopicRow } from "./TopicRow";
 
 export function Sidebar({
@@ -7,10 +7,12 @@ export function Sidebar({
   activeTopic,
   showHome,
   showTasks,
+  showMemory,
   showPeople,
   showJobs,
   onHome,
   onTasks,
+  onMemory,
   onPeople,
   onJobs,
   onNewTopic,
@@ -22,10 +24,12 @@ export function Sidebar({
   activeTopic: number | null;
   showHome: boolean;
   showTasks: boolean;
+  showMemory: boolean;
   showPeople: boolean;
   showJobs: boolean;
   onHome: () => void;
   onTasks: () => void;
+  onMemory: () => void;
   onPeople: () => void;
   onJobs: () => void;
   onNewTopic: () => void;
@@ -48,6 +52,10 @@ export function Sidebar({
         <TasksIcon width={16} height={16} /> Aufgaben
       </button>
 
+      <button className={`topic-item ${showMemory ? "active" : ""}`} onClick={onMemory}>
+        <MemoryIcon width={16} height={16} /> Gedächtnis
+      </button>
+
       <button className={`topic-item ${showPeople ? "active" : ""}`} onClick={onPeople}>
         <SpeakerIdIcon width={16} height={16} /> Personen
       </button>
@@ -64,7 +72,7 @@ export function Sidebar({
           <TopicRow
             key={topic.id}
             topic={topic}
-            active={topic.id === activeTopic && !showHome && !showTasks && !showPeople && !showJobs}
+            active={topic.id === activeTopic && !showHome && !showTasks && !showMemory && !showPeople && !showJobs}
             canMoveUp={index > 0}
             canMoveDown={index < topics.length - 1}
             onSelect={() => onSelectTopic(topic.id)}

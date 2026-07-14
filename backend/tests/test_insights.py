@@ -75,7 +75,9 @@ def test_extract_action_items_dedupes_and_validates():
         assert "Das Produkt heißt Tarscribe" in msgs[-1]["content"]
         return (
             '[{"kind": "task", "text": "Bericht schreiben", "assignee": "Anna",'
-            '"due": "bis Freitag", "due_date": "2026-06-19"},'
+            '"recipient":"Ben","due": "bis Freitag", "due_date": "2026-06-19",'
+            '"source_quote":"Ich schreibe den Bericht bis Freitag",'
+            '"source_start_sec":42,"confidence":0.91},'
             '{"kind": "decision", "text": "Budget freigegeben", "assignee": null,'
             '"due": null, "due_date": null},'
             '{"kind": "task", "text": "Bericht schreiben!", "assignee": null, "due": null},'
@@ -97,7 +99,39 @@ def test_extract_action_items_dedupes_and_validates():
     assert len([t for t in texts if t.lower().startswith("bericht")]) == 1  # dedupe
     assert all(i["kind"] in ("task", "decision") for i in items)
     assert next(i for i in items if i["text"] == "Bericht schreiben")["due_date"] == "2026-06-19"
+    report = next(i for i in items if i["text"] == "Bericht schreiben")
+    assert report["recipient"] == "Ben"
+    assert report["source_quote"] == "Ich schreibe den Bericht bis Freitag"
+    assert report["source_start_sec"] == 42
+    assert report["confidence"] == 0.91
     assert next(i for i in items if i["text"] == "X klären")["due_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_enrich_existing_action_items_accepts_only_known_ids():
+    from tarscribe_backend.analysis import enrich_existing_action_items_async
+
+    async def fake_chat(_messages):
+        return (
+            '[{"item_id":7,"source_quote":"Ich schicke den Bericht.",'
+            '"recipient":"Ben","confidence":0.92},'
+            '{"item_id":999,"source_quote":"Erfunden","recipient":null,"confidence":1}]'
+        )
+
+    result = await enrich_existing_action_items_async(
+        fake_chat,
+        "[00:00:12] Anna: Ich schicke den Bericht.",
+        [{"id": 7, "kind": "task", "text": "Bericht schicken"}],
+    )
+
+    assert result == [
+        {
+            "item_id": 7,
+            "source_quote": "Ich schicke den Bericht.",
+            "recipient": "Ben",
+            "confidence": 0.92,
+        }
+    ]
 
 
 def test_generate_chapters_normalizes_and_orders():
@@ -165,12 +199,16 @@ def test_action_item_crud_and_global_list(client):
             "assignee": "Anna",
             "due": "bis Freitag",
             "due_date": "2026-06-19",
+            "recipient": "Ben",
+            "review_state": "confirmed",
         },
     )
     assert r.status_code == 200
     assert r.json()["text"] == "Folien für Tarscribe aktualisieren"
     assert r.json()["assignee"] == "Anna"
     assert r.json()["due_date"] == "2026-06-19"
+    assert r.json()["recipient"] == "Ben"
+    assert r.json()["review_state"] == "confirmed"
 
     r = client.patch(f"/api/action-items/{item_id}", json={"done": True})
     assert r.status_code == 200
@@ -179,6 +217,160 @@ def test_action_item_crud_and_global_list(client):
 
     assert client.delete(f"/api/action-items/{item_id}").status_code == 204
     assert len(client.get("/api/action-items").json()) == 1
+
+
+def test_project_memory_radar_and_decision_ledger(client):
+    from datetime import date, timedelta
+
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem
+
+    rec_id, _ = _make_recording()
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    with Session(db.get_engine()) as s:
+        decision = ActionItem(
+            recording_id=rec_id,
+            kind="decision",
+            text="SQLite bleibt gesetzt",
+            review_state="confirmed",
+            decision_status="current",
+            source_quote="Wir bleiben bei SQLite.",
+            source_start_sec=84,
+            confidence=0.95,
+        )
+        s.add(decision)
+        s.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Migration prüfen",
+                assignee="Ada",
+                due_date=yesterday,
+                review_state="pending",
+                source_quote="Ich prüfe die Migration morgen.",
+                source_start_sec=120,
+                confidence=0.88,
+            )
+        )
+        s.commit()
+
+    response = client.get("/api/memory")
+    assert response.status_code == 200
+    memory = response.json()
+    assert memory["stats"]["open_commitments"] == 1
+    assert memory["stats"]["overdue_commitments"] == 1
+    assert memory["stats"]["needs_review"] == 1
+    assert memory["stats"]["current_decisions"] == 1
+    commitment = memory["commitments"][0]
+    assert {"overdue", "needs_review"} <= set(commitment["attention_flags"])
+    assert commitment["source_start_sec"] == 120
+    assert memory["decisions"][0]["source_quote"] == "Wir bleiben bei SQLite."
+
+
+@pytest.mark.asyncio
+async def test_memory_enrichment_preserves_existing_item_state(client, monkeypatch):
+    from sqlmodel import Session, select
+
+    import tarscribe_backend.agent as agent
+    import tarscribe_backend.db as db
+    import tarscribe_backend.jobs as jobs
+    from tarscribe_backend.models import (
+        ActionItem,
+        MemoryEnrichmentRun,
+        Transcript,
+        Word,
+    )
+
+    rec_id, _ = _make_recording()
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=rec_id, asr_model="test")
+        session.add(transcript)
+        session.flush()
+        session.add(
+            Word(
+                transcript_id=transcript.id,
+                idx=0,
+                start=12,
+                end=15,
+                text="Ich schicke den Bericht bis Freitag.",
+            )
+        )
+        item = ActionItem(
+            recording_id=rec_id,
+            kind="task",
+            text="Bericht verschicken",
+            assignee="Anna",
+            due="bis Freitag",
+            due_date="2026-07-17",
+            done=True,
+            review_state="confirmed",
+            enrichment_state="pending",
+        )
+        run = MemoryEnrichmentRun(status="pending", total_recordings=1, total_items=1)
+        session.add(item)
+        session.add(run)
+        session.commit()
+        item_id = item.id
+        run_id = run.id
+
+    async def fake_chat(_messages):
+        return (
+            f'[{{"item_id":{item_id},'
+            '"source_quote":"Ich schicke den Bericht bis Freitag.",'
+            '"recipient":"Ben","confidence":0.94}]'
+        )
+
+    monkeypatch.setattr(agent, "get_agent_rag_config", lambda *_args: {"enabled": False})
+    monkeypatch.setattr(agent, "research_active", lambda _cfg: False)
+    monkeypatch.setattr(jobs, "_llm_chat_fn_async", lambda *_args: fake_chat)
+
+    await jobs._run_memory_enrichment_async(run_id)
+
+    with Session(db.get_engine()) as session:
+        stored = session.get(ActionItem, item_id)
+        assert stored.text == "Bericht verschicken"
+        assert stored.assignee == "Anna"
+        assert stored.due == "bis Freitag"
+        assert stored.due_date == "2026-07-17"
+        assert stored.done is True
+        assert stored.review_state == "confirmed"
+        assert stored.source_quote == "Ich schicke den Bericht bis Freitag."
+        assert stored.source_start_sec == 12
+        assert stored.recipient == "Ben"
+        assert stored.confidence == 0.94
+        assert stored.enrichment_state == "enriched"
+        finished = session.get(MemoryEnrichmentRun, run_id)
+        assert finished.status == "done"
+        assert finished.enriched_items == 1
+        assert not session.exec(
+            select(ActionItem).where(ActionItem.enrichment_state == "pending")
+        ).all()
+
+    status = client.get("/api/memory/enrichment")
+    assert status.status_code == 200
+    assert status.json()["eligible_items"] == 0
+    assert "done" in status.json()["preserved_fields"]
+
+
+def test_memory_enrichment_start_without_candidates_finishes_immediately(client):
+    response = client.post("/api/memory/enrichment")
+    assert response.status_code == 200
+    run = response.json()["run"]
+    assert run["status"] == "done"
+    assert run["total_items"] == 0
+    assert run["progress"] == 1.0
+
+
+def test_memory_enrichment_source_time_uses_quote_starting_line():
+    from tarscribe_backend.jobs import _source_quote_position
+
+    transcript = (
+        "[00:00:12] Transkript: Zuerst besprechen wir das Budget.\n"
+        "[00:00:36] Transkript: Ich schicke den Bericht bis Freitag."
+    )
+    assert _source_quote_position(transcript, "Ich schicke den Bericht bis Freitag.") == 36
 
 
 def test_action_items_mine_flagging_and_import(client):

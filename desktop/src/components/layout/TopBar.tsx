@@ -32,6 +32,7 @@ function TopicCalendarControl({ topic }: { topic: Topic }) {
 export function TopBar({
   showJobs,
   showTasks,
+  showMemory,
   showPeople,
   showHome,
   openRecording,
@@ -41,6 +42,7 @@ export function TopBar({
 }: {
   showJobs: boolean;
   showTasks: boolean;
+  showMemory: boolean;
   showPeople: boolean;
   showHome: boolean;
   openRecording: Recording | null;
@@ -52,6 +54,8 @@ export function TopBar({
     ? "Verarbeitung"
     : showTasks
       ? "Aufgaben"
+      : showMemory
+        ? "Gedächtnis"
       : showPeople
         ? "Personen"
         : showHome
@@ -69,7 +73,7 @@ export function TopBar({
       </div>
       <div className="spacer" />
       {showRecordingIndicator && <GlobalRecordingIndicator />}
-      {currentTopic && !showHome && !showTasks && !showPeople && !showJobs && (
+      {currentTopic && !showHome && !showTasks && !showMemory && !showPeople && !showJobs && (
         <>
           <button
             className="btn ghost"

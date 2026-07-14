@@ -19,6 +19,7 @@ from ..models import (
     Digest,
     DiarizationRun,
     KnownSpeaker,
+    MemoryEnrichmentRun,
     Recording,
     RecordingStatus,
     Segment,
@@ -51,6 +52,10 @@ class ActionItemPatch(BaseModel):
     due: str | None = None
     # ISO date (YYYY-MM-DD); empty string clears the due date.
     due_date: str | None = None
+    recipient: str | None = None
+    review_state: str | None = None
+    decision_status: str | None = None
+    superseded_by_id: int | None = None
     include_in_tasks: bool | None = None
 
 
@@ -98,14 +103,46 @@ def _item_dict(
     topic: Topic | None = None,
     my_name: str | None = None,
 ) -> dict:
+    attention_flags: list[str] = []
+    today = datetime.now(timezone.utc).date()
+    if item.review_state == "pending":
+        attention_flags.append("needs_review")
+    if item.confidence < 0.65:
+        attention_flags.append("low_confidence")
+    if not item.source_quote:
+        attention_flags.append("missing_source")
+    if item.kind == "task" and not item.done and item.review_state != "rejected":
+        if not item.assignee:
+            attention_flags.append("missing_owner")
+        if not item.due_date:
+            attention_flags.append("missing_due")
+        else:
+            try:
+                due = datetime.strptime(item.due_date, "%Y-%m-%d").date()
+                if due < today:
+                    attention_flags.append("overdue")
+                elif due <= today + timedelta(days=7):
+                    attention_flags.append("due_soon")
+            except ValueError:
+                attention_flags.append("missing_due")
     return {
         "id": item.id,
         "recording_id": item.recording_id,
         "kind": item.kind,
         "text": item.text,
         "assignee": item.assignee,
+        "recipient": item.recipient,
         "due": item.due,
         "due_date": item.due_date,
+        "source_quote": item.source_quote,
+        "source_start_sec": item.source_start_sec,
+        "confidence": item.confidence,
+        "review_state": item.review_state,
+        "decision_status": item.decision_status,
+        "superseded_by_id": item.superseded_by_id,
+        "enrichment_state": item.enrichment_state,
+        "enriched_at": item.enriched_at.isoformat() if item.enriched_at else None,
+        "attention_flags": attention_flags,
         "done": item.done,
         "include_in_tasks": item.include_in_tasks,
         "calendar_status": item.calendar_status,
@@ -115,7 +152,9 @@ def _item_dict(
         else None,
         "is_mine": _is_mine(item.assignee, my_name),
         "created_at": item.created_at.isoformat(),
+        "updated_at": (item.updated_at or item.created_at).isoformat(),
         "recording_title": rec.title if rec else None,
+        "recording_created_at": rec.created_at.isoformat() if rec else None,
         "topic_id": rec.topic_id if rec else None,
         "topic_name": topic.name if topic else None,
         "topic_color": topic.color if topic else None,
@@ -172,6 +211,102 @@ def list_action_items(
     return [_item_dict(item, rec, topic, my_name) for item, rec, topic in rows]
 
 
+@router.get("/memory")
+def get_project_memory(session: Session = Depends(get_session)) -> dict:
+    rows = session.exec(
+        select(ActionItem, Recording, Topic)
+        .join(Recording, ActionItem.recording_id == Recording.id)
+        .join(Topic, Recording.topic_id == Topic.id)
+        .order_by(Recording.created_at.desc(), ActionItem.id.desc())
+    ).all()
+    my_name = my_speaker_name(session)
+    items = [_item_dict(item, rec, topic, my_name) for item, rec, topic in rows]
+    visible = [item for item in items if item["review_state"] != "rejected"]
+    commitments = [item for item in visible if item["kind"] == "task"]
+    decisions = [item for item in visible if item["kind"] == "decision"]
+    attention = [
+        item
+        for item in visible
+        if any(
+            flag in item["attention_flags"]
+            for flag in ("overdue", "due_soon", "needs_review", "low_confidence", "missing_owner")
+        )
+    ]
+    return {
+        "stats": {
+            "open_commitments": sum(not item["done"] for item in commitments),
+            "overdue_commitments": sum("overdue" in item["attention_flags"] for item in commitments),
+            "needs_review": sum(item["review_state"] == "pending" for item in visible),
+            "current_decisions": sum(
+                item["decision_status"] in ("current", "proposed") for item in decisions
+            ),
+            "superseded_decisions": sum(
+                item["decision_status"] == "superseded" for item in decisions
+            ),
+            "attention_count": len(attention),
+        },
+        "commitments": commitments,
+        "decisions": decisions,
+        "rejected": [item for item in items if item["review_state"] == "rejected"],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _enrichment_run_dict(run: MemoryEnrichmentRun | None) -> dict | None:
+    if not run:
+        return None
+    progress = run.processed_recordings / run.total_recordings if run.total_recordings else 1.0
+    return {
+        "id": run.id,
+        "status": run.status,
+        "total_recordings": run.total_recordings,
+        "processed_recordings": run.processed_recordings,
+        "total_items": run.total_items,
+        "enriched_items": run.enriched_items,
+        "unmatched_items": run.unmatched_items,
+        "failed_recordings": run.failed_recordings,
+        "progress": progress,
+        "error": run.error,
+        "created_at": run.created_at.isoformat(),
+        "updated_at": run.updated_at.isoformat(),
+    }
+
+
+@router.get("/memory/enrichment")
+def get_memory_enrichment_status(session: Session = Depends(get_session)) -> dict:
+    from ..jobs import _memory_enrichment_candidates
+
+    candidates = _memory_enrichment_candidates(session)
+    latest = session.exec(
+        select(MemoryEnrichmentRun).order_by(MemoryEnrichmentRun.id.desc())
+    ).first()
+    return {
+        "eligible_items": len(candidates),
+        "eligible_recordings": len({item.recording_id for item in candidates}),
+        "latest_run": _enrichment_run_dict(latest),
+        "preserved_fields": [
+            "text",
+            "assignee",
+            "due",
+            "due_date",
+            "done",
+            "review_state",
+            "decision_status",
+            "include_in_tasks",
+            "calendar_status",
+        ],
+    }
+
+
+@router.post("/memory/enrichment")
+def start_memory_enrichment(session: Session = Depends(get_session)) -> dict:
+    from ..jobs import enqueue_memory_enrichment
+
+    run_id = enqueue_memory_enrichment()
+    run = session.get(MemoryEnrichmentRun, run_id)
+    return {"run": _enrichment_run_dict(run)}
+
+
 @router.patch("/action-items/{item_id}")
 def update_action_item(
     item_id: int, payload: ActionItemPatch, session: Session = Depends(get_session)
@@ -180,11 +315,30 @@ def update_action_item(
     if not item:
         raise HTTPException(404, "Eintrag nicht gefunden")
     data = payload.model_dump(exclude_unset=True)
+    if "review_state" in data and data["review_state"] not in {
+        "pending",
+        "confirmed",
+        "rejected",
+    }:
+        raise HTTPException(422, "Ungültiger Prüfstatus")
+    if "decision_status" in data and data["decision_status"] not in {
+        "proposed",
+        "current",
+        "superseded",
+        "rejected",
+    }:
+        raise HTTPException(422, "Ungültiger Entscheidungsstatus")
+    if data.get("superseded_by_id") is not None:
+        target = session.get(ActionItem, data["superseded_by_id"])
+        if not target or target.kind != "decision" or target.id == item.id:
+            raise HTTPException(422, "Ungültige Nachfolgeentscheidung")
+        data["decision_status"] = "superseded"
     if "due_date" in data:
         # Normalize: empty string clears the date.
         data["due_date"] = (data["due_date"] or "").strip() or None
     for key, value in data.items():
         setattr(item, key, value)
+    item.updated_at = datetime.now(timezone.utc)
     if any(key in data for key in ("done", "text", "assignee", "due", "due_date")):
         sync_action_item(session, item)
     session.add(item)

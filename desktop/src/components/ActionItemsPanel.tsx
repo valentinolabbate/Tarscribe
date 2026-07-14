@@ -41,7 +41,7 @@ export function ActionItemRow({
   showKind?: boolean;
   showDue?: boolean;
   compact?: boolean;
-  onOpenRecording?: (recordingId: number) => void;
+  onOpenRecording?: (recordingId: number, startSec?: number | null) => void;
 }) {
   const update = useUpdateActionItem();
   const syncCalendar = useSyncActionItemCalendar();
@@ -211,7 +211,7 @@ export function ActionItemRow({
                 <button
                   type="button"
                   className="action-item-rec"
-                  onClick={() => onOpenRecording?.(item.recording_id)}
+                  onClick={() => onOpenRecording?.(item.recording_id, item.source_start_sec)}
                   title="Aufnahme öffnen"
                 >
                   Quelle: {item.recording_title}

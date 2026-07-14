@@ -338,6 +338,29 @@ export function useActionItems(opts: { topicId?: number | null; done?: boolean |
   });
 }
 
+export function useProjectMemory() {
+  return useQuery({ queryKey: ["project-memory"], queryFn: api.getProjectMemory });
+}
+
+export function useMemoryEnrichmentStatus() {
+  return useQuery({
+    queryKey: ["memory-enrichment"],
+    queryFn: api.getMemoryEnrichmentStatus,
+    refetchInterval: (query) => {
+      const status = query.state.data?.latest_run?.status;
+      return status === "pending" || status === "running" ? 1200 : false;
+    },
+  });
+}
+
+export function useStartMemoryEnrichment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.startMemoryEnrichment,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["memory-enrichment"] }),
+  });
+}
+
 export function useRecordingActionItems(recordingId: number, enabled = true) {
   return useQuery({
     queryKey: ["action-items", "recording", recordingId],
@@ -366,11 +389,26 @@ export function useUpdateActionItem() {
     }: {
       id: number;
       patch: Partial<
-        Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date" | "include_in_tasks">
+        Pick<
+          ActionItem,
+          | "done"
+          | "text"
+          | "assignee"
+          | "recipient"
+          | "due"
+          | "due_date"
+          | "review_state"
+          | "decision_status"
+          | "superseded_by_id"
+          | "include_in_tasks"
+        >
       >;
     }) => api.updateActionItem(id, patch),
     // Prefix match also refreshes the per-recording list (["action-items","recording",id]).
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action-items"] });
+      qc.invalidateQueries({ queryKey: ["project-memory"] });
+    },
   });
 }
 
@@ -378,7 +416,10 @@ export function useDeleteActionItem() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => api.deleteActionItem(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["action-items"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["action-items"] });
+      qc.invalidateQueries({ queryKey: ["project-memory"] });
+    },
   });
 }
 

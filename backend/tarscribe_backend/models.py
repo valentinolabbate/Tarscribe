@@ -330,6 +330,17 @@ class ActionItem(SQLModel, table=True):
     assignee: Optional[str] = None
     due: Optional[str] = None  # free-text deadline as spoken ("bis Freitag")
     due_date: Optional[str] = None  # user-set ISO date (YYYY-MM-DD) for filtering/calendar export
+    recipient: Optional[str] = None
+    source_quote: Optional[str] = None
+    source_start_sec: Optional[float] = None
+    confidence: float = 0.5
+    review_state: str = "pending"  # pending | confirmed | rejected
+    decision_status: str = "current"  # proposed | current | superseded | rejected
+    superseded_by_id: Optional[int] = Field(
+        default=None, foreign_key="action_items.id", ondelete="SET NULL", index=True
+    )
+    enrichment_state: str = "complete"  # pending | complete | enriched | no_match
+    enriched_at: Optional[datetime] = None
     done: bool = False
     # User opt-in to surface a not-"mine" item in the global Tasks area (which by
     # default only shows items assigned to the configured "me" speaker).
@@ -341,6 +352,23 @@ class ActionItem(SQLModel, table=True):
     calendar_error: Optional[str] = None
     calendar_exported_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow, index=True)
+
+
+class MemoryEnrichmentRun(SQLModel, table=True):
+    __tablename__ = "memory_enrichment_runs"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    status: str = "pending"  # pending | running | done | partial | failed
+    total_recordings: int = 0
+    processed_recordings: int = 0
+    total_items: int = 0
+    enriched_items: int = 0
+    unmatched_items: int = 0
+    failed_recordings: int = 0
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow, index=True)
 
 
 class Chapter(SQLModel, table=True):

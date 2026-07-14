@@ -605,8 +605,26 @@ export interface ActionItem {
   kind: "task" | "decision";
   text: string;
   assignee: string | null;
+  recipient: string | null;
   due: string | null;
   due_date: string | null;
+  source_quote: string | null;
+  source_start_sec: number | null;
+  confidence: number;
+  review_state: "pending" | "confirmed" | "rejected";
+  decision_status: "proposed" | "current" | "superseded" | "rejected";
+  superseded_by_id: number | null;
+  enrichment_state: "pending" | "complete" | "enriched" | "no_match";
+  enriched_at: string | null;
+  attention_flags: Array<
+    | "needs_review"
+    | "low_confidence"
+    | "missing_source"
+    | "missing_owner"
+    | "missing_due"
+    | "overdue"
+    | "due_soon"
+  >;
   done: boolean;
   /** Assigned to the configured "me" speaker (computed server-side). */
   is_mine: boolean;
@@ -616,10 +634,49 @@ export interface ActionItem {
   calendar_error: string | null;
   calendar_exported_at: string | null;
   created_at: string;
+  updated_at: string;
   recording_title: string | null;
+  recording_created_at: string | null;
   topic_id: number | null;
   topic_name: string | null;
   topic_color: string | null;
+}
+
+export interface ProjectMemory {
+  stats: {
+    open_commitments: number;
+    overdue_commitments: number;
+    needs_review: number;
+    current_decisions: number;
+    superseded_decisions: number;
+    attention_count: number;
+  };
+  commitments: ActionItem[];
+  decisions: ActionItem[];
+  rejected: ActionItem[];
+  generated_at: string;
+}
+
+export interface MemoryEnrichmentRun {
+  id: number;
+  status: "pending" | "running" | "done" | "partial" | "failed";
+  total_recordings: number;
+  processed_recordings: number;
+  total_items: number;
+  enriched_items: number;
+  unmatched_items: number;
+  failed_recordings: number;
+  progress: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryEnrichmentStatus {
+  eligible_items: number;
+  eligible_recordings: number;
+  latest_run: MemoryEnrichmentRun | null;
+  preserved_fields: string[];
 }
 
 export interface Chapter {

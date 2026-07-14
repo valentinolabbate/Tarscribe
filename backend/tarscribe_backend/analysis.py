@@ -73,14 +73,21 @@ Format: JSON-Array von Objekten mit genau diesen Feldern:
 - "kind": "task" für eine Aufgabe, "decision" für eine Entscheidung
 - "text": die Aufgabe bzw. Entscheidung, knapp in einem Satz
 - "assignee": verantwortliche Person oder null
+- "recipient": Empfänger einer ausdrücklichen Zusage oder null
 - "due": Frist wie im Gespräch genannt oder null
 - "due_date": Frist als ISO-Datum YYYY-MM-DD oder null
+- "source_quote": kurze, wörtliche Belegstelle aus dem Transkript oder null
+- "source_start_sec": Sekundenwert der Zeitmarke direkt vor der Belegstelle oder null
+- "confidence": Zahl zwischen 0 und 1 für die Sicherheit der Erkennung
 
 Regeln:
 - Setze "due_date" nur, wenn aus dem Transkript eindeutig ein Datum ableitbar ist.
 - Nutze das Referenzdatum für relative Fristen wie "morgen", "Freitag" oder "nächste Woche".
 - Erfinde keine Fristen. Ohne eindeutiges Datum: "due_date": null.
 - Für Entscheidungen sind "due" und "due_date" normalerweise null.
+- Eine Aufgabe ist nur dann eine Zusage, wenn eine Person konkrete Verantwortung übernimmt.
+- Übernimm source_quote exakt aus dem Transkript und nutze die unmittelbar davor stehende
+  Zeitmarke für source_start_sec. Erfinde weder Zitate noch Zeitmarken.
 {speakers_hint}
 Gib [] zurück, wenn nichts gefunden wird.
 
@@ -214,6 +221,86 @@ async def extract_action_items_async(
     return items
 
 
+_ENRICH_ITEMS_SYSTEM = (
+    "Du suchst ausschließlich Belegstellen für bereits vorhandene Aufgaben und Entscheidungen. "
+    "Du erzeugst keine neuen Einträge und änderst keine bestehenden Inhalte. Antworte nur mit "
+    "einem JSON-Array ohne Markdown."
+)
+
+_ENRICH_ITEMS_USER = """Ordne den vorhandenen Einträgen ihre Belegstellen im Transkript zu.
+
+Vorhandene Einträge:
+{items_json}
+
+Format: JSON-Array mit Objekten aus genau diesen Feldern:
+- "item_id": ID des vorhandenen Eintrags
+- "source_quote": kurze, wörtliche Passage aus dem Transkript oder null
+- "recipient": Empfänger einer ausdrücklichen Zusage oder null
+- "confidence": Zahl zwischen 0 und 1
+
+Regeln:
+- Gib nur IDs aus der Liste zurück.
+- source_quote muss wortgetreu im Transkript vorkommen.
+- Ergänze keine Aufgabe, Entscheidung, Frist oder verantwortliche Person.
+- Wenn kein eindeutiger Beleg existiert, setze source_quote auf null und confidence auf 0.
+- recipient ist nur bei einer ausdrücklich an jemanden gerichteten Zusage zu setzen.
+
+Transkript mit Zeitmarken:
+{chunk}"""
+
+
+async def enrich_existing_action_items_async(
+    chat: AsyncChat,
+    text: str,
+    items: list[dict],
+    chunk_size: int = 48000,
+    progress=None,
+) -> list[dict]:
+    from .llm import chunk_text
+
+    allowed_ids = {int(item["id"]) for item in items}
+    items_json = json.dumps(items, ensure_ascii=False)
+    best: dict[int, dict] = {}
+    chunks = chunk_text(text, size=chunk_size)
+    for index, chunk in enumerate(chunks):
+        if progress:
+            progress((index + 1) / len(chunks))
+        raw = await chat(
+            [
+                {"role": "system", "content": _ENRICH_ITEMS_SYSTEM},
+                {
+                    "role": "user",
+                    "content": _ENRICH_ITEMS_USER.format(items_json=items_json, chunk=chunk),
+                },
+            ]
+        )
+        for entry in _extract_json_array(raw):
+            if not isinstance(entry, dict):
+                continue
+            try:
+                item_id = int(entry.get("item_id"))
+            except (TypeError, ValueError):
+                continue
+            if item_id not in allowed_ids:
+                continue
+            quote = re.sub(r"\s+", " ", str(entry.get("source_quote") or "")).strip()
+            recipient = re.sub(r"\s+", " ", str(entry.get("recipient") or "")).strip()
+            try:
+                confidence = max(0.0, min(1.0, float(entry.get("confidence") or 0)))
+            except (TypeError, ValueError):
+                confidence = 0.0
+            candidate = {
+                "item_id": item_id,
+                "source_quote": quote[:1000] or None,
+                "recipient": recipient[:200] or None,
+                "confidence": confidence,
+            }
+            previous = best.get(item_id)
+            if previous is None or candidate["confidence"] > previous["confidence"]:
+                best[item_id] = candidate
+    return list(best.values())
+
+
 # ── Dictation inbox ──────────────────────────────────────────────────────────
 
 _DICTATION_SYSTEM = (
@@ -260,13 +347,27 @@ def _coerce_action_item(entry: object) -> dict | None:
         return None
     kind = str(entry.get("kind") or "task").strip().lower()
     assignee = entry.get("assignee")
+    recipient = entry.get("recipient")
     due = entry.get("due")
+    quote = re.sub(r"\s+", " ", str(entry.get("source_quote") or "")).strip()
+    try:
+        source_start_sec = max(0.0, float(entry.get("source_start_sec")))
+    except (TypeError, ValueError):
+        source_start_sec = None
+    try:
+        confidence = max(0.0, min(1.0, float(entry.get("confidence"))))
+    except (TypeError, ValueError):
+        confidence = 0.5
     return {
         "kind": kind if kind in ACTION_ITEM_KINDS else "task",
         "text": item_text,
         "assignee": str(assignee).strip() if assignee else None,
+        "recipient": str(recipient).strip() if recipient else None,
         "due": str(due).strip() if due else None,
         "due_date": _clean_due_date(entry.get("due_date")),
+        "source_quote": quote[:1000] or None,
+        "source_start_sec": source_start_sec,
+        "confidence": confidence,
     }
 
 

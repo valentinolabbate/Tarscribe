@@ -162,6 +162,15 @@ export const TasksIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const MemoryIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M8.5 4.5A3.5 3.5 0 0 0 5 8v1.2A3.6 3.6 0 0 0 3 12.5 3.5 3.5 0 0 0 6.5 16H8" />
+    <path d="M15.5 4.5A3.5 3.5 0 0 1 19 8v1.2a3.6 3.6 0 0 1 2 3.3 3.5 3.5 0 0 1-3.5 3.5H16" />
+    <path d="M8.5 4.5V19a2 2 0 0 0 3.5 1.3A2 2 0 0 0 15.5 19V4.5A2.5 2.5 0 0 0 12 2.2 2.5 2.5 0 0 0 8.5 4.5Z" />
+    <path d="M8.5 9.5h3M12 14.5h3.5M12 6v3.5M12 14.5V18" />
+  </svg>
+);
+
 export const CalendarIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}>
     <rect x="4" y="5" width="16" height="15" rx="2.5" />

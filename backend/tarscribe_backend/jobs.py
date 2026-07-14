@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+import re
 import threading
 import time
 import traceback
@@ -25,6 +26,7 @@ from .models import (
     Job,
     JobPhase,
     JobStatus,
+    MemoryEnrichmentRun,
     Recording,
     RecordingStatus,
     Segment,
@@ -528,7 +530,9 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         unload_all()
 
 
-def _assemble_transcript(session, recording_id: int) -> tuple[str, list[str]]:
+def _assemble_transcript(
+    session, recording_id: int, *, include_timestamps: bool = False
+) -> tuple[str, list[str]]:
     """Speaker-annotated transcript text + speaker names for the LLM."""
     from sqlmodel import select as _select
 
@@ -550,8 +554,25 @@ def _assemble_transcript(session, recording_id: int) -> tuple[str, list[str]]:
             DiarizationRun.recording_id == recording_id, DiarizationRun.is_active == True  # noqa: E712
         )
     ).first()
+    def stamp(seconds: float) -> str:
+        total = max(0, int(seconds))
+        return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
+
     if not run:
-        return "".join(w.text for w in words).strip(), []
+        if not include_timestamps:
+            return "".join(w.text for w in words).strip(), []
+        lines: list[str] = []
+        buffer: list[str] = []
+        start = words[0].start if words else 0.0
+        for word in words:
+            if buffer and word.end - start >= 24:
+                lines.append(f"[{stamp(start)}] Transkript: {''.join(buffer).strip()}")
+                buffer = []
+                start = word.start
+            buffer.append(word.text)
+        if buffer:
+            lines.append(f"[{stamp(start)}] Transkript: {''.join(buffer).strip()}")
+        return "\n".join(lines), []
 
     segs = session.exec(_select(Segment).where(Segment.run_id == run.id).order_by(Segment.start)).all()
     aligned = [SpeakerSegment(start=s.start, end=s.end, speaker=s.speaker_label) for s in segs]
@@ -561,7 +582,14 @@ def _assemble_transcript(session, recording_id: int) -> tuple[str, list[str]]:
     ).all()
     name_map = {lab.original_label: lab.display_name for lab in labels if lab.display_name}
     utts = build_utterances(words, aligned, reassigns, relabel)
-    lines = [f"{name_map.get(u.speaker, u.speaker)}: {u.text}" for u in utts]
+    lines = [
+        (
+            f"[{stamp(u.start)}] {name_map.get(u.speaker, u.speaker)}: {u.text}"
+            if include_timestamps
+            else f"{name_map.get(u.speaker, u.speaker)}: {u.text}"
+        )
+        for u in utts
+    ]
     speakers = sorted({name_map.get(u.speaker, u.speaker) for u in utts})
     return "\n".join(lines), speakers
 
@@ -606,8 +634,16 @@ def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
                 kind=extracted["kind"],
                 text=extracted["text"],
                 assignee=extracted.get("assignee"),
+                recipient=extracted.get("recipient"),
                 due=extracted.get("due"),
                 due_date=extracted.get("due_date"),
+                source_quote=extracted.get("source_quote"),
+                source_start_sec=extracted.get("source_start_sec"),
+                confidence=extracted.get("confidence", 0.5),
+                review_state=previous.review_state if previous else "pending",
+                decision_status=previous.decision_status if previous else "current",
+                superseded_by_id=previous.superseded_by_id if previous else None,
+                enrichment_state="complete",
                 done=previous.done if previous else False,
                 include_in_tasks=previous.include_in_tasks if previous else False,
             )
@@ -620,6 +656,193 @@ def _replace_action_items(recording_id: int, items: list[dict]) -> list[dict]:
                 }
             )
     return stored
+
+
+def _source_quote_position(transcript: str, quote: str) -> float | None:
+    normalized_quote = re.sub(r"\W+", " ", quote.casefold()).strip()
+    if len(normalized_quote) < 8:
+        return None
+    lines = transcript.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^\[(\d{2}):(\d{2}):(\d{2})\]\s*(.*)$", line)
+        if not match:
+            continue
+        line_text = re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", line)
+        combined = " ".join(
+            re.sub(r"^\[\d{2}:\d{2}:\d{2}\]\s*", "", part)
+            for part in lines[index : index + 3]
+        )
+        normalized_line = re.sub(r"\W+", " ", combined.casefold()).strip()
+        normalized_current_line = re.sub(r"\W+", " ", line_text.casefold()).strip()
+        quote_offset = normalized_line.find(normalized_quote)
+        if quote_offset < 0 or quote_offset > len(normalized_current_line):
+            continue
+        hours, minutes, seconds = (int(match.group(i)) for i in range(1, 4))
+        return float(hours * 3600 + minutes * 60 + seconds)
+    return None
+
+
+def _memory_enrichment_candidates(session, recording_id: int | None = None) -> list[ActionItem]:
+    stmt = select(ActionItem).where(
+        ActionItem.enrichment_state == "pending",
+        (ActionItem.source_quote == None) | (ActionItem.source_start_sec == None),  # noqa: E711
+    )
+    if recording_id is not None:
+        stmt = stmt.where(ActionItem.recording_id == recording_id)
+    return list(session.exec(stmt.order_by(ActionItem.recording_id, ActionItem.id)).all())
+
+
+def _update_memory_enrichment_run(run_id: int, **changes) -> None:
+    with session_scope() as session:
+        run = session.get(MemoryEnrichmentRun, run_id)
+        if not run:
+            return
+        for key, value in changes.items():
+            setattr(run, key, value)
+        run.updated_at = datetime.now(timezone.utc)
+        session.add(run)
+
+
+async def _run_memory_enrichment_async(run_id: int) -> None:
+    from . import agent as AG
+    from . import analysis
+    from .settings_store import load_prefs
+
+    _update_memory_enrichment_run(run_id, status="running")
+    with session_scope() as session:
+        recording_ids = sorted({item.recording_id for item in _memory_enrichment_candidates(session)})
+
+    processed = 0
+    enriched_total = 0
+    unmatched_total = 0
+    failed = 0
+    try:
+        for recording_id in recording_ids:
+            try:
+                with session_scope() as session:
+                    recording = session.get(Recording, recording_id)
+                    items = _memory_enrichment_candidates(session, recording_id)
+                    transcript, _speakers = _assemble_transcript(
+                        session, recording_id, include_timestamps=True
+                    )
+                    topic_id = recording.topic_id if recording else None
+                    item_payload = [
+                        {
+                            "id": item.id,
+                            "kind": item.kind,
+                            "text": item.text,
+                            "assignee": item.assignee,
+                            "due": item.due,
+                        }
+                        for item in items
+                    ]
+                if not transcript:
+                    with session_scope() as session:
+                        for item in _memory_enrichment_candidates(session, recording_id):
+                            item.enrichment_state = "no_match"
+                            item.enriched_at = datetime.now(timezone.utc)
+                            session.add(item)
+                    unmatched_total += len(items)
+                    processed += 1
+                    _update_memory_enrichment_run(
+                        run_id,
+                        processed_recordings=processed,
+                        enriched_items=enriched_total,
+                        unmatched_items=unmatched_total,
+                    )
+                    continue
+
+                agent_cfg = AG.get_agent_rag_config("summaries")
+                if AG.research_active(agent_cfg):
+                    chat = AG.make_agent_chat_async(
+                        session_factory=session_scope,
+                        topic_id=topic_id,
+                        recording_id=recording_id,
+                        cfg=agent_cfg,
+                    )
+                else:
+                    chat = _llm_chat_fn_async("summaries")
+                chunk_size = int(load_prefs().get("llm_chunk_size") or 48000)
+                results = await analysis.enrich_existing_action_items_async(
+                    chat,
+                    transcript,
+                    item_payload,
+                    chunk_size=chunk_size,
+                )
+                result_by_id = {result["item_id"]: result for result in results}
+                enriched_recording = 0
+                unmatched_recording = 0
+                with session_scope() as session:
+                    for item in _memory_enrichment_candidates(session, recording_id):
+                        result = result_by_id.get(item.id)
+                        quote = str((result or {}).get("source_quote") or item.source_quote or "")
+                        position = _source_quote_position(transcript, quote) if quote else None
+                        if position is not None:
+                            if not item.source_quote:
+                                item.source_quote = quote
+                            if item.source_start_sec is None:
+                                item.source_start_sec = position
+                            if item.kind == "task" and not item.recipient and result:
+                                item.recipient = result.get("recipient")
+                            if item.confidence <= 0.5 and result:
+                                item.confidence = float(result.get("confidence") or 0.5)
+                            item.enrichment_state = "enriched"
+                            enriched_recording += 1
+                        else:
+                            item.enrichment_state = "no_match"
+                            unmatched_recording += 1
+                        item.enriched_at = datetime.now(timezone.utc)
+                        item.updated_at = datetime.now(timezone.utc)
+                        session.add(item)
+                enriched_total += enriched_recording
+                unmatched_total += unmatched_recording
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+                failed += 1
+            processed += 1
+            _update_memory_enrichment_run(
+                run_id,
+                processed_recordings=processed,
+                enriched_items=enriched_total,
+                unmatched_items=unmatched_total,
+                failed_recordings=failed,
+            )
+        _update_memory_enrichment_run(
+            run_id,
+            status="partial" if failed else "done",
+            processed_recordings=processed,
+            enriched_items=enriched_total,
+            unmatched_items=unmatched_total,
+            failed_recordings=failed,
+        )
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _update_memory_enrichment_run(run_id, status="failed", error=str(exc))
+
+
+def enqueue_memory_enrichment() -> int:
+    with session_scope() as session:
+        active = session.exec(
+            select(MemoryEnrichmentRun)
+            .where(MemoryEnrichmentRun.status.in_(["pending", "running"]))
+            .order_by(MemoryEnrichmentRun.id.desc())
+        ).first()
+        if active:
+            return active.id
+        candidates = _memory_enrichment_candidates(session)
+        total_items = len(candidates)
+        run = MemoryEnrichmentRun(
+            status="pending" if total_items else "done",
+            total_recordings=len({item.recording_id for item in candidates}),
+            total_items=total_items,
+        )
+        session.add(run)
+        session.flush()
+        run_id = run.id
+    if total_items:
+        loop = _ensure_async_loop()
+        asyncio.run_coroutine_threadsafe(_run_memory_enrichment_async(run_id), loop)
+    return run_id
 
 
 def _format_summary_tasks(items: list[dict]) -> str:
@@ -1022,7 +1245,7 @@ async def _run_action_items_async(
         with session_scope() as s:
             rec = s.get(Recording, recording_id)
             reference_date = rec.created_at.date().isoformat() if rec and rec.created_at else None
-            text, speakers = _assemble_transcript(s, recording_id)
+            text, speakers = _assemble_transcript(s, recording_id, include_timestamps=True)
             topic_id = rec.topic_id if rec else None
         if not text:
             raise RuntimeError("Kein Transkript vorhanden")

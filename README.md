@@ -5,7 +5,7 @@ Zusammenfassungen und Wissenssuche über Audioinhalte. Die Audioverarbeitung lä
 Apple Silicon; optionale Chat- und Embedding-Funktionen nutzt du über frei
 konfigurierbare Anbieter oder Endpoints.
 
-**Aktueller Stand:** v0.13.1 · macOS Apple Silicon · Tauri + React + FastAPI
+**Aktueller Stand:** v0.16.0 · macOS Apple Silicon · Tauri + React + FastAPI
 
 ## Was Tarscribe kann
 
@@ -28,6 +28,8 @@ konfigurierbare Anbieter oder Endpoints.
 - Aufgaben und Entscheidungen automatisch aus Gesprächen extrahieren; der **Aufgaben**-Bereich zeigt standardmäßig nur deine eigenen (lege in den Einstellungen fest, wer „Ich" ist) und lässt andere gezielt übernehmen
 - Wochen-Digest über die letzten Tage erzeugen und semantisch erkannte Themen-Threads über mehrere Aufnahmen hinweg verfolgen
 - **People Memory** bündelt pro bekanntem Sprecher gemeinsame Gespräche, offene Zusagen, Entscheidungen und Themen-Threads mit Links zurück zu den belegenden Aufnahmen
+- Das **Projektgedächtnis** priorisiert offene und überfällige Zusagen im Commitment Radar und führt Entscheidungen mit Status, Nachfolgeentscheidung, Originalzitat und Zeitmarke im Decision Ledger
+- Bestehende Aufgaben und Entscheidungen lassen sich einmalig und verlustfrei um Belegzitate, Zeitmarken und Empfänger anreichern; Texte, Fristen, Status und Fortschritt bleiben unverändert
 
 **Suchen & Fragen**
 - Transkripte, Zusammenfassungen und Dokumente hybrid durchsuchen (Volltext + semantisch)

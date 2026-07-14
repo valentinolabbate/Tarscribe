@@ -37,6 +37,7 @@ export default function App() {
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [showHome, setShowHome] = useState(true);
   const [showTasks, setShowTasks] = useState(false);
+  const [showMemory, setShowMemory] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
   const [showJobs, setShowJobs] = useState(false);
   const [openRecordingStartSec, setOpenRecordingStartSec] = useState<number | null>(null);
@@ -104,6 +105,7 @@ export default function App() {
     setActiveTopic(rec.topic_id);
     setShowHome(false);
     setShowTasks(false);
+    setShowMemory(false);
     setShowPeople(false);
     setShowJobs(false);
     setOpenRecordingStartSec(null);
@@ -145,6 +147,7 @@ export default function App() {
       setActiveTopic(rec.topic_id);
       setShowHome(false);
       setShowTasks(false);
+      setShowMemory(false);
       setShowPeople(false);
       setShowJobs(false);
       setOpenRecordingStartSec(startSec ?? null);
@@ -168,6 +171,7 @@ export default function App() {
     setActiveTopic,
     setShowHome,
     setShowTasks,
+    setShowMemory,
     setShowPeople,
     setShowJobs,
     setOpenRecording,
@@ -212,11 +216,13 @@ export default function App() {
         activeTopic={activeTopic}
         showHome={showHome}
         showTasks={showTasks}
+        showMemory={showMemory}
         showPeople={showPeople}
         showJobs={showJobs}
         onHome={() => {
           setShowHome(true);
           setShowTasks(false);
+          setShowMemory(false);
           setShowPeople(false);
           setShowJobs(false);
           setOpenRecordingStartSec(null);
@@ -224,6 +230,16 @@ export default function App() {
         }}
         onTasks={() => {
           setShowTasks(true);
+          setShowMemory(false);
+          setShowHome(false);
+          setShowPeople(false);
+          setShowJobs(false);
+          setOpenRecordingStartSec(null);
+          setOpenRecording(null);
+        }}
+        onMemory={() => {
+          setShowMemory(true);
+          setShowTasks(false);
           setShowHome(false);
           setShowPeople(false);
           setShowJobs(false);
@@ -233,6 +249,7 @@ export default function App() {
         onPeople={() => {
           setShowPeople(true);
           setShowTasks(false);
+          setShowMemory(false);
           setShowHome(false);
           setShowJobs(false);
           setOpenRecordingStartSec(null);
@@ -241,6 +258,7 @@ export default function App() {
         onJobs={() => {
           setShowJobs(true);
           setShowTasks(false);
+          setShowMemory(false);
           setShowPeople(false);
           setShowHome(false);
           setOpenRecordingStartSec(null);
@@ -252,6 +270,7 @@ export default function App() {
           setOpenRecording(null);
           setShowHome(false);
           setShowTasks(false);
+          setShowMemory(false);
           setShowPeople(false);
           setShowJobs(false);
           setOpenRecordingStartSec(null);
@@ -266,6 +285,7 @@ export default function App() {
         <TopBar
           showJobs={showJobs}
           showTasks={showTasks}
+          showMemory={showMemory}
           showPeople={showPeople}
           showHome={showHome}
           openRecording={openRecording}
@@ -281,6 +301,7 @@ export default function App() {
             currentTopic={current}
             showJobs={showJobs}
             showTasks={showTasks}
+            showMemory={showMemory}
             showPeople={showPeople}
             showHome={showHome}
             openRecording={openRecording}

@@ -1,5 +1,7 @@
 import type {
   ActionItem,
+  MemoryEnrichmentStatus,
+  ProjectMemory,
   AgentResearchEvent,
   AppSettings,
   Chapter,
@@ -676,10 +678,29 @@ export const api = {
     const qs = params.toString();
     return request<ActionItem[]>(`/api/action-items${qs ? `?${qs}` : ""}`);
   },
+  getProjectMemory: () => request<ProjectMemory>("/api/memory"),
+  getMemoryEnrichmentStatus: () =>
+    request<MemoryEnrichmentStatus>("/api/memory/enrichment"),
+  startMemoryEnrichment: () =>
+    request<{ run: MemoryEnrichmentStatus["latest_run"] }>("/api/memory/enrichment", {
+      method: "POST",
+    }),
   updateActionItem: (
     id: number,
     patch: Partial<
-      Pick<ActionItem, "done" | "text" | "assignee" | "due" | "due_date" | "include_in_tasks">
+      Pick<
+        ActionItem,
+        | "done"
+        | "text"
+        | "assignee"
+        | "recipient"
+        | "due"
+        | "due_date"
+        | "review_state"
+        | "decision_status"
+        | "superseded_by_id"
+        | "include_in_tasks"
+      >
     >,
   ) =>
     request<ActionItem>(`/api/action-items/${id}`, {

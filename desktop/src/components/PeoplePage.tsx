@@ -83,6 +83,7 @@ function MemoryItem({
       <SourceButton
         recordingId={item.recording_id}
         title={item.recording_title}
+        startSec={item.source_start_sec}
         onOpenRecording={onOpenRecording}
       />
     </article>

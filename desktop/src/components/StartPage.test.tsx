@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { ActionItem } from "../lib/types";
-import { TodayItem } from "./StartPage";
+import type { ActionItem, TopicThread } from "../lib/types";
+import { ThreadList, TodayItem } from "./StartPage";
 
 const baseItem: ActionItem = {
   id: 7,
@@ -67,5 +67,53 @@ describe("TodayItem", () => {
     expect(html).toContain("Fertig");
     expect(html).toContain("Radar öffnen");
     expect(html).toContain("Zusage als fertig markieren");
+  });
+});
+
+function makeThread(id: number, mentionCount = 1): TopicThread {
+  return {
+    id,
+    title: `Thread ${id}`,
+    updated_at: "2026-07-20T08:00:00Z",
+    created_at: "2026-07-20T08:00:00Z",
+    mention_count: mentionCount,
+    recording_count: mentionCount,
+    mentions: Array.from({ length: mentionCount }, (_, index) => ({
+      id: id * 100 + index,
+      thread_id: id,
+      recording_id: id * 100 + index,
+      recording_title: `Quelle ${id}-${index + 1}`,
+      topic_id: 2,
+      topic_name: "Tarscribe",
+      topic_color: "#087f6d",
+      start_sec: index * 60,
+      text: `Fundstelle ${index + 1}`,
+      created_at: "2026-07-20T08:00:00Z",
+      recording_created_at: `2026-07-${String(index + 1).padStart(2, "0")}T08:00:00Z`,
+    })),
+  };
+}
+
+describe("ThreadList", () => {
+  it("shows every expanded thread instead of limiting the result to five", () => {
+    const html = renderToStaticMarkup(
+      <ThreadList
+        threads={Array.from({ length: 8 }, (_, index) => makeThread(index + 1))}
+        onOpenSource={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Thread 1");
+    expect(html).toContain("Thread 8");
+    expect((html.match(/class="thread-card"/g) ?? []).length).toBe(8);
+  });
+
+  it("shows every source found inside a thread", () => {
+    const html = renderToStaticMarkup(
+      <ThreadList threads={[makeThread(1, 8)]} onOpenSource={vi.fn()} />,
+    );
+
+    expect(html).toContain('title="Quelle 1-8"');
+    expect((html.match(/class="thread-chip"/g) ?? []).length).toBe(8);
   });
 });

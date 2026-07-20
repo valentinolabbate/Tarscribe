@@ -504,6 +504,67 @@ def test_source_quote_uses_exact_word_timestamp_instead_of_prompt_block(client):
     )
 
 
+def test_source_quote_reassembles_split_asr_tokens_and_repairs_existing_item(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.evidence import repair_missing_action_item_source_positions
+    from tarscribe_backend.models import ActionItem, Transcript, Word
+
+    recording_id, _topic_id = _make_recording()
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=recording_id, asr_model="parakeet-mlx")
+        session.add(transcript)
+        session.flush()
+        for index, (start, text) in enumerate(
+            [
+                (57.92, " Es"),
+                (58.08, " ist"),
+                (58.24, " der"),
+                (58.4, " 11"),
+                (58.56, "."),
+                (58.64, " Aug"),
+                (58.72, "ust"),
+                (58.88, "."),
+                (58.96, " Also"),
+                (59.12, " alle"),
+                (59.28, " Klaus"),
+                (59.36, "uren"),
+                (59.52, " sind"),
+                (59.68, " am"),
+                (59.84, " 11"),
+                (60.0, "."),
+                (60.08, " August"),
+            ]
+        ):
+            session.add(
+                Word(
+                    transcript_id=transcript.id,
+                    idx=index,
+                    start=start,
+                    end=start + 0.12,
+                    text=text,
+                )
+            )
+        item = ActionItem(
+            recording_id=recording_id,
+            kind="decision",
+            text="Der Klausurtermin wurde auf den 11. August festgelegt.",
+            source_quote="Es ist der 11. August. Also alle Klausuren sind am 11. August.",
+            enrichment_state="complete",
+        )
+        session.add(item)
+        session.commit()
+        item_id = item.id
+
+        assert repair_missing_action_item_source_positions(session) == 1
+        session.commit()
+        session.refresh(item)
+        assert item.id == item_id
+        assert item.source_start_sec == 57.92
+        assert item.enrichment_state == "complete"
+
+
 def test_memory_item_marks_direct_and_recording_involvement():
     from tarscribe_backend.models import ActionItem
     from tarscribe_backend.routers.insights import _item_dict

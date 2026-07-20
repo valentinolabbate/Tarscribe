@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-import math
 import re
 import threading
 import time
@@ -20,6 +19,7 @@ from pathlib import Path
 from sqlmodel import select
 
 from .db import session_scope
+from .evidence import source_quote_position_from_word_parts
 from .llm import LlmUseCase
 from .models import (
     ActionItem,
@@ -697,9 +697,6 @@ def _word_source_quote_position(
     quote: str,
     hint: float | None = None,
 ) -> float | None:
-    quote_tokens = re.findall(r"\w+", quote.casefold())
-    if len(" ".join(quote_tokens)) < 8:
-        return None
     with session_scope() as session:
         transcript = session.exec(
             select(Transcript)
@@ -712,26 +709,7 @@ def _word_source_quote_position(
             select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
         ).all()
         word_parts = [(word.start, word.text) for word in words]
-
-    tokens: list[tuple[str, float]] = []
-    for start, text in word_parts:
-        tokens.extend((token, start) for token in re.findall(r"\w+", text.casefold()))
-    candidates = [
-        tokens[index][1]
-        for index in range(len(tokens) - len(quote_tokens) + 1)
-        if [token for token, _start in tokens[index : index + len(quote_tokens)]]
-        == quote_tokens
-    ]
-    if not candidates:
-        return None
-    if hint is not None:
-        try:
-            parsed_hint = float(hint)
-        except (TypeError, ValueError):
-            parsed_hint = None
-        if parsed_hint is not None and math.isfinite(parsed_hint):
-            return min(candidates, key=lambda start: abs(start - parsed_hint))
-    return candidates[0]
+    return source_quote_position_from_word_parts(word_parts, quote, hint)
 
 
 def _memory_enrichment_candidates(session, recording_id: int | None = None) -> list[ActionItem]:

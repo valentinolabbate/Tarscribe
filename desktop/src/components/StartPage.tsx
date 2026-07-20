@@ -104,7 +104,7 @@ function ThreadsPanel({
   const { data: threads, isLoading } = useThreads();
   const rebuild = useRebuildThreads();
   const toast = useToast();
-  const visible = threads?.slice(0, 5) ?? [];
+  const availableThreads = threads ?? [];
 
   async function rebuildThreads() {
     try {
@@ -133,42 +133,54 @@ function ThreadsPanel({
         </button>
       </div>
       {isLoading && <div className="start-card-note">Wird geladen…</div>}
-      {!isLoading && visible.length === 0 && (
+      {!isLoading && availableThreads.length === 0 && (
         <div className="start-card-note">Semantische Verbindungen zwischen deinen Aufnahmen.</div>
       )}
-      {visible.length > 0 && (
+      {availableThreads.length > 0 && (
         <details className="start-card-disclosure">
           <summary>
-            <span>{visible.length} Threads</span>
+            <span>{availableThreads.length} Threads</span>
             <small>Anzeigen</small>
           </summary>
-          <div className="thread-list">
-            {visible.map((thread: TopicThread) => (
-              <article className="thread-card" key={thread.id}>
-                <div className="thread-card-head">
-                  <strong>{thread.title}</strong>
-                  <span>{thread.recording_count} Aufnahmen</span>
-                </div>
-                <div className="thread-mentions">
-                  {thread.mentions.slice(0, 6).map((mention) => (
-                    <button
-                      key={mention.id}
-                      className="thread-chip"
-                      onClick={() => onOpenSource(mention.recording_id, mention.start_sec)}
-                      title={mention.recording_title ?? "Aufnahme öffnen"}
-                    >
-                      <span className="topic-dot" style={{ background: mention.topic_color ?? "var(--accent)" }} />
-                      <span>{mention.recording_created_at ? fmtDate(mention.recording_created_at) : "Datum offen"}</span>
-                      {mention.start_sec != null && <code>{fmtDuration(mention.start_sec)}</code>}
-                    </button>
-                  ))}
-                </div>
-              </article>
-            ))}
-          </div>
+          <ThreadList threads={availableThreads} onOpenSource={onOpenSource} />
         </details>
       )}
     </section>
+  );
+}
+
+export function ThreadList({
+  threads,
+  onOpenSource,
+}: {
+  threads: TopicThread[];
+  onOpenSource: (recordingId: number, startSec?: number | null) => void;
+}) {
+  return (
+    <div className="thread-list">
+      {threads.map((thread) => (
+        <article className="thread-card" key={thread.id}>
+          <div className="thread-card-head">
+            <strong>{thread.title}</strong>
+            <span>{thread.recording_count} Aufnahmen</span>
+          </div>
+          <div className="thread-mentions">
+            {thread.mentions.map((mention) => (
+              <button
+                key={mention.id}
+                className="thread-chip"
+                onClick={() => onOpenSource(mention.recording_id, mention.start_sec)}
+                title={mention.recording_title ?? "Aufnahme öffnen"}
+              >
+                <span className="topic-dot" style={{ background: mention.topic_color ?? "var(--accent)" }} />
+                <span>{mention.recording_created_at ? fmtDate(mention.recording_created_at) : "Datum offen"}</span>
+                {mention.start_sec != null && <code>{fmtDuration(mention.start_sec)}</code>}
+              </button>
+            ))}
+          </div>
+        </article>
+      ))}
+    </div>
   );
 }
 

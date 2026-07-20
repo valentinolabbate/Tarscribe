@@ -109,7 +109,16 @@ def init_db() -> None:
 
     SQLModel.metadata.create_all(get_engine())
     _run_lightweight_migrations()
+    _repair_missing_action_item_evidence()
     _seed_builtin_templates()
+
+
+def _repair_missing_action_item_evidence() -> None:
+    from .evidence import repair_missing_action_item_source_positions
+
+    with Session(get_engine()) as session:
+        if repair_missing_action_item_source_positions(session):
+            session.commit()
 
 
 def _run_lightweight_migrations() -> None:

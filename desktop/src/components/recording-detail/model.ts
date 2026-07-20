@@ -18,6 +18,7 @@ export interface Sentence {
   start: number;
   end: number;
   text: string;
+  words: WordSeg[];
 }
 
 export interface FlowStep {
@@ -47,7 +48,7 @@ export function groupWordsIntoSentences(words: WordSeg[]): Sentence[] {
     if (!current.length) return;
     const text = current.map((word) => word.text).join("").trim();
     if (text) {
-      sentences.push({ start: current[0].start, end: current[current.length - 1].end, text });
+      sentences.push({ start: current[0].start, end: current[current.length - 1].end, text, words: current });
     }
     current = [];
   };

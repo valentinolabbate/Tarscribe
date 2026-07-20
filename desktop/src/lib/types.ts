@@ -107,6 +107,51 @@ export interface WordSeg {
   end: number;
   text: string;
   confidence: number | null;
+  raw_text?: string;
+  source_start_idx?: number;
+  source_end_idx?: number;
+  correction_id?: number | null;
+}
+
+export interface QualityIssue {
+  issue_id: string;
+  reason_codes: string[];
+  severity: "critical" | "review" | "notice";
+  start_word_idx: number;
+  end_word_idx: number;
+  start_sec: number;
+  end_sec: number;
+  raw_text: string;
+  effective_text: string;
+  min_confidence: number | null;
+  mean_confidence: number | null;
+  quality_score: number | null;
+  correction_id: number | null;
+}
+
+export interface QualityReport {
+  transcript_id: number;
+  revision: number;
+  quality: {
+    coverage: "word_confidence" | "unavailable";
+    open_count: number;
+    critical_count: number;
+    unknown_confidence_count: number;
+  };
+  issues: QualityIssue[];
+  corrections: Correction[];
+}
+
+export interface Correction {
+  id: number;
+  start_word_idx: number;
+  end_word_idx: number;
+  start_sec: number;
+  end_sec: number;
+  original_text: string;
+  corrected_text: string;
+  status: "active" | "needs_review" | "ignored";
+  source: string;
 }
 
 export interface TranscriptData {
@@ -114,6 +159,9 @@ export interface TranscriptData {
   asr_model: string;
   language: string | null;
   text: string;
+  raw_text: string;
+  revision: number;
+  quality: QualityReport["quality"];
   words: WordSeg[];
 }
 
@@ -351,6 +399,7 @@ export interface Utterance {
   start: number;
   end: number;
   text: string;
+  words?: WordSeg[];
 }
 
 export interface DiarizationData {

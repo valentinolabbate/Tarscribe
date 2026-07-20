@@ -393,7 +393,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
         try:
-            maybe_enqueue_action_items(recording_id)
+            enqueue_diarization(recording_id)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
     except JobCanceled:
@@ -493,17 +493,20 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         try:
             from .ml.speaker_matching import apply_matches, match_recording
 
-            if diarization_selection.get("speaker_matching_enabled", True):
-                threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
-                with session_scope() as s:
-                    matches = match_recording(s, recording_id, threshold)
-                    apply_matches(s, recording_id, matches)
+            threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
+            with session_scope() as s:
+                matches = match_recording(s, recording_id, threshold)
+                apply_matches(s, recording_id, matches)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
 
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         # Re-diarization changes speaker assignment -> re-embed the (re-labeled) text.
         schedule_reindex(recording_id)
+        try:
+            maybe_enqueue_action_items(recording_id)
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
     except JobCanceled:
         _update_job(job_id, status=JobStatus.canceled)
         _set_recording_status_after_cancel(recording_id)
@@ -545,15 +548,12 @@ def _assemble_transcript(
     from .ml.diarization import SpeakerSegment
     from .models import DiarizationRun, Segment, SpeakerLabel
     from .overlay import load_overlay
+    from .transcript_view import load_effective_words
 
-    transcript = session.exec(
-        _select(Transcript).where(Transcript.recording_id == recording_id)
-    ).first()
-    if not transcript:
+    loaded = load_effective_words(session, recording_id)
+    if not loaded:
         return "", []
-    words = session.exec(
-        _select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
-    ).all()
+    _snapshot, words = loaded
     run = session.exec(
         _select(DiarizationRun).where(
             DiarizationRun.recording_id == recording_id, DiarizationRun.is_active == True  # noqa: E712

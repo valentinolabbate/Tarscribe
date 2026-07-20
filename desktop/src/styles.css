@@ -5429,6 +5429,187 @@ button.utt-time:hover {
   color: var(--accent);
 }
 
+/* Transcript quality loop: a calm proofreader's margin rather than a second dashboard. */
+.quality-workspace {
+  position: relative;
+}
+.quality-workspace.reviewing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(236px, 29%);
+  gap: 12px;
+  align-items: start;
+}
+.quality-word {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration-line: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.quality-word:hover,
+.quality-word:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
+}
+.quality-word.quality-review {
+  text-decoration-color: color-mix(in srgb, var(--warn) 70%, transparent);
+}
+.quality-word.quality-critical {
+  text-decoration-color: color-mix(in srgb, var(--danger) 76%, transparent);
+  text-decoration-style: wavy;
+}
+.quality-review {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 160px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: var(--radius);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 7%, var(--bg-elevated)), var(--bg-elevated) 54%);
+  box-shadow: var(--shadow-sm);
+}
+.quality-review-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--divider-subtle);
+}
+.quality-review-head strong,
+.correction-editor strong {
+  display: block;
+  font-size: 13px;
+}
+.quality-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-family: var(--font-data);
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.quality-critical-count,
+.quality-severity {
+  flex: none;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+.quality-critical-count {
+  padding: 5px 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.quality-coverage {
+  margin: 10px 0 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.quality-issue-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+}
+.quality-issue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 7px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.quality-issue:hover,
+.quality-issue.selected {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.quality-issue strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quality-issue small {
+  grid-column: 2;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.quality-severity {
+  align-self: center;
+  padding: 3px 5px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
+}
+.quality-severity.critical {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+.correction-editor {
+  position: fixed;
+  z-index: 30;
+  right: 28px;
+  bottom: 24px;
+  width: min(390px, calc(100vw - 32px));
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--bg-elevated);
+  box-shadow: 0 24px 65px rgb(8 26 20 / 22%);
+}
+.correction-editor-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.correction-editor label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 650;
+}
+.correction-editor input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+}
+.correction-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+@media (max-width: 820px) {
+  .quality-workspace.reviewing { display: block; }
+  .quality-review { position: static; max-height: 310px; margin-top: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .utterance { transition: none; }
+}
+
 /* Toasts */
 .toast-stack {
   position: fixed;

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -107,6 +108,7 @@ class Transcript(SQLModel, table=True):
     recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
     asr_model: str
     language: Optional[str] = None
+    revision: int = 0
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -187,6 +189,51 @@ class ManualEdit(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class TopicGlossary(SQLModel, table=True):
+    """Confirmed topic-specific spelling knowledge used by the quality loop."""
+
+    __tablename__ = "topic_glossary"
+    __table_args__ = (UniqueConstraint("topic_id", "normalized_term"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    topic_id: int = Field(foreign_key="topics.id", ondelete="CASCADE", index=True)
+    canonical_term: str
+    normalized_term: str
+    variants_json: str = "[]"
+    pronunciation_hint: Optional[str] = None
+    case_sensitive: bool = False
+    auto_apply: bool = True
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class TranscriptCorrection(SQLModel, table=True):
+    """Non-destructive text overlay anchored to a span of raw ASR words."""
+
+    __tablename__ = "transcript_corrections"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recording_id: int = Field(foreign_key="recordings.id", ondelete="CASCADE", index=True)
+    source_transcript_id: Optional[int] = None
+    source_revision: int = 0
+    start_word_idx: int
+    end_word_idx: int
+    start_sec: float
+    end_sec: float
+    original_text: str
+    corrected_text: str
+    context_before: str = ""
+    context_after: str = ""
+    glossary_term_id: Optional[int] = Field(
+        default=None, foreign_key="topic_glossary.id", ondelete="SET NULL", index=True
+    )
+    source: str = "manual"  # manual | batch | glossary
+    batch_id: Optional[str] = Field(default=None, index=True)
+    status: str = "active"  # active | needs_review | ignored
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+
+
 class SummaryTemplate(SQLModel, table=True):
     __tablename__ = "summary_templates"
 
@@ -210,6 +257,7 @@ class Summary(SQLModel, table=True):
     content: str = ""
     generated_content: Optional[str] = None
     revision: int = 0
+    source_transcript_revision: int = 0
     updated_at: datetime = Field(default_factory=_utcnow)
     # JSON-encoded list of topic-knowledge passages woven into this summary
     # (see jobs._run_summary). None when no extra knowledge was used.
@@ -354,6 +402,7 @@ class ActionItem(SQLModel, table=True):
     calendar_exported_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow, index=True)
+    source_transcript_revision: int = 0
 
 
 class MemoryEnrichmentRun(SQLModel, table=True):
@@ -383,6 +432,7 @@ class Chapter(SQLModel, table=True):
     start: float = 0.0
     end: Optional[float] = None
     title: str = ""
+    source_transcript_revision: int = 0
     created_at: datetime = Field(default_factory=_utcnow)
 
 

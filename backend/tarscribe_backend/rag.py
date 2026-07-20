@@ -21,8 +21,6 @@ from .models import (
     Segment,
     SpeakerLabel,
     Summary,
-    Transcript,
-    Word,
 )
 from .settings_store import get_rag_api_key, load_prefs
 
@@ -212,14 +210,12 @@ def load_utterances(session: Session, recording_id: int):
     from .overlay import load_overlay
     from .ml.alignment import build_utterances
 
-    transcript = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).first()
-    if not transcript:
+    from .transcript_view import load_effective_words
+
+    loaded = load_effective_words(session, recording_id)
+    if not loaded:
         return []
-    words = session.exec(
-        select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
-    ).all()
+    _snapshot, words = loaded
     if not words:
         return []
     run = session.exec(

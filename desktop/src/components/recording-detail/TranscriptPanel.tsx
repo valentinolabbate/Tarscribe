@@ -1,7 +1,8 @@
 import type { RefObject } from "react";
 import type { PlayerHandle } from "../AudioPlayer";
-import type { DiarizationData, TranscriptData } from "../../lib/types";
+import type { DiarizationData, QualityIssue, QualityReport, TranscriptData } from "../../lib/types";
 import { colorFor, timestamp, type Sentence } from "./model";
+import { QualityText } from "./QualityText";
 
 type ReassignMutation = {
   mutate: (payload: { start: number; end: number; speaker: string }) => void;
@@ -18,6 +19,10 @@ export function TranscriptPanel({
   playerRef,
   reassign,
   onOpenSpeakers,
+  qualityReport,
+  onSelectIssue,
+  reviewMode,
+  onToggleReview,
 }: {
   transcript: TranscriptData;
   diar?: DiarizationData;
@@ -29,7 +34,12 @@ export function TranscriptPanel({
   playerRef: RefObject<PlayerHandle | null>;
   reassign: ReassignMutation;
   onOpenSpeakers: () => void;
+  qualityReport?: QualityReport;
+  onSelectIssue: (issue: QualityIssue) => void;
+  reviewMode: boolean;
+  onToggleReview: () => void;
 }) {
+  const issues = qualityReport?.issues ?? [];
   return (
     <section className="detail-panel transcript-workspace">
       <div className="detail-panel-head">
@@ -40,6 +50,14 @@ export function TranscriptPanel({
         {diar && (
           <button className="btn ghost" onClick={onOpenSpeakers}>
             Sprecher bearbeiten
+          </button>
+        )}
+        {qualityReport && qualityReport.quality.open_count > 0 && (
+          <button
+            className={`btn ghost quality-review-trigger ${reviewMode ? "active" : ""}`}
+            onClick={onToggleReview}
+          >
+            {reviewMode ? "Prüfung schließen" : `${qualityReport.quality.open_count} Stellen prüfen`}
           </button>
         )}
       </div>
@@ -85,7 +103,9 @@ export function TranscriptPanel({
                   </button>
                 </div>
                 <p className="utt-text" onClick={() => playerRef.current?.seek(utterance.start)}>
-                  {utterance.text}
+                  {utterance.words?.length ? (
+                    <QualityText words={utterance.words} issues={issues} onSelect={onSelectIssue} />
+                  ) : utterance.text}
                 </p>
               </div>
             );
@@ -111,7 +131,7 @@ export function TranscriptPanel({
                   </button>
                 </div>
                 <p className="utt-text" onClick={() => playerRef.current?.seek(sentence.start)}>
-                  {sentence.text}
+                  <QualityText words={sentence.words} issues={issues} onSelect={onSelectIssue} />
                 </p>
               </div>
             );
@@ -119,7 +139,7 @@ export function TranscriptPanel({
         </div>
       ) : (
         <div className="transcript transcript-focused">
-          <p className="transcript-text">{transcript.text}</p>
+          <p className="transcript-text"><QualityText words={transcript.words} issues={issues} onSelect={onSelectIssue} /></p>
         </div>
       )}
     </section>

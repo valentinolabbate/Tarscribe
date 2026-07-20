@@ -12,10 +12,12 @@ import {
   useTranscribe,
   useTranscript,
   useUpdateRecording,
+  useCreateCorrection,
+  useRecordingQuality,
 } from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
-import type { Recording, Topic } from "../lib/types";
+import type { QualityIssue, Recording, Topic } from "../lib/types";
 import { useToast } from "./Toast";
 import { ChaptersBar } from "./ChaptersBar";
 import { MeetingTimeline } from "./MeetingTimeline";
@@ -28,6 +30,8 @@ import { RecordingToolbar } from "./recording-detail/RecordingToolbar";
 import { SpeakersWorkspace } from "./recording-detail/SpeakersWorkspace";
 import { SummaryWorkspace } from "./recording-detail/SummaryWorkspace";
 import { TranscriptPanel } from "./recording-detail/TranscriptPanel";
+import { QualityReviewPanel } from "./recording-detail/QualityReviewPanel";
+import { CorrectionEditor } from "./recording-detail/CorrectionEditor";
 import { groupWordsIntoSentences, type DetailTab } from "./recording-detail/model";
 import { useRecordingFlowSteps } from "./recording-detail/useRecordingFlowSteps";
 export function RecordingDetail({
@@ -61,6 +65,8 @@ export function RecordingDetail({
   const isTranscribed = isFullyReady || recording.status === "diarizing";
   const statusRunning = recording.status === "transcribing" || recording.status === "diarizing";
   const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, isTranscribed);
+  const { data: qualityReport } = useRecordingQuality(recording.id, isTranscribed && !!transcript);
+  const createCorrection = useCreateCorrection(recording.id);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
   const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
   const { data: actionItems } = useRecordingActionItems(recording.id, isTranscribed && !!transcript);
@@ -71,6 +77,8 @@ export function RecordingDetail({
   const playerRef = useRef<PlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<QualityIssue | null>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const sentences = useMemo(
     () => (transcript && !diar ? groupWordsIntoSentences(transcript.words) : []),
@@ -186,6 +194,29 @@ export function RecordingDetail({
     }
   }
 
+  function selectIssue(issue: QualityIssue) {
+    setSelectedIssue(issue);
+    setReviewMode(true);
+    playerRef.current?.playRange(Math.max(0, issue.start_sec - 2), Math.min(recording.duration_sec, issue.end_sec + 2));
+  }
+
+  async function saveCorrection(correctedText: string) {
+    if (!transcript || !selectedIssue) return;
+    try {
+      await createCorrection.mutateAsync({
+        expected_revision: transcript.revision,
+        start_word_idx: selectedIssue.start_word_idx,
+        end_word_idx: selectedIssue.end_word_idx,
+        expected_original_text: selectedIssue.raw_text,
+        corrected_text: correctedText,
+      });
+      toast("Korrektur übernommen", "success");
+      setSelectedIssue(null);
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
+
   const flowSteps = useRecordingFlowSteps({
     recording,
     activeJob,
@@ -278,18 +309,40 @@ export function RecordingDetail({
           <DetailTabs tabs={tabs} activeTab={activeTab} onSelect={setActiveTab} />
           <div className="detail-workspace">
             {activeTab === "transcript" && (
-              <TranscriptPanel
-                transcript={transcript}
-                diar={diar}
-                transcriptMeta={transcriptMeta}
-                sentences={sentences}
-                currentTime={currentTime}
-                labels={labels}
-                activeRef={activeRef}
-                playerRef={playerRef}
-                reassign={reassign}
-                onOpenSpeakers={() => setActiveTab("speakers")}
-              />
+              <div className={`quality-workspace ${reviewMode ? "reviewing" : ""}`}>
+                <TranscriptPanel
+                  transcript={transcript}
+                  diar={diar}
+                  transcriptMeta={transcriptMeta}
+                  sentences={sentences}
+                  currentTime={currentTime}
+                  labels={labels}
+                  activeRef={activeRef}
+                  playerRef={playerRef}
+                  reassign={reassign}
+                  qualityReport={qualityReport}
+                  onSelectIssue={selectIssue}
+                  reviewMode={reviewMode}
+                  onToggleReview={() => setReviewMode((value) => !value)}
+                  onOpenSpeakers={() => setActiveTab("speakers")}
+                />
+                {qualityReport && reviewMode && (
+                  <QualityReviewPanel
+                    report={qualityReport}
+                    selectedId={selectedIssue?.issue_id ?? null}
+                    onSelect={selectIssue}
+                  />
+                )}
+                {selectedIssue && (
+                  <CorrectionEditor
+                    issue={selectedIssue}
+                    pending={createCorrection.isPending}
+                    onClose={() => setSelectedIssue(null)}
+                    onReplay={() => playerRef.current?.playRange(Math.max(0, selectedIssue.start_sec - 2), Math.min(recording.duration_sec, selectedIssue.end_sec + 2))}
+                    onSave={(text) => void saveCorrection(text)}
+                  />
+                )}
+              </div>
             )}
 
             {activeTab === "timeline" && (

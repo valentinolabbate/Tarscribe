@@ -24,9 +24,9 @@ from ..models import (
     JobStatus,
     Recording,
     Summary,
-    Transcript,
-    Word,
 )
+from ..transcript_quality import analyze_words, quality_summary
+from ..transcript_view import effective_text, load_effective_words
 
 router = APIRouter(prefix="/api/recordings", tags=["transcription"])
 
@@ -44,30 +44,31 @@ def transcribe(
 
 @router.get("/{recording_id}/transcript")
 def get_transcript(recording_id: int, session: Session = Depends(get_session)) -> dict:
-    transcripts = session.exec(
-        select(Transcript)
-        .where(Transcript.recording_id == recording_id)
-        .order_by(Transcript.created_at.desc(), Transcript.id.desc())
-    ).all()
-    transcript: Transcript | None = None
-    words: list[Word] = []
-    for candidate in transcripts:
-        candidate_words = session.exec(
-            select(Word).where(Word.transcript_id == candidate.id).order_by(Word.idx)
-        ).all()
-        if candidate_words:
-            transcript = candidate
-            words = candidate_words
-            break
-    if not transcript:
+    loaded = load_effective_words(session, recording_id)
+    if not loaded:
         raise HTTPException(404, "Noch kein Transkript vorhanden")
+    snapshot, words = loaded
+    transcript = snapshot.transcript
+    issues = analyze_words(words, transcript_id=transcript.id or 0, revision=transcript.revision)
     return {
         "transcript_id": transcript.id,
         "asr_model": transcript.asr_model,
         "language": transcript.language,
-        "text": "".join(w.text for w in words).strip(),
+        "revision": transcript.revision,
+        "text": effective_text(words),
+        "raw_text": "".join(w.text for w in snapshot.words).strip(),
+        "quality": quality_summary(words, issues),
         "words": [
-            {"start": w.start, "end": w.end, "text": w.text, "confidence": w.confidence}
+            {
+                "start": w.start,
+                "end": w.end,
+                "text": w.text,
+                "raw_text": w.raw_text,
+                "confidence": w.confidence,
+                "source_start_idx": w.source_start_idx,
+                "source_end_idx": w.source_end_idx,
+                "correction_id": w.correction_id,
+            }
             for w in words
         ],
     }

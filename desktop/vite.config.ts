@@ -2,6 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const host = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.TAURI_DEV_HOST;
+const backendUrl =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.VITE_BACKEND_URL ?? "http://127.0.0.1:8765";
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -23,6 +26,13 @@ export default defineConfig(async () => ({
           port: 1421,
         }
       : undefined,
+    proxy: {
+      "/backend": {
+        target: backendUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/backend/, ""),
+      },
+    },
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],

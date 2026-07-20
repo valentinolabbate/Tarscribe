@@ -30,10 +30,12 @@ describe("recording detail model", () => {
       word(" es", 4.1, 4.3),
     ]);
 
-    expect(sentences).toEqual([
+    expect(sentences).toMatchObject([
       { start: 0, end: 0.5, text: "Hallo Welt." },
       { start: 1.6, end: 2.6, text: "Danach gehen wir weiter" },
       { start: 3.7, end: 4.3, text: "Jetzt geht es" },
     ]);
+    expect(sentences[0].words).toHaveLength(2);
+    expect(sentences[1].words.map((item) => item.text).join("")).toBe(" Danach gehen wir weiter");
   });
 });

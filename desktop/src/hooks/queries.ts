@@ -223,6 +223,47 @@ export function useTranscript(recordingId: number, enabled: boolean) {
   });
 }
 
+export function useRecordingQuality(recordingId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["quality", recordingId],
+    queryFn: () => api.getRecordingQuality(recordingId),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useCreateCorrection(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      expected_revision: number;
+      start_word_idx: number;
+      end_word_idx: number;
+      expected_original_text: string;
+      corrected_text: string;
+    }) => api.createCorrection(recordingId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transcript", recordingId] });
+      qc.invalidateQueries({ queryKey: ["diarization", recordingId] });
+      qc.invalidateQueries({ queryKey: ["quality", recordingId] });
+      qc.invalidateQueries({ queryKey: ["rag-status"] });
+    },
+  });
+}
+
+export function useDeleteCorrection(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (correctionId: number) => api.deleteCorrection(recordingId, correctionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transcript", recordingId] });
+      qc.invalidateQueries({ queryKey: ["diarization", recordingId] });
+      qc.invalidateQueries({ queryKey: ["quality", recordingId] });
+      qc.invalidateQueries({ queryKey: ["rag-status"] });
+    },
+  });
+}
+
 /** Poll the latest job as a fallback when WS events are missed. */
 export function useLatestJob(recordingId: number, shouldPoll: boolean) {
   const [enabled, setEnabled] = useState(shouldPoll);

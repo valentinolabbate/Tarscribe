@@ -51,7 +51,7 @@ konfigurierbar.
 | Bereich | Funktionen |
 | --- | --- |
 | **Aufnahme** | Mikrofon, System-Audio oder beides; Live-Transkription; Dateiimport; Meeting-Erkennung; globales Diktat |
-| **Transkription** | Lokale ASR-Modelle, Kapitel, Zeitmarken, Audio-Wiedergabe und Exporte |
+| **Transkription** | Lokale ASR-Modelle, Kapitel, Zeitmarken, Audio-Wiedergabe, Qualitätsprüfung und korrigierte Exporte |
 | **Sprecher** | Diarisierung, Benennung, Zusammenführen, Stimmprofile und Sprecherstatistik |
 | **Gedächtnis** | Commitment Radar, Decision Ledger, Aufgaben und quellenbasiertes Personengedächtnis |
 | **Wissen** | Hybride Suche aus FTS5 und Vektoren, persistenter Chat, Dokumente und Themen-Threads |
@@ -89,6 +89,8 @@ während die eigentlichen Arbeitslisten als klare Hauptflächen im Vordergrund b
 - Während der Aufnahme live transkribieren und Sprecher optional live trennen
 - WAV, MP3, M4A, OGG, WebM, FLAC, AAC, MOV und MP4 importieren
 - Aufnahmen automatisch in Kapitel gliedern
+- Unsichere Wortstellen lokal prüfen, den Audiokontext hören und Korrekturen nicht-destruktiv übernehmen
+- Korrigierte Schreibweisen einheitlich in Transkript, Sprecheransicht, Export, Suche und neuen KI-Auswertungen verwenden
 - Sprecher erkennen, benennen, zusammenführen und als bekannte Stimme speichern
 - Spontane Gedanken über einen konfigurierbaren globalen Diktat-Hotkey festhalten
 - Optional laufende Konferenz-Apps erkennen und eine Aufnahme anbieten, wenn das Mikrofon
@@ -175,7 +177,7 @@ du dafür einen lokalen oder externen Endpoint konfigurierst.
 
 1. Einen Themenbereich für ein Projekt, Seminar oder Interview anlegen.
 2. Audio aufnehmen oder eine vorhandene Datei importieren.
-3. Transkription, Kapitel und bei Bedarf Sprechererkennung starten.
+3. Transkription starten; anschließend folgen Sprechererkennung und -zuordnung automatisch, bevor Aufgaben extrahiert werden.
 4. In der Aufnahme Transkript, Meeting-Zeitstrahl, Zusammenfassung, Fragen und Sprecher prüfen.
 5. Unter **Gedächtnis** offene Zusagen, Entscheidungen, Aufgaben und Personen weiterverfolgen.
 6. Die gesamte Bibliothek durchsuchen, im Wissens-Chat befragen oder als Wochen-Digest bündeln.

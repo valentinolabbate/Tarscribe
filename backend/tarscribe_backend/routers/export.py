@@ -20,10 +20,9 @@ from ..models import (
     SpeakerLabel,
     Summary,
     Topic,
-    Transcript,
-    Word,
 )
 from ..overlay import load_overlay
+from ..transcript_view import load_effective_words
 from ..upload_security import UploadPathForbidden, require_child_path
 
 router = APIRouter(prefix="/api/recordings", tags=["export"])
@@ -42,16 +41,8 @@ def _load(session: Session, recording_id: int):
     rec = session.get(Recording, recording_id)
     if not rec:
         raise HTTPException(404, "Aufnahme nicht gefunden")
-    transcript = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).first()
-    words = (
-        session.exec(
-            select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
-        ).all()
-        if transcript
-        else []
-    )
+    loaded = load_effective_words(session, recording_id)
+    words = loaded[1] if loaded else []
     run = session.exec(
         select(DiarizationRun).where(
             DiarizationRun.recording_id == recording_id, DiarizationRun.is_active == True  # noqa: E712
@@ -138,7 +129,16 @@ def export(
             "title": rec.title,
             "duration_sec": rec.duration_sec,
             "language": rec.language,
-            "words": [{"start": w.start, "end": w.end, "text": w.text} for w in words],
+            "words": [
+                {
+                    "start": w.start,
+                    "end": w.end,
+                    "text": w.text,
+                    "raw_text": w.raw_text,
+                    "corrected": w.correction_id is not None,
+                }
+                for w in words
+            ],
             "speakers": sorted({name(s.speaker_label) for s in segments}),
             "utterances": [
                 {"speaker": name(u.speaker), "start": u.start, "end": u.end, "text": u.text}

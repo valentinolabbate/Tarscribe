@@ -28,6 +28,7 @@ from .routers import (
     mcp,
     rag,
     recordings,
+    quality,
     settings,
     speakers,
     system,
@@ -87,6 +88,7 @@ _PROTECTED_ROUTERS = [
     mcp.router,
     rag.router,
     settings.router,
+    quality.router,
 ]
 
 

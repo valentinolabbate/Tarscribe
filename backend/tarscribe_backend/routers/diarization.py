@@ -18,9 +18,8 @@ from ..models import (
     Recording,
     Segment,
     SpeakerLabel,
-    Transcript,
-    Word,
 )
+from ..transcript_view import load_effective_words
 
 router = APIRouter(prefix="/api/recordings", tags=["diarization"])
 
@@ -59,16 +58,8 @@ def get_diarization(recording_id: int, session: Session = Depends(get_session)) 
         select(Segment).where(Segment.run_id == run.id).order_by(Segment.start)
     ).all()
 
-    transcript = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).first()
-    words = (
-        session.exec(
-            select(Word).where(Word.transcript_id == transcript.id).order_by(Word.idx)
-        ).all()
-        if transcript
-        else []
-    )
+    loaded = load_effective_words(session, recording_id)
+    words = loaded[1] if loaded else []
 
     # Resolve display names for raw speaker labels (Stage D renames).
     labels = session.exec(
@@ -108,6 +99,17 @@ def get_diarization(recording_id: int, session: Session = Depends(get_session)) 
                 "start": u.start,
                 "end": u.end,
                 "text": u.text,
+                "words": [
+                    {
+                        "start": word.start,
+                        "end": word.end,
+                        "text": word.text,
+                        "source_start_idx": word.source_start_idx,
+                        "source_end_idx": word.source_end_idx,
+                    }
+                    for word in words
+                    if word.start >= u.start and word.end <= u.end
+                ],
             }
             for u in utterances
         ],

@@ -36,6 +36,8 @@ import type {
   SummaryEvent,
   SummaryTemplate,
   TranscriptData,
+  QualityReport,
+  Correction,
   Topic,
   TopicDocument,
   TopicDocumentContent,
@@ -107,7 +109,9 @@ async function resolveConfig(): Promise<BackendConfig> {
     }
     throw lastErr;
   }
-  // Browser dev fallback: talk to a manually started backend.
+  if (import.meta.env.DEV) {
+    return { base_url: "/backend", token: import.meta.env.VITE_BACKEND_TOKEN ?? "" };
+  }
   const base = import.meta.env.VITE_BACKEND_URL ?? "http://127.0.0.1:8765";
   return { base_url: base, token: import.meta.env.VITE_BACKEND_TOKEN ?? "" };
 }
@@ -407,6 +411,33 @@ export const api = {
     ),
   getTranscript: (id: number) =>
     request<TranscriptData>(`/api/recordings/${id}/transcript`),
+  getRecordingQuality: (id: number) =>
+    request<QualityReport>(`/api/recordings/${id}/quality`),
+  createCorrection: (
+    id: number,
+    payload: {
+      expected_revision: number;
+      start_word_idx: number;
+      end_word_idx: number;
+      expected_original_text: string;
+      corrected_text: string;
+    },
+  ) =>
+    request<{
+      correction: Correction;
+      transcript_revision: number;
+      reindex_scheduled: boolean;
+      quality_summary: QualityReport["quality"];
+    }>(`/api/recordings/${id}/corrections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  deleteCorrection: (recordingId: number, correctionId: number) =>
+    request<{ ok: boolean; transcript_revision: number }>(
+      `/api/recordings/${recordingId}/corrections/${correctionId}`,
+      { method: "DELETE" },
+    ),
   getJobs: (id: number) =>
     request<JobEvent[]>(`/api/recordings/${id}/jobs`),
   listActiveJobs: () => request<DebugJob[]>("/api/jobs"),

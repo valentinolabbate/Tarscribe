@@ -383,3 +383,104 @@ def test_run_asr_marks_failed_when_audio_missing(jobs_env):
         assert s.get(Job, job_id).status == JobStatus.failed
         assert "Audiodatei nicht gefunden" in (s.get(Job, job_id).error or "")
         assert s.get(Recording, rec_id).status == RecordingStatus.failed
+
+
+def test_run_asr_queues_diarization_before_automatic_action_extraction(
+    jobs_env, tmp_path, monkeypatch
+):
+    import numpy as np
+    import soundfile as sf
+
+    from tarscribe_backend.ml.asr import factory
+    from tarscribe_backend.ml.asr.base import TranscriptResult, WordSeg
+    from tarscribe_backend.models import Job, JobStatus
+
+    db, jobs = jobs_env
+    wav = tmp_path / "speech.wav"
+    sf.write(str(wav), np.zeros(16000, dtype="float32"), 16000)
+    rec_id, job_id = _seed_asr_job(db, str(wav))
+
+    class _Result:
+        name = "stub"
+
+        def transcribe(self, *_args, **_kwargs):
+            return TranscriptResult(
+                language="de",
+                model="stub",
+                words=[WordSeg(start=0, end=0.5, text=" Hallo", confidence=0.9)],
+            )
+
+    queued: list[int] = []
+    monkeypatch.setattr(factory, "get_backend", lambda *_args: _Result())
+    monkeypatch.setattr(jobs, "enqueue_diarization", lambda recording_id: queued.append(recording_id))
+    monkeypatch.setattr(jobs, "schedule_reindex", lambda _recording_id: None)
+    monkeypatch.setattr(
+        jobs,
+        "maybe_enqueue_action_items",
+        lambda _recording_id: pytest.fail("Action extraction must wait for diarization"),
+    )
+
+    jobs._run_asr(rec_id, job_id, None)
+
+    with db.session_scope() as session:
+        assert session.get(Job, job_id).status == JobStatus.done
+    assert queued == [rec_id]
+
+
+def test_successful_diarization_and_matching_then_start_action_extraction(
+    jobs_env, monkeypatch
+):
+    from tarscribe_backend.models import Job, JobPhase, JobStatus, Recording, Topic, Transcript
+    import tarscribe_backend.ml.diarization as diarization
+    import tarscribe_backend.ml.speaker_matching as speaker_matching
+    import tarscribe_backend.performance_profiles as performance_profiles
+    import tarscribe_backend.settings_store as settings_store
+
+    db, jobs = jobs_env
+    with db.session_scope() as session:
+        topic = Topic(name="T")
+        session.add(topic)
+        session.flush()
+        recording = Recording(topic_id=topic.id, title="Aufnahme", audio_path="/tmp/audio.wav")
+        session.add(recording)
+        session.flush()
+        session.add(Transcript(recording_id=recording.id, asr_model="test"))
+        job = Job(recording_id=recording.id, phase=JobPhase.diarization, status=JobStatus.pending)
+        session.add(job)
+        session.flush()
+        recording_id, job_id = recording.id, job.id
+
+    class _Backend:
+        def __init__(self, **_kwargs):
+            pass
+
+        def diarize(self, *_args, **_kwargs):
+            return [types.SimpleNamespace(start=0.0, end=1.0, speaker="SPEAKER_00")]
+
+    matched: list[int] = []
+    extracted: list[int] = []
+    monkeypatch.setattr(settings_store, "get_hf_token", lambda: "test-token")
+    monkeypatch.setattr(settings_store, "load_prefs", lambda: {"speaker_match_threshold": 0.5})
+    monkeypatch.setattr(
+        performance_profiles,
+        "resolve_diarization_selection",
+        lambda *_args: {"model_id": "test", "device": "cpu"},
+    )
+    monkeypatch.setattr(diarization, "DiarizationBackend", _Backend)
+    monkeypatch.setattr(
+        speaker_matching,
+        "match_recording",
+        lambda _session, recording_id, _threshold: matched.append(recording_id) or [],
+    )
+    monkeypatch.setattr(speaker_matching, "apply_matches", lambda *_args: None)
+    monkeypatch.setattr(jobs, "schedule_reindex", lambda _recording_id: None)
+    monkeypatch.setattr(
+        jobs, "maybe_enqueue_action_items", lambda recording_id: extracted.append(recording_id)
+    )
+
+    jobs._run_diarization(recording_id, job_id, {})
+
+    with db.session_scope() as session:
+        assert session.get(Job, job_id).status == JobStatus.done
+    assert matched == [recording_id]
+    assert extracted == [recording_id]

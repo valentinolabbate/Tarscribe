@@ -29,6 +29,11 @@ _CASCADE_FK_ONDELETE = {
     "speaker_segments": {"run_id": "CASCADE"},
     "speaker_labels": {"recording_id": "CASCADE", "known_speaker_id": "SET NULL"},
     "manual_edits": {"recording_id": "CASCADE"},
+    "topic_glossary": {"topic_id": "CASCADE"},
+    "transcript_corrections": {
+        "recording_id": "CASCADE",
+        "glossary_term_id": "SET NULL",
+    },
     "summaries": {"recording_id": "CASCADE"},
     "documents": {"topic_id": "CASCADE", "recording_id": "CASCADE"},
     "rag_chunks": {
@@ -155,6 +160,8 @@ def _run_lightweight_migrations() -> None:
         ("summaries", "generated_content", "TEXT"),
         ("summaries", "revision", "INTEGER DEFAULT 0"),
         ("summaries", "updated_at", "DATETIME"),
+        ("summaries", "source_transcript_revision", "INTEGER DEFAULT 0"),
+        ("transcripts", "revision", "INTEGER DEFAULT 0"),
         ("documents", "content", "TEXT"),
         ("documents", "revision", "INTEGER DEFAULT 0"),
         ("documents", "updated_at", "DATETIME"),
@@ -162,6 +169,8 @@ def _run_lightweight_migrations() -> None:
         ("documents", "source_url", "TEXT"),
         ("documents", "crawl_pages", "INTEGER DEFAULT 0"),
         ("chat_messages", "agent_research_json", "TEXT"),
+        ("action_items", "source_transcript_revision", "INTEGER DEFAULT 0"),
+        ("chapters", "source_transcript_revision", "INTEGER DEFAULT 0"),
     ]
     with get_engine().begin() as conn:
         for table, column, coltype in additive:
@@ -181,6 +190,19 @@ def _run_lightweight_migrations() -> None:
                         )
                     )
         conn.execute(text("UPDATE summaries SET revision = 0 WHERE revision IS NULL"))
+        conn.execute(
+            text("UPDATE summaries SET source_transcript_revision = 0 "
+                 "WHERE source_transcript_revision IS NULL")
+        )
+        conn.execute(text("UPDATE transcripts SET revision = 0 WHERE revision IS NULL"))
+        conn.execute(
+            text("UPDATE action_items SET source_transcript_revision = 0 "
+                 "WHERE source_transcript_revision IS NULL")
+        )
+        conn.execute(
+            text("UPDATE chapters SET source_transcript_revision = 0 "
+                 "WHERE source_transcript_revision IS NULL")
+        )
         conn.execute(
             text("UPDATE summaries SET updated_at = created_at WHERE updated_at IS NULL")
         )

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useDeleteActionItem,
   useExtractActionItems,
@@ -9,6 +9,7 @@ import {
 import { useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem } from "../lib/types";
+import { EvidenceTrail } from "./EvidenceTrail";
 import { CalendarIcon, TrashIcon } from "./icons";
 
 /** Today as a local ISO date (YYYY-MM-DD), matching the <input type="date"> format. */
@@ -34,6 +35,7 @@ export function ActionItemRow({
   showKind = true,
   showDue = true,
   compact = false,
+  focused = false,
   onOpenRecording,
 }: {
   item: ActionItem;
@@ -41,6 +43,7 @@ export function ActionItemRow({
   showKind?: boolean;
   showDue?: boolean;
   compact?: boolean;
+  focused?: boolean;
   onOpenRecording?: (recordingId: number, startSec?: number | null) => void;
 }) {
   const update = useUpdateActionItem();
@@ -52,6 +55,14 @@ export function ActionItemRow({
   const [draftAssignee, setDraftAssignee] = useState(item.assignee ?? "");
   const [draftDue, setDraftDue] = useState(item.due ?? "");
   const [draftDueDate, setDraftDueDate] = useState(item.due_date ?? "");
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!focused || !rowRef.current) return;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    rowRef.current.scrollIntoView({ block: "center", behavior });
+    rowRef.current.focus({ preventScroll: true });
+  }, [focused]);
 
   if (undoDelete.isPending(item.id)) return null;
 
@@ -132,7 +143,10 @@ export function ActionItemRow({
 
   return (
     <div
-      className={`action-item ${compact ? "compact" : ""} ${item.done ? "done" : ""} ${overdue ? "overdue" : ""}`}
+      ref={rowRef}
+      data-action-item-id={item.id}
+      tabIndex={focused ? -1 : undefined}
+      className={`action-item ${compact ? "compact" : ""} ${item.done ? "done" : ""} ${overdue ? "overdue" : ""} ${focused ? "focused" : ""}`}
     >
       <input
         type="checkbox"
@@ -201,21 +215,24 @@ export function ActionItemRow({
         ) : (
           <>
             <span className="action-item-text">{item.text}</span>
+            {showRecording && onOpenRecording && (
+              <EvidenceTrail
+                recordingId={item.recording_id}
+                recordingTitle={item.recording_title}
+                startSec={item.source_start_sec}
+                quote={item.source_quote}
+                topicName={item.topic_name}
+                topicColor={item.topic_color}
+                compact
+                missing={item.attention_flags.includes("missing_source")}
+                onOpenRecording={onOpenRecording}
+              />
+            )}
             <div className="action-item-meta">
               {showKind && (
                 <span className={`action-kind ${item.kind}`}>
                   {item.kind === "decision" ? "Entscheidung" : "Aufgabe"}
                 </span>
-              )}
-              {showRecording && item.recording_title && (
-                <button
-                  type="button"
-                  className="action-item-rec"
-                  onClick={() => onOpenRecording?.(item.recording_id, item.source_start_sec)}
-                  title="Aufnahme öffnen"
-                >
-                  Quelle: {item.recording_title}
-                </button>
               )}
               {item.assignee && <span>{item.assignee}</span>}
               {item.is_mine ? (

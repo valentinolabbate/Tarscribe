@@ -1,13 +1,13 @@
-import type { RagHit } from "../../lib/types";
+import type { RagHit, Topic } from "../../lib/types";
 import { SearchIcon } from "../icons";
-import { sourceMeta } from "./model";
-import { SourceAction } from "./SourceAction";
+import { RagEvidenceTrail } from "./RagEvidenceTrail";
 
 export function SearchModeView({
   hits,
   searching,
   ragOff,
   scoped,
+  topics,
   prompts,
   onPrompt,
   onOpenSource,
@@ -17,6 +17,7 @@ export function SearchModeView({
   searching: boolean;
   ragOff: boolean;
   scoped: boolean;
+  topics: Topic[];
   prompts: string[];
   onPrompt: (prompt: string) => void;
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
@@ -48,20 +49,14 @@ export function SearchModeView({
       )}
       {hits?.map((hit, index) => (
         <div key={hit.chunk_id} className="chat-result-card">
-          <div className="chat-result-meta">
-            <span style={{ fontWeight: 600, color: "var(--accent)", fontVariantNumeric: "tabular-nums" }}>
-              #{index + 1}
-            </span>
-            <span>{sourceMeta(hit, !scoped)}</span>
-            <div style={{ flex: 1 }} />
-            <SourceAction
-              source={hit}
-              scoped={scoped}
-              onOpenSource={onOpenSource}
-              onOpenDocument={onOpenDocument}
-            />
-          </div>
-          <div className="chat-result-text">{hit.text}</div>
+          <span className="chat-result-rank">#{index + 1}</span>
+          <RagEvidenceTrail
+            source={hit}
+            topics={topics}
+            scoped={scoped}
+            onOpenSource={onOpenSource}
+            onOpenDocument={onOpenDocument}
+          />
         </div>
       ))}
     </>

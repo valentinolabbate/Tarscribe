@@ -98,6 +98,21 @@ export function useRecordings(topicId?: number) {
   });
 }
 
+export function useAllRecordings() {
+  return useQuery({
+    queryKey: ["recordings", "all"],
+    queryFn: () => api.listRecordings(),
+    refetchInterval: (query) =>
+      query.state.data?.some((recording) =>
+        recording.status === "queued" ||
+        recording.status === "transcribing" ||
+        recording.status === "diarizing"
+      )
+        ? 1500
+        : false,
+  });
+}
+
 export function useUploadRecording() {
   const qc = useQueryClient();
   return useMutation({

@@ -1,18 +1,25 @@
 import ReactMarkdown from "react-markdown";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { ChatPanel } from "./ChatPanel";
 import { DictationPanel } from "./DictationPanel";
 import { RecordControl } from "./RecordControl";
 import {
+  useActionItems,
+  useAllRecordings,
   useCreateDigest,
   useDigests,
   useRebuildThreads,
   useSendDigestToFolder,
   useThreads,
+  useUpdateActionItem,
 } from "../hooks/queries";
 import type { DictationController } from "../hooks/useDictation";
 import { fmtDate, fmtDuration } from "../lib/format";
-import type { Digest, Topic, TopicThread } from "../lib/types";
+import type { ActionItem, Digest, Recording, Topic, TopicThread } from "../lib/types";
+import { EvidenceTrail } from "./EvidenceTrail";
+import { ActivityIcon, MemoryIcon, TasksIcon, WaveIcon } from "./icons";
+import { timelineKind } from "./meeting-timeline/model";
+import { memorySectionForActionItem } from "./MemorySectionNav";
 import { useToast } from "./Toast";
 
 function DigestPanel() {
@@ -165,73 +172,246 @@ function ThreadsPanel({
   );
 }
 
-/**
- * Landing page: semantic search over all recordings (no LLM required) plus a
- * message bar to start a knowledge chat. The underlying panel toggles between
- * "Suche" and "Chat"; it defaults to search so it is useful without a chat LLM.
- */
+function taskPriority(item: ActionItem): number {
+  if (item.attention_flags.includes("overdue")) return 0;
+  if (item.due_date) return 1;
+  if (item.attention_flags.includes("needs_review")) return 2;
+  return 3;
+}
+
+export function TodayItem({
+  item,
+  onOpenSource,
+  onOpenMemoryItem,
+  onComplete,
+  completing,
+}: {
+  item: ActionItem;
+  onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenMemoryItem: (item: ActionItem) => void;
+  onComplete: (item: ActionItem) => void;
+  completing: boolean;
+}) {
+  const overdue = item.attention_flags.includes("overdue");
+  const kind = timelineKind(item);
+  const kindLabel = kind === "commitment" ? "Zusage" : kind === "decision" ? "Entscheidung" : "Aufgabe";
+  const destination = memorySectionForActionItem(item);
+  const destinationLabel = destination === "radar" ? "Radar öffnen" : destination === "ledger" ? "Ledger öffnen" : "Aufgaben öffnen";
+  const completionLabel = kind === "commitment" ? "Zusage als fertig markieren" : "Aufgabe als erledigt markieren";
+  return (
+    <article className={`start-today-item ${overdue ? "overdue" : ""}`}>
+      <div className="start-today-item-head">
+        <span>{overdue ? `${kindLabel} · überfällig` : kindLabel}</span>
+        {item.due_date && <time>{fmtDate(item.due_date)}</time>}
+      </div>
+      <strong>{item.text}</strong>
+      <EvidenceTrail
+        recordingId={item.recording_id}
+        recordingTitle={item.recording_title}
+        startSec={item.source_start_sec}
+        topicName={item.topic_name}
+        topicColor={item.topic_color}
+        compact
+        missing={item.attention_flags.includes("missing_source")}
+        onOpenRecording={onOpenSource}
+      />
+      <div className="start-today-item-actions">
+        <button
+          type="button"
+          className="start-item-complete"
+          disabled={completing}
+          aria-label={`${completionLabel}: ${item.text}`}
+          onClick={() => onComplete(item)}
+        >
+          <span className="start-complete-mark" aria-hidden="true" />
+          {completing ? "Speichert…" : kind === "commitment" ? "Fertig" : "Erledigen"}
+        </button>
+        <button
+          type="button"
+          className="start-item-memory"
+          aria-label={`${kindLabel} im Gedächtnis öffnen: ${item.text}`}
+          onClick={() => onOpenMemoryItem(item)}
+        >
+          <MemoryIcon width={13} height={13} />
+          {destinationLabel}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function RecentRecording({
+  recording,
+  topic,
+  onOpenSource,
+}: {
+  recording: Recording;
+  topic: Topic | undefined;
+  onOpenSource: (recordingId: number, startSec?: number | null) => void;
+}) {
+  const processing = ["queued", "transcribing", "diarizing"].includes(recording.status);
+  return (
+    <button type="button" className="start-recent-recording" onClick={() => onOpenSource(recording.id)}>
+      <span className="start-recent-wave" style={{ "--recent-color": topic?.color || "var(--accent)" } as CSSProperties} aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className="start-recent-copy">
+        <span>{processing ? "In Verarbeitung" : "Zuletzt aufgenommen"}</span>
+        <strong>{recording.title}</strong>
+        <small>{topic?.name || "Themenbereich"} · {fmtDate(recording.created_at)}</small>
+      </span>
+      <code>{fmtDuration(recording.duration_sec)}</code>
+    </button>
+  );
+}
+
 export function StartPage({
   topics,
   onOpenSource,
+  onOpenMemoryItem,
   onOpenDocument,
   dictation,
   dictationShortcutLabel,
 }: {
   topics: Topic[];
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
+  onOpenMemoryItem: (item: ActionItem) => void;
   onOpenDocument: (documentId: number) => void;
   dictation: DictationController;
   dictationShortcutLabel: string;
 }) {
   const recordingCount = topics.reduce((sum, topic) => sum + topic.recording_count, 0);
   const transcribedCount = topics.reduce((sum, topic) => sum + topic.transcribed_count, 0);
-  const diarizedCount = topics.reduce((sum, topic) => sum + topic.diarized_count, 0);
   const [captureTopicId, setCaptureTopicId] = useState<number | null>(null);
   const captureTopic = topics.find((topic) => topic.id === captureTopicId) ?? topics[0];
+  const { data: actionItems } = useActionItems({ done: false });
+  const { data: recordings } = useAllRecordings();
+  const updateActionItem = useUpdateActionItem();
+  const toast = useToast();
+  const openTasks = (actionItems ?? []).filter((item) => item.kind === "task" && !item.done);
+  const personalTasks = openTasks.filter((item) => item.is_mine || item.include_in_tasks);
+  const todayItems = (personalTasks.length ? personalTasks : openTasks)
+    .slice()
+    .sort((a, b) => taskPriority(a) - taskPriority(b) || (a.due_date ?? "9").localeCompare(b.due_date ?? "9"))
+    .slice(0, 3);
+  const recentRecording = recordings?.[0];
+  const processingCount = (recordings ?? []).filter((recording) =>
+    ["queued", "transcribing", "diarizing"].includes(recording.status),
+  ).length;
+
+  function completeTodayItem(item: ActionItem) {
+    const label = timelineKind(item) === "commitment" ? "Zusage" : "Aufgabe";
+    updateActionItem.mutate(
+      { id: item.id, patch: { done: true } },
+      {
+        onSuccess: () => toast(`${label} abgeschlossen.`, "success"),
+        onError: (completionError) =>
+          toast(`${label} konnte nicht abgeschlossen werden: ${(completionError as Error).message}`, "error"),
+      },
+    );
+  }
 
   return (
-    <div className="start-page">
-      <header className="start-overview">
-        <div className="start-overview-stats">
-          {recordingCount === 0 ? (
-            <strong>Noch keine Aufnahmen</strong>
-          ) : (
-            <>
-              <strong>{recordingCount} Aufnahmen</strong>
-              <span>{transcribedCount} transkribiert</span>
-              {diarizedCount > 0 && <span>{diarizedCount} mit Sprechererkennung</span>}
-            </>
-          )}
+    <div className="page-shell start-page">
+      <header className="start-focus">
+        <div className="start-focus-copy">
+          <h2>Heute</h2>
+          <p>Aufnahme starten, offene Aufgaben abschließen oder zur belegenden Stelle zurückkehren.</p>
+          <div className="start-focus-stats" aria-label="Arbeitsstand">
+            <span><strong>{recordingCount}</strong> Aufnahmen</span>
+            <span><strong>{transcribedCount}</strong> transkribiert</span>
+            <span><strong>{todayItems.length}</strong> im Fokus</span>
+            {processingCount > 0 && <span className="active"><strong>{processingCount}</strong> in Verarbeitung</span>}
+          </div>
         </div>
-        <div className="start-quick-record">
-          {captureTopic && (
-            <>
-              {topics.length > 1 && (
+        <div className="start-capture-dock">
+          <div className="start-capture-record">
+            <div>
+              <WaveIcon width={18} height={18} />
+              <span><strong>Neue Aufnahme</strong><small>{captureTopic?.name || "Themenbereich wählen"}</small></span>
+            </div>
+            <div>
+              {captureTopic && topics.length > 1 && (
                 <select
                   aria-label="Themenbereich für neue Aufnahme"
                   value={captureTopic.id}
                   onChange={(event) => setCaptureTopicId(Number(event.target.value))}
                 >
-                  {topics.map((topic) => (
-                    <option key={topic.id} value={topic.id}>{topic.name}</option>
-                  ))}
+                  {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
                 </select>
               )}
-              <RecordControl topicId={captureTopic.id} topicName={captureTopic.name} primary />
-            </>
-          )}
+              {captureTopic && <RecordControl topicId={captureTopic.id} topicName={captureTopic.name} primary />}
+            </div>
+          </div>
+          <DictationPanel dictation={dictation} shortcutLabel={dictationShortcutLabel} />
         </div>
       </header>
 
-      <div className="start-body">
-        <section className="start-primary" aria-label="Suche und Wissens-Chat">
+      <div className="start-workspace">
+        <div className="start-today-column">
+          <section className="start-today" aria-labelledby="start-today-title">
+            <div className="start-section-head">
+              <div>
+                <span className="page-kicker">Nächste Schritte</span>
+                <h3 id="start-today-title">Heute im Blick</h3>
+              </div>
+              <TasksIcon width={18} height={18} />
+            </div>
+            <div className="start-today-list">
+              {todayItems.length > 0 ? todayItems.map((item) => (
+                <TodayItem
+                  key={item.id}
+                  item={item}
+                  onOpenSource={onOpenSource}
+                  onOpenMemoryItem={onOpenMemoryItem}
+                  onComplete={completeTodayItem}
+                  completing={updateActionItem.isPending && updateActionItem.variables?.id === item.id}
+                />
+              )) : (
+                <div className="start-today-note">Keine offenen Aufgaben oder Zusagen in deiner aktuellen Auswahl.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="start-recent" aria-labelledby="start-recent-title">
+            <div className="start-section-head compact">
+              <div>
+                <span className="page-kicker">Wiedereinstieg</span>
+                <h3 id="start-recent-title">Zuletzt</h3>
+              </div>
+              <ActivityIcon width={17} height={17} />
+            </div>
+            {recentRecording ? (
+              <RecentRecording
+                recording={recentRecording}
+                topic={topics.find((topic) => topic.id === recentRecording.topic_id)}
+                onOpenSource={onOpenSource}
+              />
+            ) : (
+              <div className="start-today-note">Noch keine Aufnahme vorhanden.</div>
+            )}
+          </section>
+        </div>
+
+        <section className="start-knowledge work-surface" aria-label="Suche und Wissens-Chat">
+          <div className="start-knowledge-head">
+            <div>
+              <span className="page-kicker">Wissensraum</span>
+              <h3>Im Archiv weiterdenken</h3>
+            </div>
+            <MemoryIcon width={18} height={18} />
+          </div>
           <ChatPanel topics={topics} onOpenSource={onOpenSource} onOpenDocument={onOpenDocument} />
         </section>
-        <aside className="start-aside">
-          <DictationPanel dictation={dictation} shortcutLabel={dictationShortcutLabel} />
-          <DigestPanel />
-          <ThreadsPanel onOpenSource={onOpenSource} />
-        </aside>
+      </div>
+
+      <div className="start-insights">
+        <DigestPanel />
+        <ThreadsPanel onOpenSource={onOpenSource} />
       </div>
     </div>
   );

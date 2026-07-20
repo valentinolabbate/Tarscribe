@@ -150,7 +150,10 @@ def _item_dict(
     is_involved = (
         is_mine
         or _is_mine(item.recipient, my_name)
-        or item.recording_id in (involved_recording_ids or set())
+        or (
+            item.kind == "decision"
+            and item.recording_id in (involved_recording_ids or set())
+        )
     )
     return {
         "id": item.id,
@@ -453,6 +456,7 @@ def export_action_items_ics(
         select(ActionItem, Recording, Topic)
         .join(Recording, ActionItem.recording_id == Recording.id)
         .join(Topic, Recording.topic_id == Topic.id)
+        .where(ActionItem.kind == "task")
         .where(ActionItem.done == False, ActionItem.due_date != None)  # noqa: E711,E712
         .order_by(ActionItem.due_date)
     )

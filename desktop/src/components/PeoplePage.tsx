@@ -2,12 +2,12 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useKnownSpeakers, usePeopleMemory } from "../hooks/queries";
 import { fmtDate, fmtDuration } from "../lib/format";
 import type { ActionItem, PeopleMemory, PeopleMemoryRecording, TopicThread } from "../lib/types";
+import { EvidenceTrail } from "./EvidenceTrail";
 import {
   ActivityIcon,
   ChatIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  LinkIcon,
   SearchIcon,
   SpeakerIdIcon,
   SummaryIcon,
@@ -34,32 +34,6 @@ function PersonAvatar({ name, color, large = false }: { name: string; color: str
   );
 }
 
-function SourceButton({
-  recordingId,
-  title,
-  startSec,
-  onOpenRecording,
-}: {
-  recordingId: number;
-  title: string | null;
-  startSec?: number | null;
-  onOpenRecording: (recordingId: number, startSec?: number | null) => void;
-}) {
-  return (
-    <button
-      className="people-source"
-      onClick={() => onOpenRecording(recordingId, startSec)}
-      title="Belegende Aufnahme öffnen"
-    >
-      <LinkIcon width={11} height={11} />
-      <span>
-        {startSec != null ? fmtDuration(startSec) : "Aufnahme öffnen"}
-        {title ? ` · ${title}` : ""}
-      </span>
-    </button>
-  );
-}
-
 function MemoryItem({
   item,
   onOpenRecording,
@@ -80,10 +54,16 @@ function MemoryItem({
         {item.assignee && <span>{item.assignee}</span>}
         {item.topic_name && <span>{item.topic_name}</span>}
       </div>
-      <SourceButton
+      <EvidenceTrail
         recordingId={item.recording_id}
-        title={item.recording_title}
+        recordingTitle={item.recording_title}
         startSec={item.source_start_sec}
+        quote={item.source_quote}
+        topicName={item.topic_name}
+        topicColor={item.topic_color}
+        speaker={item.assignee}
+        compact
+        missing={item.attention_flags.includes("missing_source")}
         onOpenRecording={onOpenRecording}
       />
     </article>
@@ -241,12 +221,12 @@ export function PeopleMemoryView({
       className="people-memory-view"
       style={{ "--people-color": memory.speaker.color } as CSSProperties}
     >
-      <header className="people-hero">
+      <header className="people-hero work-surface">
         <div className="people-hero-row">
           <div className="people-hero-identity">
             <PersonAvatar name={memory.speaker.name} color={memory.speaker.color} large />
             <div className="people-hero-copy">
-              <span className="page-kicker">People Memory</span>
+              <span className="page-kicker">Personengedächtnis</span>
               <h2>{memory.speaker.name}</h2>
               <p>Quellenbasiertes Profil aus gemeinsamen Gesprächen</p>
               <div className="people-hero-meta">
@@ -392,10 +372,10 @@ export function PeoplePage({
     }
   }, [selectedId, speakers]);
 
-  if (speakersLoading) return <div className="people-empty-page">People Memory wird geladen…</div>;
+  if (speakersLoading) return <div className="page-shell people-empty-page">Personengedächtnis wird geladen…</div>;
   if (!speakers?.length) {
     return (
-      <div className="people-empty-page">
+      <div className="page-shell people-empty-page">
         <SpeakerIdIcon width={34} height={34} />
         <h2>Noch keine bekannten Personen</h2>
         <p>Speichere in einer Aufnahme zuerst eine Stimme als bekannten Sprecher.</p>
@@ -404,12 +384,12 @@ export function PeoplePage({
   }
 
   return (
-    <div className="people-page people-page-dossier">
+    <div className="page-shell people-page people-page-dossier">
       <aside className="people-list" aria-label="Bekannte Personen">
         <div className="people-list-head">
           <div>
-            <span className="page-kicker">Gedächtnis</span>
-            <h3>Personen</h3>
+            <span className="page-kicker">Verzeichnis</span>
+            <h3>Bekannte Stimmen</h3>
           </div>
           <span className="people-list-count">{speakers.length}</span>
         </div>

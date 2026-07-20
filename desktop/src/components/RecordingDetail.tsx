@@ -81,6 +81,7 @@ export function RecordingDetail({
       ? diar.utterances.find((u) => currentTime >= u.start && currentTime < u.end)
       : sentences.find((s) => currentTime >= s.start && currentTime < s.end)
     )?.start ?? -1;
+  const recordingTopic = topics.find((topic) => topic.id === recording.topic_id);
   useEffect(() => {
     if (activeTab === "transcript" && (playing || initialSeekSec != null) && activeRef.current) {
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -294,6 +295,9 @@ export function RecordingDetail({
             {activeTab === "timeline" && (
               <MeetingTimeline
                 recordingId={recording.id}
+                recordingTitle={recording.title}
+                topicName={recordingTopic?.name}
+                topicColor={recordingTopic?.color}
                 diarization={diar}
                 currentTime={currentTime}
                 playing={playing}

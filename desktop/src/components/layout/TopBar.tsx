@@ -1,7 +1,7 @@
 import { useUpdateTopic } from "../../hooks/queries";
 import type { Recording, Topic } from "../../lib/types";
 import { GlobalRecordingIndicator } from "../GlobalRecordingIndicator";
-import { CalendarIcon, FolderIcon } from "../icons";
+import { CalendarIcon, FolderIcon, MenuIcon } from "../icons";
 
 function TopicCalendarControl({ topic }: { topic: Topic }) {
   const update = useUpdateTopic();
@@ -39,6 +39,8 @@ export function TopBar({
   currentTopic,
   showRecordingIndicator,
   onTopicExport,
+  navigationOpen = false,
+  onToggleNavigation,
 }: {
   showJobs: boolean;
   showTasks: boolean;
@@ -49,15 +51,14 @@ export function TopBar({
   currentTopic: Topic | undefined;
   showRecordingIndicator: boolean;
   onTopicExport: () => void;
+  navigationOpen?: boolean;
+  onToggleNavigation?: () => void;
 }) {
+  const showMemorySection = showMemory || showTasks || showPeople;
   const title = showJobs
     ? "Verarbeitung"
-    : showTasks
-      ? "Aufgaben"
-      : showMemory
-        ? "Gedächtnis"
-      : showPeople
-        ? "Personen"
+    : showMemorySection
+      ? "Gedächtnis"
         : showHome
           ? "Arbeitsbereich"
           : openRecording
@@ -68,6 +69,17 @@ export function TopBar({
 
   return (
     <div className="topbar">
+      {onToggleNavigation && (
+        <button
+          type="button"
+          className="compact-nav-trigger"
+          aria-label={navigationOpen ? "Navigation schließen" : "Navigation öffnen"}
+          aria-expanded={navigationOpen}
+          onClick={onToggleNavigation}
+        >
+          <MenuIcon width={18} height={18} />
+        </button>
+      )}
       <div className="topbar-title">
         <h1>{title}</h1>
       </div>

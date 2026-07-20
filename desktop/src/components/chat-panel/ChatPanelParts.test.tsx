@@ -131,6 +131,7 @@ describe("chat panel parts", () => {
         searching={false}
         ragOff={false}
         scoped={false}
+        topics={[topic]}
         prompts={["Risiken?"]}
         onPrompt={vi.fn()}
         onOpenSource={vi.fn()}
@@ -139,6 +140,8 @@ describe("chat panel parts", () => {
 
     expect(text(html)).toContain("Budget und Risiko");
     expect(text(html)).toContain("Aufnahme öffnen");
+    expect(html).toContain("evidence-trail-signal");
+    expect(text(html)).toContain("Produkt");
   });
 
   it("renders chat messages and composer in isolation", () => {
@@ -192,6 +195,7 @@ describe("chat panel parts", () => {
     expect(text(messageHtml)).not.toContain("alte Suche 1");
     expect(text(messageHtml)).toContain("neue Suche 3");
     expect(text(messageHtml)).toContain("Wir entscheiden uns");
+    expect(messageHtml).toContain("evidence-trail-signal");
     expect(text(composerHtml)).toContain("Senden");
   });
 

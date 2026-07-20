@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useDeleteActionItem,
@@ -9,11 +9,10 @@ import {
   useUpdateActionItem,
 } from "../hooks/queries";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
-import { fmtDate, fmtDuration } from "../lib/format";
+import { fmtDate } from "../lib/format";
 import type { ActionItem, Topic } from "../lib/types";
+import { EvidenceTrail } from "./EvidenceTrail";
 import {
-  ActivityIcon,
-  LinkIcon,
   MemoryIcon,
   RefreshIcon,
   SearchIcon,
@@ -22,8 +21,8 @@ import {
   TrashIcon,
 } from "./icons";
 import { needsEvidenceReview } from "./memory/model";
+import type { MemoryContentView } from "./MemorySectionNav";
 
-type MemoryView = "radar" | "ledger" | "archive";
 type RadarFilter = "attention" | "evidence" | "overdue" | "soon" | "undated" | "all";
 type MemoryPatch = Partial<
   Pick<
@@ -74,37 +73,18 @@ function SourceTrace({
   item: ActionItem;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
-  if (item.attention_flags.includes("missing_source")) {
-    return (
-      <div className="memory-source missing">
-        <span className="memory-source-pin">
-          <LinkIcon width={12} height={12} />
-        </span>
-        <span className="memory-source-copy">
-          <strong>Keine vollständige Belegspur gefunden</strong>
-          <em>Zitat oder Zeitmarke fehlt. Prüfe die Aufgabe und korrigiere oder lösche sie.</em>
-        </span>
-      </div>
-    );
-  }
   return (
-    <button
-      type="button"
-      className="memory-source"
-      onClick={() => onOpenRecording(item.recording_id, item.source_start_sec)}
-      title="Belegende Aufnahme öffnen"
-    >
-      <span className="memory-source-pin">
-        <LinkIcon width={12} height={12} />
-      </span>
-      <span className="memory-source-copy">
-        <span>
-          {item.source_start_sec != null ? fmtDuration(item.source_start_sec) : "Aufnahme"}
-          {item.recording_title ? ` · ${item.recording_title}` : ""}
-        </span>
-        {item.source_quote ? <q>{item.source_quote}</q> : <em>Belegstelle noch nicht gespeichert</em>}
-      </span>
-    </button>
+    <EvidenceTrail
+      recordingId={item.recording_id}
+      recordingTitle={item.recording_title}
+      startSec={item.source_start_sec}
+      quote={item.source_quote}
+      topicName={item.topic_name}
+      topicColor={item.topic_color}
+      speaker={item.assignee}
+      missing={item.attention_flags.includes("missing_source")}
+      onOpenRecording={onOpenRecording}
+    />
   );
 }
 
@@ -203,16 +183,19 @@ function MemoryEditor({
 
 function CommitmentCard({
   item,
+  focused,
   onUpdate,
   onDelete,
   onOpenRecording,
 }: {
   item: ActionItem;
+  focused: boolean;
   onUpdate: (id: number, patch: MemoryPatch) => void;
   onDelete: (item: ActionItem) => void;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const entryRef = useRef<HTMLElement>(null);
   const evidenceMissing = needsEvidenceReview(item);
   const tone = evidenceMissing
     ? "evidence"
@@ -224,8 +207,20 @@ function CommitmentCard({
         ? "done"
         : "steady";
 
+  useEffect(() => {
+    if (!focused || !entryRef.current) return;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    entryRef.current.scrollIntoView({ block: "center", behavior });
+    entryRef.current.focus({ preventScroll: true });
+  }, [focused]);
+
   return (
-    <article className={`memory-commitment ${tone}`}>
+    <article
+      ref={entryRef}
+      data-action-item-id={item.id}
+      tabIndex={focused ? -1 : undefined}
+      className={`memory-commitment ${tone} ${focused ? "focused" : ""}`}
+    >
       <div className="memory-card-marker" aria-hidden="true" />
       <div className="memory-card-main">
         <div className="memory-card-head">
@@ -274,23 +269,38 @@ function CommitmentCard({
 
 function DecisionCard({
   item,
+  focused,
   decisions,
   onUpdate,
   onOpenRecording,
 }: {
   item: ActionItem;
+  focused: boolean;
   decisions: ActionItem[];
   onUpdate: (id: number, patch: MemoryPatch) => void;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const entryRef = useRef<HTMLElement>(null);
   const successor = decisions.find((candidate) => candidate.id === item.superseded_by_id);
   const candidates = decisions.filter(
     (candidate) => candidate.id !== item.id && candidate.decision_status === "current",
   );
 
+  useEffect(() => {
+    if (!focused || !entryRef.current) return;
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    entryRef.current.scrollIntoView({ block: "center", behavior });
+    entryRef.current.focus({ preventScroll: true });
+  }, [focused]);
+
   return (
-    <article className={`memory-decision ${item.decision_status}`}>
+    <article
+      ref={entryRef}
+      data-action-item-id={item.id}
+      tabIndex={focused ? -1 : undefined}
+      className={`memory-decision ${item.decision_status} ${focused ? "focused" : ""}`}
+    >
       <div className="memory-ledger-node" aria-hidden="true" />
       <div className="memory-decision-card">
         <div className="memory-card-head">
@@ -446,20 +456,40 @@ function MemoryEnrichmentPanel() {
 
 export function MemoryPage({
   topics,
+  view,
   onOpenRecording,
+  focusedItemId = null,
 }: {
   topics: Topic[];
+  view: MemoryContentView;
   onOpenRecording: (recordingId: number, startSec?: number | null) => void;
+  focusedItemId?: number | null;
 }) {
   const { data: memory, isLoading, isError, error } = useProjectMemory();
   const update = useUpdateActionItem();
   const remove = useDeleteActionItem();
   const { isPending: isDeletePending, schedule: scheduleDelete } = useUndoableDelete();
-  const [view, setView] = useState<MemoryView>("radar");
   const [radarFilter, setRadarFilter] = useState<RadarFilter>("attention");
   const [topicId, setTopicId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [involvementOnly, setInvolvementOnly] = useState(true);
+  const handledFocusedItemId = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (focusedItemId == null) {
+      handledFocusedItemId.current = null;
+      return;
+    }
+    if (!memory || handledFocusedItemId.current === focusedItemId) return;
+    const focusedItem = [...memory.commitments, ...memory.decisions, ...memory.rejected]
+      .find((item) => item.id === focusedItemId);
+    if (!focusedItem) return;
+    setTopicId(null);
+    setInvolvementOnly(false);
+    setSearch("");
+    if (focusedItem.kind === "task") setRadarFilter("all");
+    handledFocusedItemId.current = focusedItemId;
+  }, [focusedItemId, memory]);
 
   const updateItem = (id: number, patch: MemoryPatch) => update.mutate({ id, patch });
   const deleteItem = (item: ActionItem) => {
@@ -537,12 +567,12 @@ export function MemoryPage({
   }
 
   return (
-    <div className="memory-page">
+    <div className="page-shell memory-page">
       <header className="memory-header">
         <div>
           <span className="page-kicker">Projektgedächtnis</span>
-          <h2>Was gilt. Was offen bleibt.</h2>
-          <p>Zusagen und Entscheidungen mit einer direkten Spur zurück zum Gespräch.</p>
+          <h2>Zusagen und Entscheidungen</h2>
+          <p>Offene Punkte und Beschlüsse mit einer direkten Spur zurück zum Gespräch.</p>
         </div>
         <div className="memory-pulse" aria-label={`${memory.stats.attention_count} Einträge brauchen Aufmerksamkeit`}>
           <span className="memory-pulse-ring" aria-hidden="true" />
@@ -553,32 +583,20 @@ export function MemoryPage({
 
       <MemoryEnrichmentPanel />
 
-      <div className="memory-status-line" aria-label="Gedächtnisstatus">
-        <div className={memory.stats.overdue_commitments ? "urgent" : ""}>
+      <div className="memory-status-line status-rail" aria-label="Gedächtnisstatus">
+        <div className={memory.stats.overdue_commitments ? "urgent" : "is-zero"}>
           <strong>{memory.stats.overdue_commitments}</strong><span>überfällig</span>
         </div>
-        <div><strong>{memory.stats.needs_review}</strong><span>zu prüfen</span></div>
-        <div className={unsupportedCount ? "evidence" : ""}>
+        <div className={memory.stats.needs_review ? "" : "is-zero"}><strong>{memory.stats.needs_review}</strong><span>zu prüfen</span></div>
+        <div className={unsupportedCount ? "evidence" : "is-zero"}>
           <strong>{unsupportedCount}</strong><span>ohne Beleg</span>
         </div>
-        <div><strong>{memory.stats.open_commitments}</strong><span>offene Zusagen</span></div>
-        <div><strong>{memory.stats.current_decisions}</strong><span>gültige Beschlüsse</span></div>
-        <div><strong>{memory.stats.superseded_decisions}</strong><span>ersetzte Beschlüsse</span></div>
+        <div className={memory.stats.open_commitments ? "" : "is-zero"}><strong>{memory.stats.open_commitments}</strong><span>offene Zusagen</span></div>
+        <div className={memory.stats.current_decisions ? "" : "is-zero"}><strong>{memory.stats.current_decisions}</strong><span>gültige Beschlüsse</span></div>
+        <div className={memory.stats.superseded_decisions ? "" : "is-zero"}><strong>{memory.stats.superseded_decisions}</strong><span>ersetzte Beschlüsse</span></div>
       </div>
 
-      <div className="memory-view-tabs" role="tablist" aria-label="Gedächtnisansicht">
-        <button role="tab" aria-selected={view === "radar"} className={view === "radar" ? "active" : ""} onClick={() => setView("radar")}>
-          <ActivityIcon width={15} height={15} /> Commitment Radar
-        </button>
-        <button role="tab" aria-selected={view === "ledger"} className={view === "ledger" ? "active" : ""} onClick={() => setView("ledger")}>
-          <MemoryIcon width={15} height={15} /> Decision Ledger
-        </button>
-        <button role="tab" aria-selected={view === "archive"} className={view === "archive" ? "active" : ""} onClick={() => setView("archive")}>
-          Archiv <span>{memory.rejected.length}</span>
-        </button>
-      </div>
-
-      <section className="memory-toolbar" aria-label="Gedächtnis filtern">
+      <section className="memory-toolbar control-rail" aria-label="Gedächtnis filtern">
         <label className="memory-search">
           <SearchIcon width={14} height={14} />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Zusagen und Entscheidungen durchsuchen" />
@@ -601,7 +619,7 @@ export function MemoryPage({
       </section>
 
       {view === "radar" && (
-        <section className="memory-radar-view">
+        <section className="memory-radar-view work-surface">
           <div className="memory-radar-filters" aria-label="Radar eingrenzen">
             {([
               ["attention", "Im Fokus"],
@@ -643,6 +661,7 @@ export function MemoryPage({
                 <CommitmentCard
                   key={item.id}
                   item={item}
+                  focused={item.id === focusedItemId}
                   onUpdate={updateItem}
                   onDelete={deleteItem}
                   onOpenRecording={onOpenRecording}
@@ -656,7 +675,7 @@ export function MemoryPage({
       )}
 
       {view === "ledger" && (
-        <section className="memory-ledger-view">
+        <section className="memory-ledger-view work-surface">
           <div className="memory-section-head">
             <div><span className="page-kicker">Chronik</span><h3>{decisions.length} {decisions.length === 1 ? "Entscheidung" : "Entscheidungen"}</h3></div>
             <span>Neueste zuerst</span>
@@ -664,7 +683,14 @@ export function MemoryPage({
           {decisions.length ? (
             <div className="memory-ledger-line">
               {decisions.map((item) => (
-                <DecisionCard key={item.id} item={item} decisions={memory.decisions} onUpdate={updateItem} onOpenRecording={onOpenRecording} />
+                <DecisionCard
+                  key={item.id}
+                  item={item}
+                  focused={item.id === focusedItemId}
+                  decisions={memory.decisions}
+                  onUpdate={updateItem}
+                  onOpenRecording={onOpenRecording}
+                />
               ))}
             </div>
           ) : (
@@ -674,7 +700,7 @@ export function MemoryPage({
       )}
 
       {view === "archive" && (
-        <section className="memory-archive-view">
+        <section className="memory-archive-view work-surface">
           <div className="memory-section-head"><div><span className="page-kicker">Ausgeblendet</span><h3>{archived.length} verworfene Einträge</h3></div></div>
           {archived.length ? archived.map((item) => (
             <article className="memory-archive-item" key={item.id}>

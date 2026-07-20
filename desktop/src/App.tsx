@@ -14,6 +14,11 @@ import { AppContent } from "./components/layout/AppContent";
 import { Sidebar } from "./components/layout/Sidebar";
 import { TopBar } from "./components/layout/TopBar";
 import { useSidebarWidth } from "./components/layout/LayoutProvider";
+import {
+  memorySectionForActionItem,
+  type MemoryContentView,
+  type MemorySection,
+} from "./components/MemorySectionNav";
 import { useRecordings, useReorderTopics, useTopics } from "./hooks/queries";
 import { useJobSocket } from "./hooks/useJobs";
 import { useDictation } from "./hooks/useDictation";
@@ -23,7 +28,7 @@ import { useAppSettingsBootstrap } from "./hooks/useAppSettingsBootstrap";
 import { useDetectedMeetingStarter, useNativeAppEvents } from "./hooks/useNativeAppEvents";
 import { api } from "./lib/api";
 import { setTrayRecordingState } from "./lib/tauri";
-import type { Recording, Topic } from "./lib/types";
+import type { ActionItem, Recording, Topic } from "./lib/types";
 
 const DocumentEditorModal = lazy(() =>
   import("./components/DocumentEditorModal").then((module) => ({ default: module.DocumentEditorModal })),
@@ -39,7 +44,10 @@ export default function App() {
   const [showTasks, setShowTasks] = useState(false);
   const [showMemory, setShowMemory] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
+  const [memoryView, setMemoryView] = useState<MemoryContentView>("radar");
+  const [focusedMemoryItemId, setFocusedMemoryItemId] = useState<number | null>(null);
   const [showJobs, setShowJobs] = useState(false);
+  const [compactNavOpen, setCompactNavOpen] = useState(false);
   const [openRecordingStartSec, setOpenRecordingStartSec] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showTopicExport, setShowTopicExport] = useState(false);
@@ -108,6 +116,7 @@ export default function App() {
     setShowMemory(false);
     setShowPeople(false);
     setShowJobs(false);
+    setFocusedMemoryItemId(null);
     setOpenRecordingStartSec(null);
     setOpenRecording(rec);
   }, [recording.lastFinishedRecording, recording.clearLastFinished]);
@@ -141,6 +150,15 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!compactNavOpen) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setCompactNavOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [compactNavOpen]);
+
   const openRecordingById = useCallback(async (recordingId: number, startSec?: number | null) => {
     try {
       const rec = await api.getRecording(recordingId);
@@ -150,6 +168,7 @@ export default function App() {
       setShowMemory(false);
       setShowPeople(false);
       setShowJobs(false);
+      setFocusedMemoryItemId(null);
       setOpenRecordingStartSec(startSec ?? null);
       setOpenRecording(rec);
     } catch {
@@ -197,6 +216,27 @@ export default function App() {
     }
   }, [topics, activeTopic]);
 
+  function navigateToMemorySection(section: MemorySection, focusedItemId: number | null) {
+    const showMemoryContent = section === "radar" || section === "ledger" || section === "archive";
+    if (showMemoryContent) setMemoryView(section);
+    setFocusedMemoryItemId(focusedItemId);
+    setShowMemory(showMemoryContent);
+    setShowTasks(section === "tasks");
+    setShowPeople(section === "people");
+    setShowHome(false);
+    setShowJobs(false);
+    setOpenRecordingStartSec(null);
+    setOpenRecording(null);
+  }
+
+  function openMemorySection(section: MemorySection) {
+    navigateToMemorySection(section, null);
+  }
+
+  function openMemoryItem(item: ActionItem) {
+    navigateToMemorySection(memorySectionForActionItem(item), item.id);
+  }
+
   if (needsEnv)
     return (
       <SetupScreen
@@ -225,42 +265,18 @@ export default function App() {
           setShowMemory(false);
           setShowPeople(false);
           setShowJobs(false);
+          setFocusedMemoryItemId(null);
           setOpenRecordingStartSec(null);
           setOpenRecording(null);
         }}
-        onTasks={() => {
-          setShowTasks(true);
-          setShowMemory(false);
-          setShowHome(false);
-          setShowPeople(false);
-          setShowJobs(false);
-          setOpenRecordingStartSec(null);
-          setOpenRecording(null);
-        }}
-        onMemory={() => {
-          setShowMemory(true);
-          setShowTasks(false);
-          setShowHome(false);
-          setShowPeople(false);
-          setShowJobs(false);
-          setOpenRecordingStartSec(null);
-          setOpenRecording(null);
-        }}
-        onPeople={() => {
-          setShowPeople(true);
-          setShowTasks(false);
-          setShowMemory(false);
-          setShowHome(false);
-          setShowJobs(false);
-          setOpenRecordingStartSec(null);
-          setOpenRecording(null);
-        }}
+        onMemory={() => openMemorySection("radar")}
         onJobs={() => {
           setShowJobs(true);
           setShowTasks(false);
           setShowMemory(false);
           setShowPeople(false);
           setShowHome(false);
+          setFocusedMemoryItemId(null);
           setOpenRecordingStartSec(null);
           setOpenRecording(null);
         }}
@@ -273,11 +289,23 @@ export default function App() {
           setShowMemory(false);
           setShowPeople(false);
           setShowJobs(false);
+          setFocusedMemoryItemId(null);
           setOpenRecordingStartSec(null);
         }}
         onMoveTopic={moveTopic}
         onSettings={() => setShowSettings(true)}
+        compactOpen={compactNavOpen}
+        onClose={() => setCompactNavOpen(false)}
       />
+
+      {compactNavOpen && (
+        <button
+          type="button"
+          className="compact-nav-backdrop"
+          aria-label="Navigation schließen"
+          onClick={() => setCompactNavOpen(false)}
+        />
+      )}
 
       <div className="resizer" onMouseDown={handleResizerDown} />
 
@@ -292,6 +320,8 @@ export default function App() {
           currentTopic={current}
           showRecordingIndicator={recording.state === "idle"}
           onTopicExport={() => setShowTopicExport(true)}
+          navigationOpen={compactNavOpen}
+          onToggleNavigation={() => setCompactNavOpen((open) => !open)}
         />
         <div className="content">
           <AppContent
@@ -303,12 +333,16 @@ export default function App() {
             showTasks={showTasks}
             showMemory={showMemory}
             showPeople={showPeople}
+            memoryView={memoryView}
+            focusedMemoryItemId={focusedMemoryItemId}
             showHome={showHome}
             openRecording={openRecording}
             openRecordingStartSec={openRecordingStartSec}
             dictationShortcutLabel={dictationShortcutLabel}
             onOpenRecording={openRecordingById}
             onOpenDocument={setEditorDocumentId}
+            onMemorySection={openMemorySection}
+            onOpenMemoryItem={openMemoryItem}
             onBackFromRecording={() => {
               setOpenRecordingStartSec(null);
               setOpenRecording(null);

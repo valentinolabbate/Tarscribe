@@ -527,6 +527,107 @@ def test_memory_item_marks_direct_and_recording_involvement():
     )
     assert decision_payload["is_involved"] is True
 
+    unrelated_task = ActionItem(
+        recording_id=8,
+        kind="task",
+        text="Ada bereitet das Review vor",
+        assignee="Ada Lovelace",
+    )
+    unrelated_payload = _item_dict(
+        unrelated_task,
+        my_name="Valentino L'Abbate",
+        involved_recording_ids={8},
+    )
+    assert unrelated_payload["is_involved"] is False
+
+    unassigned_task = ActionItem(recording_id=8, kind="task", text="Verantwortung offen")
+    unassigned_payload = _item_dict(
+        unassigned_task,
+        my_name="Valentino L'Abbate",
+        involved_recording_ids={8},
+    )
+    assert unassigned_payload["is_involved"] is False
+
+
+def test_project_memory_involvement_requires_direct_task_assignment(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem, KnownSpeaker, SpeakerLabel
+
+    rec_id, _ = _make_recording()
+    with Session(db.get_engine()) as session:
+        me = KnownSpeaker(name="Valentino L'Abbate")
+        session.add(me)
+        session.flush()
+        me_id = me.id
+        session.add(
+            SpeakerLabel(
+                recording_id=rec_id,
+                original_label="SPEAKER_00",
+                display_name=me.name,
+                known_speaker_id=me.id,
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Eigene Aufgabe",
+                assignee="Valentino",
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Zusage an Valentino",
+                assignee="Ada Lovelace",
+                recipient="Valentino",
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Aufgabe von Ada",
+                assignee="Ada Lovelace",
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Aufgabe ohne Person",
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="decision",
+                text="Gemeinsame Entscheidung",
+            )
+        )
+        session.commit()
+
+    assert client.put("/api/settings", json={"my_speaker_id": me_id}).status_code == 200
+    try:
+        memory = client.get("/api/memory").json()
+        involvement = {
+            item["text"]: item["is_involved"]
+            for item in [*memory["commitments"], *memory["decisions"]]
+        }
+
+        assert involvement == {
+            "Eigene Aufgabe": True,
+            "Zusage an Valentino": True,
+            "Aufgabe von Ada": False,
+            "Aufgabe ohne Person": False,
+            "Gemeinsame Entscheidung": True,
+        }
+    finally:
+        client.put("/api/settings", json={"my_speaker_id": 0})
+
 
 def test_action_items_mine_flagging_and_import(client):
     from sqlmodel import Session
@@ -762,6 +863,14 @@ def test_action_item_due_date_patch_clear_and_ics_export(client):
     with Session(db.get_engine()) as s:
         s.add(ActionItem(recording_id=rec_id, kind="task", text="Bericht abgeben", assignee="Anna"))
         s.add(ActionItem(recording_id=rec_id, kind="task", text="Ohne Frist"))
+        s.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="decision",
+                text="Launch beschlossen",
+                due_date="2026-06-20",
+            )
+        )
         s.commit()
 
     items = client.get(f"/api/recordings/{rec_id}/action-items").json()
@@ -784,12 +893,13 @@ def test_action_item_due_date_patch_clear_and_ics_export(client):
     assert "DTEND;VALUE=DATE:20260621" in body
     assert "Verantwortlich: Anna" in body
     assert "Ohne Frist" not in body
+    assert "Launch beschlossen" not in body
 
     # Topic filter that matches keeps it; a different topic empties the export.
     assert client.get(f"/api/action-items/export.ics?topic_id={topic_id}").status_code == 200
     assert client.get(f"/api/action-items/export.ics?topic_id={topic_id + 999}").status_code == 404
 
-    # Done tasks drop out of the calendar; clearing the date drops it too.
+    # Done tasks drop out of the calendar; decisions remain excluded.
     client.patch(f"/api/action-items/{with_due['id']}", json={"done": True})
     assert client.get("/api/action-items/export.ics").status_code == 404
     r = client.patch(f"/api/action-items/{with_due['id']}", json={"done": False, "due_date": ""})

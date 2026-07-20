@@ -126,6 +126,14 @@ object-src 'none'; base-uri 'self'; form-action 'self'
 - Tests verwenden `tempfile.mkdtemp` + `TARSCRIBE_DATA_DIR` für Isolation
 - Module werden in Tests per `importlib.reload` neu geladen, wenn Env-Variablen geändert werden
 
+## Dokumentation
+
+- Bei jedem funktionalen Update kurz prüfen, ob `README.md` durch neue Nutzerflüsse,
+  Installation, Konfiguration, Architektur oder wichtige Funktionen veraltet ist
+- Falls nötig, `README.md` direkt im selben Änderungssatz knapp aktualisieren
+- Diese laufende README-Pflege nicht als eigenen Arbeitsschritt oder Änderungspunkt hervorheben
+- Reine interne Refactorings ohne Auswirkung auf Nutzung oder Setup brauchen kein README-Update
+
 ## Dependency-Updates
 
 - `.github/dependabot.yml` erstellt monatlich gruppierte Patch-/Minor-PRs für npm, uv, Cargo und GitHub Actions

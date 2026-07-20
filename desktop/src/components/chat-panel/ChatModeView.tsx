@@ -5,7 +5,7 @@ import { ChatIcon } from "../icons";
 import { ChatContextUsage } from "./ChatContextUsage";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { sourceMeta, type UiMessage } from "./model";
-import { SourceAction } from "./SourceAction";
+import { RagEvidenceTrail } from "./RagEvidenceTrail";
 
 export function ChatModeView({
   messages,
@@ -121,6 +121,7 @@ export function ChatModeView({
           <SourceSnippet
             source={message.sources?.find((source) => openSnippet?.m === index && openSnippet?.s === source.index)}
             scoped={scoped}
+            topics={topics}
             onOpenSource={onOpenSource}
             onOpenDocument={onOpenDocument}
           />
@@ -249,30 +250,27 @@ function SourceBadges({
 function SourceSnippet({
   source,
   scoped,
+  topics,
   onOpenSource,
   onOpenDocument,
 }: {
   source?: RagSource;
   scoped: boolean;
+  topics: Topic[];
   onOpenSource: (recordingId: number, startSec?: number | null) => void;
   onOpenDocument?: (documentId: number) => void;
 }) {
   if (!source) return null;
   return (
     <div className="chat-source-snippet">
-      <div className="chat-source-snippet-head">
-        <span>
-          [{source.index}] {sourceMeta(source, !scoped)}
-        </span>
-        <div className="chat-toolbar-spacer" />
-        <SourceAction
-          source={source}
-          scoped={scoped}
-          onOpenSource={onOpenSource}
-          onOpenDocument={onOpenDocument}
-        />
-      </div>
-      <div className="chat-source-snippet-text">{source.text}</div>
+      <span className="chat-source-snippet-index">[{source.index}]</span>
+      <RagEvidenceTrail
+        source={source}
+        topics={topics}
+        scoped={scoped}
+        onOpenSource={onOpenSource}
+        onOpenDocument={onOpenDocument}
+      />
     </div>
   );
 }

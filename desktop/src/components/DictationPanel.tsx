@@ -19,13 +19,16 @@ export function DictationPanel({
         </div>
       </div>
       <div className="dictation-control">
-        <div className="dictation-live">
-          <div className="dictation-meter" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+        <div className="dictation-live-stack">
+          <div className="dictation-live">
+            <div className="dictation-meter" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="dictation-time">{dictation.elapsedLabel}</div>
           </div>
-          <div className="dictation-time">{dictation.elapsedLabel}</div>
+          <span className="dictation-shortcut" title="Startet oder speichert das Diktat">{shortcutLabel}</span>
         </div>
         <div className="dictation-buttons">
           {dictation.state === "recording" && (
@@ -50,7 +53,6 @@ export function DictationPanel({
           </button>
         </div>
       </div>
-      <span className="dictation-shortcut" title="Startet oder speichert das Diktat">{shortcutLabel}</span>
     </section>
   );
 }

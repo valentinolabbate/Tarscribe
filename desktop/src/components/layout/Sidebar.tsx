@@ -1,5 +1,5 @@
 import type { Topic } from "../../lib/types";
-import { ActivityIcon, HomeIcon, MemoryIcon, PlusIcon, SettingsIcon, SpeakerIdIcon, TasksIcon } from "../icons";
+import { ActivityIcon, CloseIcon, HomeIcon, MemoryIcon, PlusIcon, SettingsIcon } from "../icons";
 import { TopicRow } from "./TopicRow";
 
 export function Sidebar({
@@ -11,14 +11,14 @@ export function Sidebar({
   showPeople,
   showJobs,
   onHome,
-  onTasks,
   onMemory,
-  onPeople,
   onJobs,
   onNewTopic,
   onSelectTopic,
   onMoveTopic,
   onSettings,
+  compactOpen = false,
+  onClose = () => {},
 }: {
   topics: Topic[];
   activeTopic: number | null;
@@ -28,42 +28,46 @@ export function Sidebar({
   showPeople: boolean;
   showJobs: boolean;
   onHome: () => void;
-  onTasks: () => void;
   onMemory: () => void;
-  onPeople: () => void;
   onJobs: () => void;
   onNewTopic: () => void;
   onSelectTopic: (topicId: number) => void;
   onMoveTopic: (topicId: number, direction: -1 | 1) => void;
   onSettings: () => void;
+  compactOpen?: boolean;
+  onClose?: () => void;
 }) {
+  function navigate(action: () => void) {
+    action();
+    onClose();
+  }
+
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${compactOpen ? "compact-open" : ""}`} aria-label="Hauptnavigation">
       <div className="brand">
         <img src="logo.png" alt="Tarscribe" className="brand-logo" />
         <div className="brand-name">Tarscribe</div>
+        <button type="button" className="sidebar-compact-close" aria-label="Navigation schließen" onClick={onClose}>
+          <CloseIcon width={18} height={18} />
+        </button>
       </div>
 
-      <button className={`topic-item ${showHome ? "active" : ""}`} onClick={onHome}>
+      <button className={`topic-item ${showHome ? "active" : ""}`} onClick={() => navigate(onHome)}>
         <HomeIcon width={16} height={16} /> Start
       </button>
 
-      <button className={`topic-item ${showTasks ? "active" : ""}`} onClick={onTasks}>
-        <TasksIcon width={16} height={16} /> Aufgaben
-      </button>
-
-      <button className={`topic-item ${showMemory ? "active" : ""}`} onClick={onMemory}>
+      <button
+        className={`topic-item ${showMemory || showTasks || showPeople ? "active" : ""}`}
+        onClick={() => navigate(onMemory)}
+        aria-current={showMemory || showTasks || showPeople ? "page" : undefined}
+      >
         <MemoryIcon width={16} height={16} /> Gedächtnis
-      </button>
-
-      <button className={`topic-item ${showPeople ? "active" : ""}`} onClick={onPeople}>
-        <SpeakerIdIcon width={16} height={16} /> Personen
       </button>
 
       <div className="sidebar-library">
         <div className="section-label">
           <span>Bibliothek</span>
-          <button className="btn ghost" style={{ padding: 2 }} title="Neuer Themenbereich" onClick={onNewTopic}>
+          <button className="btn ghost" style={{ padding: 2 }} title="Neuer Themenbereich" onClick={() => navigate(onNewTopic)}>
             <PlusIcon width={15} height={15} />
           </button>
         </div>
@@ -76,14 +80,14 @@ export function Sidebar({
               active={topic.id === activeTopic && !showHome && !showTasks && !showMemory && !showPeople && !showJobs}
               canMoveUp={index > 0}
               canMoveDown={index < topics.length - 1}
-              onSelect={() => onSelectTopic(topic.id)}
+              onSelect={() => navigate(() => onSelectTopic(topic.id))}
               onMoveUp={() => onMoveTopic(topic.id, -1)}
               onMoveDown={() => onMoveTopic(topic.id, 1)}
             />
           ))}
 
           {topics.length === 0 && (
-            <button className="topic-item" onClick={onNewTopic}>
+            <button className="topic-item" onClick={() => navigate(onNewTopic)}>
               <PlusIcon width={15} height={15} /> Ersten Bereich anlegen
             </button>
           )}
@@ -95,10 +99,10 @@ export function Sidebar({
           <span className="sidebar-status-dot" />
           <strong>Lokal bereit</strong>
         </div>
-        <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={onJobs}>
+        <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={() => navigate(onJobs)}>
           <ActivityIcon width={16} height={16} /> Verarbeitung
         </button>
-        <button className="topic-item" onClick={onSettings}>
+        <button className="topic-item" onClick={() => navigate(onSettings)}>
           <SettingsIcon width={16} height={16} /> Einstellungen
         </button>
       </div>

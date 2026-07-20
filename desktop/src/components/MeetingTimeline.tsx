@@ -9,6 +9,7 @@ import {
 import { useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem, DiarizationData } from "../lib/types";
+import { EvidenceTrail } from "./EvidenceTrail";
 import { MemoryIcon, RefreshIcon, TrashIcon, WaveIcon } from "./icons";
 import {
   activeTimelineItemId,
@@ -47,6 +48,9 @@ function dueLabel(item: ActionItem): string | null {
 
 export function MeetingTimeline({
   recordingId,
+  recordingTitle,
+  topicName,
+  topicColor,
   diarization,
   currentTime,
   playing,
@@ -54,6 +58,9 @@ export function MeetingTimeline({
   onOpenTranscript,
 }: {
   recordingId: number;
+  recordingTitle: string;
+  topicName?: string | null;
+  topicColor?: string | null;
   diarization?: DiarizationData;
   currentTime: number;
   playing: boolean;
@@ -236,11 +243,17 @@ export function MeetingTimeline({
                 {due && <span>bis <strong>{due}</strong></span>}
               </div>
             )}
-            {item.source_quote ? (
-              <blockquote>„{item.source_quote}“</blockquote>
-            ) : (
-              <span className="timeline-missing-source">Belegstelle unvollständig</span>
-            )}
+            <EvidenceTrail
+              recordingId={recordingId}
+              recordingTitle={recordingTitle}
+              startSec={item.source_start_sec}
+              quote={item.source_quote}
+              topicName={topicName}
+              topicColor={topicColor}
+              speaker={speaker}
+              missing={item.source_start_sec == null}
+              onOpenRecording={(_, startSec) => onSeek(startSec ?? 0)}
+            />
           </>
         )}
         {!editing && (

@@ -69,7 +69,7 @@ describe("task view model", () => {
       item(6, { kind: "decision" }),
     ];
 
-    expect(getTaskCounts(entries, "task", today)).toEqual({
+    expect(getTaskCounts(entries, today)).toEqual({
       total: 5,
       open: 4,
       overdue: 1,
@@ -78,22 +78,20 @@ describe("task view model", () => {
     });
   });
 
-  it("separates tasks from decisions and searches source metadata", () => {
+  it("excludes decisions and searches task source metadata", () => {
     const entries = [
       item(1, { recording_title: "Roadmap-Runde" }),
       item(2, { assignee: "Luna" }),
       item(3, { kind: "decision", text: "Launch im Herbst" }),
     ];
 
-    expect(filterTaskItems(entries, "task", "open", "roadmap", today).map((entry) => entry.id)).toEqual([
+    expect(filterTaskItems(entries, "open", "roadmap", today).map((entry) => entry.id)).toEqual([
       1,
     ]);
-    expect(filterTaskItems(entries, "task", "open", "luna", today).map((entry) => entry.id)).toEqual([
+    expect(filterTaskItems(entries, "open", "luna", today).map((entry) => entry.id)).toEqual([
       2,
     ]);
-    expect(filterTaskItems(entries, "decision", "open", "", today).map((entry) => entry.id)).toEqual([
-      3,
-    ]);
+    expect(filterTaskItems(entries, "open", "", today).map((entry) => entry.id)).toEqual([2, 1]);
   });
 
   it("builds the open list in urgency order", () => {
@@ -104,12 +102,11 @@ describe("task view model", () => {
         item(3, { due_date: "2026-07-12" }),
         item(4, { due_date: "2026-07-08" }),
       ],
-      "task",
       "open",
       "",
       today,
     );
-    const sections = buildTaskSections(entries, "task", "open", today);
+    const sections = buildTaskSections(entries, "open", today);
 
     expect(sections.map((section) => section.id)).toEqual([
       "overdue",

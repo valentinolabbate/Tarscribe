@@ -1,7 +1,6 @@
 import type { ActionItem } from "../../lib/types";
 
 export type OwnerFilter = "mine" | "all";
-export type TaskKind = "task" | "decision";
 export type TaskView = "open" | "overdue" | "week" | "done";
 
 export interface TaskCounts {
@@ -13,7 +12,7 @@ export interface TaskCounts {
 }
 
 export interface TaskSection {
-  id: "overdue" | "week" | "later" | "undated" | "done" | "decisions";
+  id: "overdue" | "week" | "later" | "undated" | "done";
   title: string;
   detail: string;
   items: ActionItem[];
@@ -53,8 +52,8 @@ export function filterOwnedItems(items: ActionItem[], owner: OwnerFilter): Actio
   return owner === "all" ? items : items.filter((item) => item.is_mine || item.include_in_tasks);
 }
 
-export function getTaskCounts(items: ActionItem[], kind: TaskKind, today: string): TaskCounts {
-  const matching = items.filter((item) => item.kind === kind);
+export function getTaskCounts(items: ActionItem[], today: string): TaskCounts {
+  const matching = items.filter((item) => item.kind === "task");
   return {
     total: matching.length,
     open: matching.filter((item) => !item.done).length,
@@ -80,14 +79,13 @@ function urgencyRank(item: ActionItem, today: string): number {
 
 export function filterTaskItems(
   items: ActionItem[],
-  kind: TaskKind,
   view: TaskView,
   search: string,
   today: string,
 ): ActionItem[] {
   const normalizedSearch = search.trim().toLocaleLowerCase("de-DE");
   return items
-    .filter((item) => item.kind === kind)
+    .filter((item) => item.kind === "task")
     .filter((item) => {
       if (view === "done") return item.done;
       if (view === "overdue") return isOverdueOn(item, today);
@@ -96,7 +94,7 @@ export function filterTaskItems(
     })
     .filter((item) => matchesSearch(item, normalizedSearch))
     .sort((a, b) => {
-      if (kind === "task" && view === "open") {
+      if (view === "open") {
         const urgency = urgencyRank(a, today) - urgencyRank(b, today);
         if (urgency !== 0) return urgency;
       }
@@ -110,26 +108,9 @@ export function filterTaskItems(
 
 export function buildTaskSections(
   items: ActionItem[],
-  kind: TaskKind,
   view: TaskView,
   today: string,
 ): TaskSection[] {
-  if (kind === "decision") {
-    return items.length
-      ? [
-          {
-            id: "decisions",
-            title: view === "done" ? "Archivierte Entscheidungen" : "Aktuelle Entscheidungen",
-            detail:
-              view === "done"
-                ? "Bereits abgeschlossene Beschlüsse"
-                : "Beschlüsse aus deinen Aufnahmen",
-            items,
-          },
-        ]
-      : [];
-  }
-
   if (view !== "open") {
     const labels = {
       overdue: ["Überfällige Aufgaben", "Frist bereits überschritten"],

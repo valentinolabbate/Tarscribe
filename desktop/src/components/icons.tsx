@@ -34,6 +34,18 @@ export const MoreIcon = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+export const MenuIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </svg>
+);
+
+export const CloseIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}>
+    <path d="m6 6 12 12M18 6 6 18" />
+  </svg>
+);
+
 export const GripIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p} fill="currentColor" stroke="none">
     <circle cx="9" cy="6" r="1.4" />

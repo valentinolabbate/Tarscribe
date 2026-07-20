@@ -1,6 +1,6 @@
 import type { useDictation } from "../../hooks/useDictation";
 import type { useRecording } from "../../hooks/useRecording";
-import type { Recording, Topic } from "../../lib/types";
+import type { ActionItem, Recording, Topic } from "../../lib/types";
 import { JobsPage } from "../JobsPage";
 import { LiveRecordingDetail } from "../LiveRecordingDetail";
 import { RecordingDetail } from "../RecordingDetail";
@@ -9,6 +9,11 @@ import { PeoplePage } from "../PeoplePage";
 import { MemoryPage } from "../MemoryPage";
 import { StartPage } from "../StartPage";
 import { TasksPage } from "../TasksPage";
+import {
+  MemorySectionNav,
+  type MemoryContentView,
+  type MemorySection,
+} from "../MemorySectionNav";
 
 export function AppContent({
   recording,
@@ -19,12 +24,16 @@ export function AppContent({
   showTasks,
   showMemory,
   showPeople,
+  memoryView,
+  focusedMemoryItemId,
   showHome,
   openRecording,
   openRecordingStartSec,
   dictationShortcutLabel,
   onOpenRecording,
   onOpenDocument,
+  onMemorySection,
+  onOpenMemoryItem,
   onBackFromRecording,
   onMovedRecording,
   onOpenSettings,
@@ -38,12 +47,16 @@ export function AppContent({
   showTasks: boolean;
   showMemory: boolean;
   showPeople: boolean;
+  memoryView: MemoryContentView;
+  focusedMemoryItemId: number | null;
   showHome: boolean;
   openRecording: Recording | null;
   openRecordingStartSec: number | null;
   dictationShortcutLabel: string;
   onOpenRecording: (recordingId: number, startSec?: number | null) => Promise<void>;
   onOpenDocument: (documentId: number) => void;
+  onMemorySection: (section: MemorySection) => void;
+  onOpenMemoryItem: (item: ActionItem) => void;
   onBackFromRecording: () => void;
   onMovedRecording: (recording: Recording) => void;
   onOpenSettings: () => void;
@@ -66,14 +79,36 @@ export function AppContent({
   }
 
   if (showJobs) return <JobsPage onOpenRecording={onOpenRecording} />;
-  if (showTasks) return <TasksPage topics={topics} onOpenRecording={onOpenRecording} />;
-  if (showMemory) return <MemoryPage topics={topics} onOpenRecording={onOpenRecording} />;
-  if (showPeople) return <PeoplePage onOpenRecording={onOpenRecording} />;
+  if (showTasks || showMemory || showPeople) {
+    const activeSection: MemorySection = showTasks ? "tasks" : showPeople ? "people" : memoryView;
+    return (
+      <div className="page-shell memory-workspace">
+        <MemorySectionNav active={activeSection} onSelect={onMemorySection} />
+        {showTasks && (
+          <TasksPage
+            topics={topics}
+            onOpenRecording={onOpenRecording}
+            focusedItemId={focusedMemoryItemId}
+          />
+        )}
+        {showMemory && (
+          <MemoryPage
+            topics={topics}
+            view={memoryView}
+            onOpenRecording={onOpenRecording}
+            focusedItemId={focusedMemoryItemId}
+          />
+        )}
+        {showPeople && <PeoplePage onOpenRecording={onOpenRecording} />}
+      </div>
+    );
+  }
   if (showHome) {
     return (
       <StartPage
         topics={topics}
         onOpenSource={onOpenRecording}
+        onOpenMemoryItem={onOpenMemoryItem}
         onOpenDocument={onOpenDocument}
         dictation={dictation}
         dictationShortcutLabel={dictationShortcutLabel}
@@ -108,6 +143,7 @@ export function AppContent({
     <StartPage
       topics={topics}
       onOpenSource={onOpenRecording}
+      onOpenMemoryItem={onOpenMemoryItem}
       onOpenDocument={onOpenDocument}
       dictation={dictation}
       dictationShortcutLabel={dictationShortcutLabel}

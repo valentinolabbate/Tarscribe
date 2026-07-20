@@ -81,6 +81,7 @@ export function ChatPanel({
             searching={chat.searching}
             ragOff={chat.ragOff}
             scoped={chat.scoped}
+            topics={topics}
             prompts={chat.searchEmptyPrompts}
             onPrompt={chat.setInput}
             onOpenSource={onOpenSource}

@@ -84,7 +84,7 @@ export function TopicRow({
           ))}
         </span>
       )}
-      <details className="topic-actions" onClick={(event) => event.stopPropagation()}>
+      <details className="topic-actions" data-menu onClick={(event) => event.stopPropagation()}>
         <summary title="Themenbereich verwalten" aria-label={`${topic.name} verwalten`}>
           <MoreIcon width={15} height={15} />
         </summary>

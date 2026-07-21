@@ -4,7 +4,10 @@ import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react
 import App from "./App";
 import { ToastProvider, toast } from "./components/Toast";
 import { RecordingProvider } from "./hooks/useRecording";
+import { installMenuAutoClose } from "./lib/menuAutoClose";
 import "./styles.css";
+
+installMenuAutoClose();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },

@@ -267,7 +267,7 @@ export function ActionItemRow({
                 </label>
               )}
               {compact ? (
-                <details className="action-item-more">
+                <details className="action-item-more" data-menu>
                   <summary role="button" aria-label="Weitere Aktionen">•••</summary>
                   <div className="action-item-more-panel">
                     <button type="button" onClick={startEditing}>

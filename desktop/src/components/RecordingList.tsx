@@ -1,21 +1,33 @@
 import { useRef, useState } from "react";
-import { useDeleteRecording, useLatestJob, useRecordings, useUploadRecording } from "../hooks/queries";
+import {
+  useDeleteRecording,
+  useLatestJob,
+  useRecordings,
+  useTopics,
+  useUpdateRecording,
+  useUploadRecording,
+} from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import { fmtDate, fmtDuration, jobPhaseLabel, statusLabel } from "../lib/format";
 import type { Recording, Topic } from "../lib/types";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { RecordControl } from "./RecordControl";
+import { useToast } from "./Toast";
 import { WebContextPanel } from "./WebContextPanel";
-import { MoreIcon, SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
+import { FolderIcon, MoreIcon, SearchIcon, TrashIcon, UploadIcon, WaveIcon } from "./icons";
 
 function RecordingRow({
   r,
+  moveTargets,
   onOpen,
+  onMove,
   onDelete,
 }: {
   r: Recording;
+  moveTargets: Topic[];
   onOpen: () => void;
+  onMove: (topicId: number) => void;
   onDelete: () => void;
 }) {
   const liveJob = useJobFor(r.id);
@@ -49,11 +61,26 @@ function RecordingRow({
       <span className={`badge ${running ? "transcribing" : r.status}`}>
         {running ? `${phaseLabel}… ${pct}%` : statusLabel(r.status)}
       </span>
-      <details className="rec-actions" onClick={(event) => event.stopPropagation()}>
+      <details className="rec-actions" data-menu onClick={(event) => event.stopPropagation()}>
         <summary title="Aufnahme verwalten" aria-label={`${r.title} verwalten`}>
           <MoreIcon width={17} height={17} />
         </summary>
         <div className="rec-menu">
+          {moveTargets.length > 0 && (
+            <details className="rec-submenu">
+              <summary>
+                <FolderIcon width={15} height={15} /> Verschieben nach…
+              </summary>
+              <div className="rec-submenu-items">
+                {moveTargets.map((target) => (
+                  <button key={target.id} type="button" onClick={() => onMove(target.id)}>
+                    <span className="topic-dot" style={{ background: target.color }} />
+                    {target.name}
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
           <button className="danger" type="button" onClick={onDelete}>
             <TrashIcon width={15} height={15} /> Löschen
           </button>
@@ -73,6 +100,9 @@ export function RecordingList({
   onOpenDocument: (documentId: number) => void;
 }) {
   const { data: recordings, isLoading } = useRecordings(topic.id);
+  const { data: topics } = useTopics();
+  const updateRec = useUpdateRecording();
+  const toast = useToast();
   const upload = useUploadRecording();
   const del = useDeleteRecording(topic.id);
   const undoDelete = useUndoableDelete();
@@ -86,6 +116,18 @@ export function RecordingList({
     if (!files) return;
     for (const file of Array.from(files)) {
       await upload.mutateAsync({ topicId: topic.id, file });
+    }
+  }
+
+  const moveTargets = (topics ?? []).filter((target) => target.id !== topic.id);
+
+  async function handleMove(r: Recording, topicId: number) {
+    const target = moveTargets.find((item) => item.id === topicId);
+    try {
+      await updateRec.mutateAsync({ id: r.id, patch: { topic_id: topicId } });
+      toast(`Verschoben nach ${target?.name ?? "neuen Bereich"}`, "success");
+    } catch (e) {
+      toast((e as Error).message, "error");
     }
   }
 
@@ -188,7 +230,9 @@ export function RecordingList({
               <RecordingRow
                 key={r.id}
                 r={r}
+                moveTargets={moveTargets}
                 onOpen={() => onOpen(r)}
+                onMove={(topicId) => void handleMove(r, topicId)}
                 onDelete={() =>
                   undoDelete.schedule(r.id, () => del.mutate(r.id), `„${r.title}" gelöscht`)
                 }

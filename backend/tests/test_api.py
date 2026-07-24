@@ -59,14 +59,22 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
     assert legacy.status_code == 200
     body = legacy.json()
     expected_profile = {
+        "connection_id": "local",
         "model": "shared-model",
-        "provider": None,
-        "base_url": None,
         "reasoning_effort": "low",
         "agent_mode": False,
         "web_search": False,
         "api_key_set": body["api_key_set"],
     }
+    assert body["connections"] == [
+        {
+            "id": "local",
+            "name": "Lokale Standardverbindung",
+            "provider": "ollama",
+            "base_url": "http://localhost:11434/v1",
+            "api_key_set": False,
+        }
+    ]
     assert body["profiles"] == {
         "chapters": expected_profile,
         "summaries": expected_profile,

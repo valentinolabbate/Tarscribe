@@ -29,6 +29,7 @@ class LlmConfigIn(BaseModel):
     top_k: int | None = None
     max_tokens: int | None = None
     reasoning_effort: str | None = None
+    connections: list[dict] | None = None
     profiles: dict[str, dict] | None = None
 
 
@@ -47,13 +48,25 @@ class SummaryUpdateIn(BaseModel):
 
 
 def _config_response(llm: dict) -> dict:
+    connections = L.get_llm_connections()
     profiles = L.get_llm_profiles()
-    global_url = (llm.get("base_url") or "").strip()
+    by_id = {connection["id"]: connection for connection in connections}
+    response_connections = []
+    for connection in connections:
+        response_connections.append(
+            {
+                **connection,
+                "api_key_set": settings_store.has_llm_api_key(connection["base_url"]),
+            }
+        )
     for profile in profiles.values():
-        resolved_url = (profile.get("base_url") or global_url).strip()
-        profile["api_key_set"] = settings_store.has_llm_api_key(resolved_url or None)
+        connection = by_id.get(profile["connection_id"])
+        profile["api_key_set"] = bool(
+            connection and settings_store.has_llm_api_key(connection["base_url"])
+        )
     return {
         **llm,
+        "connections": response_connections,
         "profiles": profiles,
         "api_key_set": settings_store.has_llm_api_key(),
     }
@@ -70,21 +83,55 @@ def get_llm_config() -> dict:
 def set_llm_config(payload: LlmConfigIn) -> dict:
     llm = dict(settings_store.load_prefs().get("llm") or {})
     data = payload.model_dump(exclude_unset=True)
+    connections_patch = data.pop("connections", None)
     profile_patch = data.pop("profiles", None)
     llm.update(data)
+    if connections_patch is not None:
+        connections = []
+        seen_ids = set()
+        for raw in connections_patch:
+            if not isinstance(raw, dict):
+                continue
+            connection = L._clean_connection(raw)
+            if connection is None:
+                raise HTTPException(422, "Jede Verbindung braucht einen Namen und eine Base-URL")
+            if not connection["base_url"].lower().startswith(("http://", "https://")):
+                raise HTTPException(422, "Base-URL muss mit http:// oder https:// beginnen")
+            if connection["id"] in seen_ids:
+                raise HTTPException(422, "Verbindungs-IDs müssen eindeutig sein")
+            seen_ids.add(connection["id"])
+            connections.append(connection)
+        if not connections:
+            raise HTTPException(422, "Mindestens eine LLM-Verbindung ist erforderlich")
+        llm["connections"] = connections
     if profile_patch is not None:
+        available_connections, _ = L._normalized_state(
+            {**llm, "profiles": {}}, settings_store.load_prefs()
+        )
+        available_connection_ids = {
+            connection["id"] for connection in available_connections
+        }
         profiles = dict(llm.get("profiles") or {})
         for use_case, patch in profile_patch.items():
             if use_case not in L.LLM_USE_CASES or not isinstance(patch, dict):
                 continue
+            requested_connection_id = patch.get("connection_id")
+            if (
+                requested_connection_id is not None
+                and requested_connection_id not in available_connection_ids
+            ):
+                raise HTTPException(422, f"Unbekannte Verbindung für {use_case}")
             base_url = patch.get("base_url")
             if base_url and not str(base_url).strip().lower().startswith(("http://", "https://")):
                 raise HTTPException(422, "Base-URL muss mit http:// oder https:// beginnen")
             profile = dict(profiles.get(use_case) or {})
+            if base_url:
+                profile.pop("connection_id", None)
             cleaned = {}
             for key, value in patch.items():
                 if key not in {
                     "model",
+                    "connection_id",
                     "provider",
                     "base_url",
                     "reasoning_effort",
@@ -98,15 +145,36 @@ def set_llm_config(payload: LlmConfigIn) -> dict:
             profile.update(cleaned)
             profiles[use_case] = profile
         llm["profiles"] = profiles
+    connections, normalized_profiles = L._normalized_state(llm, settings_store.load_prefs())
+    connection_ids = {connection["id"] for connection in connections}
+    for use_case, profile in normalized_profiles.items():
+        if profile["connection_id"] not in connection_ids:
+            raise HTTPException(422, f"Unbekannte Verbindung für {use_case}")
+    llm["connections"] = connections
+    llm["profiles"] = normalized_profiles
     settings_store.save_prefs({"llm": llm})
     return _config_response(llm)
 
 
 @router.get("/api/llm/models")
-def list_models(base_url: str | None = None) -> dict:
+def list_models(base_url: str | None = None, connection_id: str | None = None) -> dict:
     try:
+        if connection_id:
+            connection = next(
+                (
+                    item
+                    for item in L.get_llm_connections()
+                    if item["id"] == connection_id
+                ),
+                None,
+            )
+            if connection is None:
+                raise HTTPException(404, "LLM-Verbindung nicht gefunden")
+            base_url = connection["base_url"]
         return {"models": L.list_models(base_url)}
     except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(502, f"Chat-Endpoint nicht erreichbar: {exc}") from exc
 
 

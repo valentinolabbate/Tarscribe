@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Literal
@@ -20,6 +21,7 @@ from .settings_store import get_llm_api_key, load_prefs
 CHAR_BUDGET = 48_000
 LlmUseCase = Literal["chapters", "summaries", "chat"]
 LLM_USE_CASES: tuple[LlmUseCase, ...] = ("chapters", "summaries", "chat")
+DEFAULT_CONNECTION_ID = "local"
 
 _THINK_START_RE = re.compile(r"<think(?:\s[^>]*)?>", re.IGNORECASE)
 _THINK_END_RE = re.compile(r"</think\s*>", re.IGNORECASE)
@@ -108,39 +110,104 @@ def _clean_choice_message(message: dict | None) -> dict:
     return cleaned
 
 
-def get_llm_profiles() -> dict[str, dict]:
-    prefs = load_prefs()
-    llm = prefs.get("llm") or {}
+def _connection_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def _clean_connection(value: dict, fallback_id: str | None = None) -> dict | None:
+    base_url = str(value.get("base_url") or "").strip().rstrip("/")
+    if not base_url:
+        return None
+    connection_id = str(value.get("id") or fallback_id or _connection_id()).strip()
+    if not connection_id:
+        return None
+    provider = str(value.get("provider") or "custom").strip() or "custom"
+    name = str(value.get("name") or provider).strip() or provider
+    return {"id": connection_id, "name": name, "provider": provider, "base_url": base_url}
+
+
+def _normalized_state(llm: dict, prefs: dict) -> tuple[list[dict], dict[str, dict]]:
+    """Resolve the connection library and transparently map legacy profile overrides."""
+    connections: list[dict] = []
+    seen_ids: set[str] = set()
+    for raw in llm.get("connections") or []:
+        if not isinstance(raw, dict):
+            continue
+        connection = _clean_connection(raw)
+        if connection and connection["id"] not in seen_ids:
+            seen_ids.add(connection["id"])
+            connections.append(connection)
+
+    if not connections:
+        connection = _clean_connection(
+            {
+                "id": DEFAULT_CONNECTION_ID,
+                "name": "Lokale Standardverbindung",
+                "provider": llm.get("provider") or "ollama",
+                "base_url": llm.get("base_url") or "http://localhost:11434/v1",
+            },
+            DEFAULT_CONNECTION_ID,
+        )
+        if connection:
+            connections.append(connection)
+
+    by_id = {connection["id"]: connection for connection in connections}
     stored_profiles = llm.get("profiles") or {}
     profiles: dict[str, dict] = {}
     for use_case in LLM_USE_CASES:
         stored = stored_profiles.get(use_case) or {}
+        connection_id = stored.get("connection_id")
+        legacy_base_url = (stored.get("base_url") or "").strip().rstrip("/")
+        if connection_id not in by_id:
+            match = next(
+                (item for item in connections if item["base_url"].casefold() == legacy_base_url.casefold()),
+                None,
+            ) if legacy_base_url else None
+            if match is None and legacy_base_url:
+                match = _clean_connection(
+                    {
+                        "id": f"legacy-{use_case}",
+                        "name": f"{use_case.title()} (übernommen)",
+                        "provider": stored.get("provider") or "custom",
+                        "base_url": legacy_base_url,
+                    },
+                    f"legacy-{use_case}",
+                )
+                if match:
+                    connections.append(match)
+                    by_id[match["id"]] = match
+            connection_id = match["id"] if match else connections[0]["id"]
         profiles[use_case] = {
+            "connection_id": connection_id,
             "model": stored.get("model", llm.get("model")),
-            "provider": stored.get("provider") or None,
-            "base_url": (stored.get("base_url") or "").strip() or None,
-            "reasoning_effort": stored.get(
-                "reasoning_effort", llm.get("reasoning_effort")
-            )
-            or None,
-            "agent_mode": bool(
-                stored.get("agent_mode", prefs.get("agent_rag_enabled", False))
-            ),
+            "reasoning_effort": stored.get("reasoning_effort", llm.get("reasoning_effort")) or None,
+            "agent_mode": bool(stored.get("agent_mode", prefs.get("agent_rag_enabled", False))),
             "web_search": bool(stored.get("web_search", False)),
         }
-    return profiles
+    return connections, profiles
+
+
+def get_llm_connections() -> list[dict]:
+    prefs = load_prefs()
+    return _normalized_state(dict(prefs.get("llm") or {}), prefs)[0]
+
+
+def get_llm_profiles() -> dict[str, dict]:
+    prefs = load_prefs()
+    return _normalized_state(dict(prefs.get("llm") or {}), prefs)[1]
 
 
 def get_llm_config(use_case: LlmUseCase = "chat") -> dict:
-    llm = load_prefs().get("llm") or {}
-    profile = get_llm_profiles()[use_case]
-    base_url = (
-        profile.get("base_url") or llm.get("base_url") or "http://localhost:11434/v1"
-    ).rstrip("/")
+    prefs = load_prefs()
+    llm = prefs.get("llm") or {}
+    connections, profiles = _normalized_state(dict(llm), prefs)
+    profile = profiles[use_case]
+    connection = next(item for item in connections if item["id"] == profile["connection_id"])
+    base_url = connection["base_url"]
     return {
         "base_url": base_url,
         "model": profile["model"],
-        "provider": profile.get("provider") or llm.get("provider") or "ollama",
+        "provider": connection["provider"],
         "api_key": get_llm_api_key(base_url),
         "temperature": float(llm["temperature"]) if llm.get("temperature") is not None else 0.3,
         "top_p": float(llm["top_p"]) if llm.get("top_p") is not None else None,

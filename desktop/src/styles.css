@@ -2905,26 +2905,26 @@ select:focus {
   line-height: 1.5;
 }
 .llm-settings-field {
-  gap: 10px;
+  gap: 12px;
 }
-.llm-provider-toggle {
-  align-self: flex-start;
-  flex-wrap: wrap;
-  overflow: visible;
-}
-.llm-endpoint-row,
-.llm-api-key-row {
+.llm-section-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
-.llm-endpoint-row input,
-.llm-api-key-row input {
-  flex: 1;
-  min-width: 0;
+.llm-section-heading > div {
+  display: grid;
+  gap: 3px;
 }
-.llm-api-key-row {
-  justify-content: space-between;
+.llm-section-heading strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.llm-section-heading span {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 .llm-status {
   font-size: 12px;
@@ -2936,24 +2936,170 @@ select:focus {
 .llm-status.error {
   color: var(--danger);
 }
-.llm-profile-heading,
 .llm-tuning-title {
   display: grid;
   gap: 3px;
 }
-.llm-profile-heading {
-  margin-top: 6px;
-}
-.llm-profile-heading strong,
 .llm-tuning-title strong {
   color: var(--text);
   font-size: 13px;
 }
-.llm-profile-heading span,
 .llm-tuning-title span {
   color: var(--text-faint);
   font-size: 11.5px;
   line-height: 1.4;
+}
+.llm-connection-list {
+  display: grid;
+  gap: 7px;
+}
+.llm-connection-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-input) 58%, transparent);
+}
+.llm-connection-card.compact {
+  padding: 8px 10px;
+}
+.llm-connection-card.new {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+.llm-connection-summary {
+  display: grid;
+  grid-template-columns: 8px minmax(150px, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 10px;
+}
+.llm-connection-state {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-faint) 10%, transparent);
+}
+.llm-connection-state.ready {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.llm-connection-state.error {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.llm-connection-state.loading {
+  background: var(--accent);
+  animation: llm-connection-pulse 1.2s ease-in-out infinite;
+}
+@keyframes llm-connection-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .llm-connection-state.loading {
+    animation: none;
+  }
+}
+.llm-connection-identity {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.llm-connection-identity strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-connection-identity span {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-connection-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.llm-connection-meta span + span::before {
+  margin-right: 5px;
+  content: "·";
+}
+.llm-connection-used-by {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg-input));
+  color: var(--text-dim);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.llm-connection-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.llm-connection-card-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.llm-connection-card-head strong {
+  color: var(--text);
+  font-size: 12.5px;
+}
+.llm-connection-card-head span {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-connection-fields {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(130px, 0.65fr) minmax(230px, 1.4fr);
+  gap: 8px;
+}
+.llm-connection-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.llm-connection-fields input,
+.llm-connection-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.llm-connection-key {
+  grid-column: 1 / -1;
+}
+.llm-connection-usage {
+  margin-top: 8px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+.llm-connection-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+}
+.llm-connection-actions > span {
+  flex: 1;
+}
+.llm-assignments-heading {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 .llm-profile-grid {
   display: grid;
@@ -2989,36 +3135,6 @@ select:focus {
   gap: 5px;
   color: var(--text-dim);
   font-size: 11px;
-}
-.profile-connection-toggle {
-  align-self: flex-start;
-  font-size: 11px;
-}
-.profile-connection {
-  display: grid;
-  gap: 8px;
-  padding: 8px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
-}
-.profile-connection-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--text-dim);
-  font-size: 11px;
-}
-.profile-connection-head .btn {
-  font-size: 10.5px;
-  padding: 2px 8px;
-}
-.profile-connection .llm-provider-toggle {
-  flex-wrap: wrap;
-}
-.profile-connection .llm-provider-toggle .seg-btn {
-  font-size: 10.5px;
-  padding: 3px 8px;
 }
 .llm-model-dropdown {
   position: relative;
@@ -3217,20 +3333,41 @@ select:focus {
   margin-top: 10px;
 }
 @media (max-width: 560px) {
+  .llm-section-heading {
+    align-items: flex-start;
+  }
+  .llm-connection-summary {
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+  }
+  .llm-connection-meta,
+  .llm-connection-used-by {
+    grid-column: 2 / -1;
+  }
+  .llm-connection-summary > .btn {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+  .llm-connection-fields {
+    grid-template-columns: 1fr;
+  }
+  .llm-connection-key {
+    grid-column: auto;
+  }
+  .llm-connection-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .llm-connection-actions > span {
+    display: none;
+  }
+  .llm-connection-actions .btn {
+    align-self: flex-start;
+  }
   .llm-profile-grid {
     grid-template-columns: 1fr;
   }
   .llm-profile-card-head {
     min-height: 0;
-  }
-  .llm-endpoint-row,
-  .llm-api-key-row {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .llm-endpoint-row .btn,
-  .llm-api-key-row .btn {
-    align-self: flex-start;
   }
 }
 .seg {

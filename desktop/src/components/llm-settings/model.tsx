@@ -7,6 +7,14 @@ export const PRESETS: Record<string, string> = {
 
 export const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
 
+export const PROVIDER_OPTIONS: Array<[string, string]> = [
+  ["ollama", "Ollama"],
+  ["lmstudio", "LM Studio"],
+  ["openai", "OpenAI"],
+  ["openrouter", "OpenRouter"],
+  ["custom", "OpenAI-kompatibel"],
+];
+
 export interface ModelSelectOption {
   value: string;
   label: string;

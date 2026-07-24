@@ -521,8 +521,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg),
     }),
-  listLlmModels: (baseUrl?: string) =>
-    request<{ models: string[] }>(`/api/llm/models${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ""}`),
+  listLlmModels: (baseUrl?: string, connectionId?: string) => {
+    const params = new URLSearchParams();
+    if (baseUrl) params.set("base_url", baseUrl);
+    if (connectionId) params.set("connection_id", connectionId);
+    const query = params.size ? `?${params.toString()}` : "";
+    return request<{ models: string[] }>(`/api/llm/models${query}`);
+  },
   testLlm: (baseUrl?: string) =>
     request<{ ok: boolean; models?: string[]; error?: string }>("/api/llm/test", {
       method: "POST",

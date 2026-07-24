@@ -257,6 +257,7 @@ export interface LlmConfig {
   max_tokens?: number | null;
   /** Reasoning/"thinking" depth for capable models: minimal|low|medium|high. */
   reasoning_effort?: string | null;
+  connections?: LlmConnection[];
   profiles?: Partial<Record<LlmUseCase, LlmProfile>>;
   /** Read-only: whether a (secret) API key is stored in the keychain. */
   api_key_set?: boolean;
@@ -264,13 +265,17 @@ export interface LlmConfig {
 
 export type LlmUseCase = "chapters" | "summaries" | "chat";
 
+export interface LlmConnection {
+  id: string;
+  name: string;
+  provider: string;
+  base_url: string;
+  api_key_set?: boolean;
+}
+
 export interface LlmProfile {
+  connection_id: string;
   model: string | null;
-  /** Optional per-profile provider override; null/undefined = inherit global connection. */
-  provider?: string | null;
-  /** Optional per-profile endpoint override; null/undefined = inherit global connection. */
-  base_url?: string | null;
-  /** Read-only: whether an API key is stored for this profile's connection. */
   api_key_set?: boolean;
   reasoning_effort: string | null;
   agent_mode: boolean;

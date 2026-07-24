@@ -40,8 +40,8 @@ konfigurierbar.
 - **Local first:** Audio, Transkription, Sprecherverarbeitung und Datenbank bleiben auf dem Mac.
 - **Belegbares Gedächtnis:** Aufgaben, Zusagen und Entscheidungen führen zurück zur Gesprächsstelle.
 - **Offene Modellwahl:** Ollama, LM Studio, OpenAI, OpenRouter oder ein eigener
-  OpenAI-kompatibler Endpoint — pro Einsatzprofil (Kapitel, Zusammenfassungen, Chat)
-  optional mit eigener Verbindung und eigenem API-Key.
+  OpenAI-kompatibler Endpoint — mehrere Verbindungen mit sicher hinterlegtem API-Key
+  speichern und für Kapitel, Zusammenfassungen und Chat jeweils Verbindung und Modell wählen.
 - **Mehr als ein Transkript:** Personenprofile, Themen-Threads, Wochen-Digests und
   projektweite Wissenssuche verbinden Gespräche über längere Zeit.
 - **Bereit für Agenten:** Der integrierte MCP-Server macht Tarscribe für Codex, Claude und

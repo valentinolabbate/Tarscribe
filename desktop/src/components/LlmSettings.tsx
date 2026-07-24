@@ -1,16 +1,14 @@
-import { type FocusEvent, type FormEvent, useEffect, useState } from "react";
+import { type FocusEvent, useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { validateHttpUrl } from "../lib/formValidation";
-import type { LlmProfile, LlmUseCase } from "../lib/types";
+import type { LlmConnection, LlmProfile, LlmUseCase } from "../lib/types";
+import { ConnectionEditor } from "./llm-settings/ConnectionEditor";
 import {
   buildModelSelectOptions,
-  KEY_PROVIDERS,
   type ModelSelectOption,
   NumField,
   PRESETS,
 } from "./llm-settings/model";
-import { ProfileConnection } from "./llm-settings/ProfileConnection";
 import { ResearchChannelControls } from "./llm-settings/ResearchChannelControls";
 import { ChevronDownIcon } from "./icons";
 
@@ -20,21 +18,27 @@ const USE_CASES: Array<{ id: LlmUseCase; label: string; detail: string }> = [
   { id: "chat", label: "Chat", detail: "Fragen an Aufnahmen und Wissensarchiv" },
 ];
 
-const EMPTY_PROFILE: LlmProfile = {
-  model: null,
-  reasoning_effort: null,
-  agent_mode: false,
-  web_search: false,
-};
-
 type Profiles = Record<LlmUseCase, LlmProfile>;
+type ConnectionModels = Record<
+  string,
+  { models: string[]; loaded: boolean; loading: boolean; error?: string }
+>;
+
+function emptyProfile(connectionId: string): LlmProfile {
+  return {
+    connection_id: connectionId,
+    model: null,
+    reasoning_effort: null,
+    agent_mode: false,
+    web_search: false,
+  };
+}
 
 function LlmModelDropdown({
   value,
   options,
   disabled,
   placeholder,
-  emptyLabel,
   open,
   onOpenChange,
   onChange,
@@ -43,7 +47,6 @@ function LlmModelDropdown({
   options: ModelSelectOption[];
   disabled: boolean;
   placeholder: string;
-  emptyLabel: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChange: (value: string | null) => void;
@@ -85,7 +88,7 @@ function LlmModelDropdown({
             className={!value ? "active" : ""}
             onClick={() => choose(null)}
           >
-            {emptyLabel}
+            Kein Modell
           </button>
           {options.map((option) => (
             <button
@@ -108,22 +111,15 @@ function LlmModelDropdown({
 
 export function LlmSettings() {
   const qc = useQueryClient();
-  const [provider, setProvider] = useState("ollama");
-  const [baseUrl, setBaseUrl] = useState(PRESETS.ollama);
+  const [connections, setConnections] = useState<LlmConnection[]>([]);
+  const [newConnection, setNewConnection] = useState<LlmConnection | null>(null);
   const [profiles, setProfiles] = useState<Profiles>({
-    chapters: { ...EMPTY_PROFILE },
-    summaries: { ...EMPTY_PROFILE },
-    chat: { ...EMPTY_PROFILE },
+    chapters: emptyProfile(""),
+    summaries: emptyProfile(""),
+    chat: emptyProfile(""),
   });
-  const [models, setModels] = useState<string[]>([]);
-  const [profileModels, setProfileModels] = useState<Partial<Record<LlmUseCase, string[]>>>({});
-  const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [modelsLoading, setModelsLoading] = useState(false);
+  const [connectionModels, setConnectionModels] = useState<ConnectionModels>({});
   const [openModelMenu, setOpenModelMenu] = useState<LlmUseCase | null>(null);
-  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeySet, setApiKeySet] = useState(false);
   const [temperature, setTemperature] = useState(0.3);
   const [topP, setTopP] = useState(0.9);
   const [useTopP, setUseTopP] = useState(false);
@@ -137,124 +133,128 @@ export function LlmSettings() {
     max_context_tokens: 12000,
     top_k: 6,
   });
-  const baseUrlError = validateHttpUrl(baseUrl, "Base-URL");
-  const showBaseUrlError = baseUrl.trim().length > 0 && !!baseUrlError;
+  const [parameterStatus, setParameterStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getLlmConfig().then((config) => {
-      const nextProvider = config.provider || "ollama";
-      const nextBaseUrl = config.base_url || PRESETS[nextProvider] || PRESETS.ollama;
-      setProvider(nextProvider);
-      setBaseUrl(nextBaseUrl);
-      const fallback: LlmProfile = {
-        model: config.model ?? null,
-        reasoning_effort: config.reasoning_effort ?? null,
-        agent_mode: false,
-        web_search: false,
-      };
-      setProfiles({
-        chapters: { ...fallback, ...config.profiles?.chapters },
-        summaries: { ...fallback, ...config.profiles?.summaries },
-        chat: { ...fallback, ...config.profiles?.chat },
-      });
-      if (config.temperature != null) setTemperature(config.temperature);
-      if (config.top_p != null) {
-        setTopP(config.top_p);
-        setUseTopP(true);
-      }
-      if (config.top_k != null) {
-        setTopK(config.top_k);
-        setUseTopK(true);
-      }
-      if (config.max_tokens != null) {
-        setMaxTokens(config.max_tokens);
-        setUseMaxTokens(true);
-      }
-      const hasApiKey = !!config.api_key_set;
-      if (hasApiKey) setApiKeySet(true);
-      if (!KEY_PROVIDERS.has(nextProvider) || hasApiKey) {
-        void loadModels(nextBaseUrl, { silent: true });
-      }
-    });
+    void loadConfig();
     api.getSettings().then((settings) => {
       if (settings.llm_chunk_size) setChunkSize(settings.llm_chunk_size);
       if (settings.agent_rag) setAgentLimits(settings.agent_rag);
     });
   }, []);
 
-  async function loadModels(url = baseUrl, options: { silent?: boolean } = {}) {
-    const urlError = validateHttpUrl(url, "Base-URL");
-    if (urlError) {
-      if (!options.silent) setStatus({ ok: false, msg: urlError });
-      return;
+  async function loadConfig() {
+    const config = await api.getLlmConfig();
+    const loadedConnections =
+      config.connections && config.connections.length > 0
+        ? config.connections
+        : [
+            {
+              id: "local",
+              name: "Lokale Standardverbindung",
+              provider: config.provider || "ollama",
+              base_url: config.base_url || PRESETS.ollama,
+              api_key_set: config.api_key_set,
+            },
+          ];
+    const firstId = loadedConnections[0].id;
+    const fallback: LlmProfile = {
+      ...emptyProfile(firstId),
+      model: config.model ?? null,
+      reasoning_effort: config.reasoning_effort ?? null,
+    };
+    setConnections(loadedConnections);
+    setProfiles({
+      chapters: { ...fallback, ...config.profiles?.chapters },
+      summaries: { ...fallback, ...config.profiles?.summaries },
+      chat: { ...fallback, ...config.profiles?.chat },
+    });
+    if (config.temperature != null) setTemperature(config.temperature);
+    if (config.top_p != null) {
+      setTopP(config.top_p);
+      setUseTopP(true);
     }
-    setOpenModelMenu(null);
-    setModelsLoading(true);
-    setBusy(true);
-    if (!options.silent) setStatus(null);
+    if (config.top_k != null) {
+      setTopK(config.top_k);
+      setUseTopK(true);
+    }
+    if (config.max_tokens != null) {
+      setMaxTokens(config.max_tokens);
+      setUseMaxTokens(true);
+    }
+    for (const connection of loadedConnections) {
+      void loadConnectionModels(connection.id);
+    }
+  }
+
+  async function loadConnectionModels(connectionId: string) {
+    setConnectionModels((current) => ({
+      ...current,
+      [connectionId]: {
+        models: current[connectionId]?.models ?? [],
+        loaded: false,
+        loading: true,
+      },
+    }));
     try {
-      if (apiKey.trim()) {
-        const result = await api.setLlmApiKey(apiKey.trim(), url);
-        setApiKeySet(true);
-        if (!result.ok) {
-          setModels([]);
-          setModelsLoaded(false);
-          setStatus({
-            ok: false,
-            msg: `Gespeichert, aber Verbindung fehlgeschlagen: ${result.error ?? ""}`,
-          });
-          return;
-        }
-        setApiKey("");
-        setModels(result.models ?? []);
-        setModelsLoaded(true);
-        setStatus({ ok: true, msg: `${(result.models ?? []).length} Modelle gefunden` });
-        return;
-      }
-      const result = await api.listLlmModels(url);
-      setModels(result.models);
-      setModelsLoaded(true);
-      if (!options.silent) setStatus({ ok: true, msg: `${result.models.length} Modelle gefunden` });
+      const result = await api.listLlmModels(undefined, connectionId);
+      setConnectionModels((current) => ({
+        ...current,
+        [connectionId]: { models: result.models, loaded: true, loading: false },
+      }));
     } catch (error) {
-      setModels([]);
-      setModelsLoaded(false);
-      if (!options.silent) setStatus({ ok: false, msg: String((error as Error).message) });
-    } finally {
-      setModelsLoading(false);
-      setBusy(false);
+      setConnectionModels((current) => ({
+        ...current,
+        [connectionId]: {
+          models: [],
+          loaded: true,
+          loading: false,
+          error: String((error as Error).message),
+        },
+      }));
     }
   }
 
-  async function removeApiKey() {
-    setBusy(true);
-    try {
-      await api.deleteLlmApiKey();
-      setApiKeySet(false);
-      setApiKey("");
-      setModels([]);
-      setModelsLoaded(false);
-      setOpenModelMenu(null);
-      setStatus(null);
-    } finally {
-      setBusy(false);
-    }
+  function modelsLoaded(connectionId: string, models: string[], error?: string) {
+    setConnectionModels((current) => ({
+      ...current,
+      [connectionId]: { models, loaded: true, loading: false, error },
+    }));
   }
 
-  async function saveConnection() {
-    if (baseUrlError) {
-      setStatus({ ok: false, msg: baseUrlError });
-      return;
+  async function saveConnection(
+    connection: LlmConnection,
+    apiKey: string,
+  ): Promise<LlmConnection> {
+    const nextConnections = newConnection?.id === connection.id
+      ? [...connections, connection]
+      : connections.map((item) => (item.id === connection.id ? connection : item));
+    let response = await api.setLlmConfig({ connections: nextConnections });
+    let saved =
+      response.connections?.find((item) => item.id === connection.id) ?? connection;
+    if (apiKey) {
+      const keyResult = await api.setLlmApiKey(apiKey, saved.base_url);
+      saved = { ...saved, api_key_set: keyResult.api_key_set };
+      response = await api.getLlmConfig();
     }
-    await api.setLlmConfig({
-      provider,
-      base_url: baseUrl,
-      temperature,
-      top_p: useTopP ? topP : null,
-      top_k: useTopK ? topK : null,
-      max_tokens: useMaxTokens ? maxTokens : null,
+    const synced = response.connections ?? nextConnections;
+    setConnections(
+      synced.map((item) => (item.id === saved.id ? { ...item, api_key_set: saved.api_key_set } : item)),
+    );
+    qc.invalidateQueries({ queryKey: ["llm-config"] });
+    return saved;
+  }
+
+  async function deleteConnection(connection: LlmConnection) {
+    const next = connections.filter((item) => item.id !== connection.id);
+    const response = await api.setLlmConfig({ connections: next });
+    setConnections(response.connections ?? next);
+    setConnectionModels((current) => {
+      const nextModels = { ...current };
+      delete nextModels[connection.id];
+      return nextModels;
     });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
-    setStatus({ ok: true, msg: "Verbindung und gemeinsame Parameter gespeichert" });
   }
 
   async function updateProfile(useCase: LlmUseCase, patch: Partial<LlmProfile>) {
@@ -262,6 +262,17 @@ export function LlmSettings() {
     setProfiles((current) => ({ ...current, [useCase]: next }));
     await api.setLlmConfig({ profiles: { [useCase]: next } });
     qc.invalidateQueries({ queryKey: ["llm-config"] });
+  }
+
+  async function saveParameters() {
+    await api.setLlmConfig({
+      temperature,
+      top_p: useTopP ? topP : null,
+      top_k: useTopK ? topK : null,
+      max_tokens: useMaxTokens ? maxTokens : null,
+    });
+    qc.invalidateQueries({ queryKey: ["llm-config"] });
+    setParameterStatus("Parameter gespeichert");
   }
 
   async function saveChunkSize(size: number) {
@@ -274,146 +285,128 @@ export function LlmSettings() {
     await api.updateSettings({ agent_rag: next });
   }
 
-  function onProvider(nextProvider: string) {
-    setProvider(nextProvider);
-    if (PRESETS[nextProvider]) setBaseUrl(PRESETS[nextProvider]);
-    setModels([]);
-    setModelsLoaded(false);
-    setOpenModelMenu(null);
-    setStatus(null);
+  function usedBy(connectionId: string) {
+    return USE_CASES.filter((useCase) => profiles[useCase.id].connection_id === connectionId).map(
+      (useCase) => useCase.label,
+    );
   }
 
-  function onBaseUrlChange(value: string) {
-    setBaseUrl(value);
-    setModels([]);
-    setModelsLoaded(false);
-    setOpenModelMenu(null);
-    setStatus(null);
-  }
-
-  function submitConnection(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void loadModels();
+  function addConnection() {
+    setNewConnection({
+      id: crypto.randomUUID(),
+      name: "",
+      provider: "ollama",
+      base_url: PRESETS.ollama,
+      api_key_set: false,
+    });
   }
 
   return (
     <div className="field llm-settings-field">
-      <label>LLM-Verbindung</label>
-      <div className="settings-info-box">
-        Anbieter, Endpoint und Zugang gelten gemeinsam. Modell, Thinking-Level und
-        Recherchekanäle stellst du darunter für jeden Einsatz separat ein — bei Bedarf
-        auch mit eigener Verbindung pro Profil.
-      </div>
-      <div className="seg llm-provider-toggle">
-        {[
-          ["ollama", "Ollama"],
-          ["lmstudio", "LM Studio"],
-          ["openai", "OpenAI"],
-          ["openrouter", "OpenRouter"],
-          ["custom", "Eigener Endpoint"],
-        ].map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className={provider === value ? "seg-btn active" : "seg-btn"}
-            onClick={() => onProvider(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <form onSubmit={submitConnection} className="llm-endpoint-row">
-        <input
-          type="url"
-          value={baseUrl}
-          onChange={(event) => onBaseUrlChange(event.target.value)}
-          spellCheck={false}
-          aria-invalid={showBaseUrlError}
-          aria-describedby={showBaseUrlError ? "llm-base-url-error" : undefined}
-        />
-        <button className="btn" type="submit" disabled={busy || !!baseUrlError}>
-          Modelle laden
+      <div className="llm-section-heading">
+        <div>
+          <strong>LLM-Verbindungen</strong>
+          <span>Endpoints und Zugangsdaten einmal speichern und danach wiederverwenden.</span>
+        </div>
+        <button type="button" className="btn" disabled={!!newConnection} onClick={addConnection}>
+          + Verbindung
         </button>
-      </form>
-      {showBaseUrlError && (
-        <div id="llm-base-url-error" className="field-error">
-          {baseUrlError}
-        </div>
-      )}
-      {KEY_PROVIDERS.has(provider) && (
-        <div className="llm-api-key-row">
-          {apiKeySet && !apiKey ? (
-            <>
-              <span className="badge ready">✓ API-Key hinterlegt</span>
-              <button className="btn ghost danger" onClick={removeApiKey} disabled={busy}>
-                Entfernen
-              </button>
-            </>
-          ) : (
-            <input
-              type="password"
-              placeholder="API-Key (z.B. sk-…)"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-            />
-          )}
-        </div>
-      )}
-      {status && <div className={status.ok ? "llm-status ok" : "llm-status error"}>{status.msg}</div>}
-
-      <div className="llm-profile-heading">
-        <strong>Einsatz-Profile</strong>
-        <span>Jeder Bereich kann ein anderes Modell und Rechenverhalten nutzen.</span>
       </div>
+
+      <div className="llm-connection-list">
+        {connections.map((connection) => {
+          const usage = usedBy(connection.id);
+          return (
+            <ConnectionEditor
+              key={connection.id}
+              connection={connection}
+              usedBy={usage}
+              canDelete={connections.length > 1 && usage.length === 0}
+              modelState={connectionModels[connection.id]}
+              onSave={saveConnection}
+              onDelete={() => deleteConnection(connection)}
+              onReload={() => void loadConnectionModels(connection.id)}
+              onModelsLoaded={modelsLoaded}
+            />
+          );
+        })}
+        {newConnection && (
+          <ConnectionEditor
+            connection={newConnection}
+            isNew
+            usedBy={[]}
+            canDelete={false}
+            modelState={connectionModels[newConnection.id]}
+            onSave={saveConnection}
+            onCancel={() => setNewConnection(null)}
+            onPersisted={() => setNewConnection(null)}
+            onReload={() => void loadConnectionModels(newConnection.id)}
+            onModelsLoaded={modelsLoaded}
+          />
+        )}
+      </div>
+
+      <div className="llm-section-heading llm-assignments-heading">
+        <div>
+          <strong>Einsatz zuordnen</strong>
+          <span>Modelle werden automatisch aus der gewählten Verbindung geladen.</span>
+        </div>
+      </div>
+
       <div className="llm-profile-grid">
         {USE_CASES.map((useCase) => {
           const profile = profiles[useCase.id];
-          const hasCustomConnection = !!profile.base_url;
-          const availableModels = hasCustomConnection
-            ? (profileModels[useCase.id] ?? [])
-            : models;
-          const availableModelsLoaded = hasCustomConnection
-            ? profileModels[useCase.id] != null
-            : modelsLoaded;
-          const modelOptions = buildModelSelectOptions(availableModels, profile.model);
-          const modelSelectDisabled = modelsLoading || (modelOptions.length === 0 && !profile.model);
-          const modelPlaceholder = modelsLoading
+          const modelState = connectionModels[profile.connection_id];
+          const modelOptions = buildModelSelectOptions(
+            modelState?.models ?? [],
+            profile.model,
+          );
+          const modelPlaceholder = modelState?.loading
             ? "Modelle werden geladen..."
-            : availableModelsLoaded
-              ? "Kein Modell"
-              : "Modelle laden";
+            : modelState?.error
+              ? "Verbindung nicht erreichbar"
+              : modelState?.loaded
+                ? "Kein Modell"
+                : "Modelle werden geladen...";
           return (
             <section className="llm-profile-card" key={useCase.id}>
               <div className="llm-profile-card-head">
                 <strong>{useCase.label}</strong>
                 <span>{useCase.detail}</span>
               </div>
-              <ProfileConnection
-                profileProvider={profile.provider ?? null}
-                profileBaseUrl={profile.base_url ?? null}
-                apiKeySet={profile.api_key_set ?? false}
-                globalProvider={provider}
-                globalBaseUrl={baseUrl}
-                onConnectionChange={async (patch) => {
-                  await updateProfile(useCase.id, patch);
-                }}
-                onModelsLoaded={(list) =>
-                  setProfileModels((current) => ({ ...current, [useCase.id]: list }))
-                }
-              />
+              <label>
+                Verbindung
+                <select
+                  value={profile.connection_id}
+                  onChange={(event) => {
+                    const connectionId = event.target.value;
+                    setOpenModelMenu(null);
+                    void updateProfile(useCase.id, {
+                      connection_id: connectionId,
+                      model: null,
+                    });
+                    if (!connectionModels[connectionId]) {
+                      void loadConnectionModels(connectionId);
+                    }
+                  }}
+                >
+                  {connections.map((connection) => (
+                    <option key={connection.id} value={connection.id}>
+                      {connection.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>
                 Modell
                 <LlmModelDropdown
                   value={profile.model}
                   options={modelOptions}
-                  disabled={modelSelectDisabled}
+                  disabled={!!modelState?.loading || (modelOptions.length === 0 && !profile.model)}
                   placeholder={modelPlaceholder}
-                  emptyLabel="Kein Modell"
                   open={openModelMenu === useCase.id}
-                  onOpenChange={(nextOpen) => setOpenModelMenu(nextOpen ? useCase.id : null)}
-                  onChange={(nextModel) => updateProfile(useCase.id, { model: nextModel })}
+                  onOpenChange={(open) => setOpenModelMenu(open ? useCase.id : null)}
+                  onChange={(model) => void updateProfile(useCase.id, { model })}
                 />
               </label>
               <label>
@@ -421,7 +414,7 @@ export function LlmSettings() {
                 <select
                   value={profile.reasoning_effort ?? ""}
                   onChange={(event) =>
-                    updateProfile(useCase.id, {
+                    void updateProfile(useCase.id, {
                       reasoning_effort: event.target.value || null,
                     })
                   }
@@ -438,9 +431,11 @@ export function LlmSettings() {
                 webEnabled={profile.web_search}
                 profileLabel={useCase.label}
                 onKnowledgeChange={(enabled) =>
-                  updateProfile(useCase.id, { agent_mode: enabled })
+                  void updateProfile(useCase.id, { agent_mode: enabled })
                 }
-                onWebChange={(enabled) => updateProfile(useCase.id, { web_search: enabled })}
+                onWebChange={(enabled) =>
+                  void updateProfile(useCase.id, { web_search: enabled })
+                }
               />
             </section>
           );
@@ -450,7 +445,7 @@ export function LlmSettings() {
       <div className="tuning llm-shared-tuning">
         <div className="llm-tuning-title">
           <strong>Gemeinsame Inferenz-Parameter</strong>
-          <span>Diese Werte gelten weiterhin für alle drei Profile.</span>
+          <span>Diese Werte gelten weiterhin für alle drei Einsätze.</span>
         </div>
         <div className="tuning-row">
           <label>Temperature</label>
@@ -505,7 +500,7 @@ export function LlmSettings() {
             step={1000}
             value={chunkSize}
             onChange={(event) => setChunkSize(Number(event.target.value))}
-            onBlur={() => saveChunkSize(chunkSize)}
+            onBlur={() => void saveChunkSize(chunkSize)}
           />
         </div>
         <div className="llm-tuning-title llm-agent-limits-title">
@@ -523,7 +518,7 @@ export function LlmSettings() {
             onChange={(event) =>
               setAgentLimits((current) => ({ ...current, max_rounds: Number(event.target.value) }))
             }
-            onBlur={() => updateAgentLimits({ max_rounds: agentLimits.max_rounds || 5 })}
+            onBlur={() => void updateAgentLimits({ max_rounds: agentLimits.max_rounds || 5 })}
           />
         </div>
         <div className="tuning-row">
@@ -541,7 +536,9 @@ export function LlmSettings() {
               }))
             }
             onBlur={() =>
-              updateAgentLimits({ max_context_tokens: agentLimits.max_context_tokens || 12000 })
+              void updateAgentLimits({
+                max_context_tokens: agentLimits.max_context_tokens || 12000,
+              })
             }
           />
         </div>
@@ -556,12 +553,13 @@ export function LlmSettings() {
             onChange={(event) =>
               setAgentLimits((current) => ({ ...current, top_k: Number(event.target.value) }))
             }
-            onBlur={() => updateAgentLimits({ top_k: agentLimits.top_k || 6 })}
+            onBlur={() => void updateAgentLimits({ top_k: agentLimits.top_k || 6 })}
           />
         </div>
         <div className="llm-save-row">
-          <button className="btn primary" onClick={saveConnection} disabled={!!baseUrlError}>
-            Verbindung &amp; Parameter speichern
+          {parameterStatus && <span className="llm-status ok">{parameterStatus}</span>}
+          <button className="btn primary" onClick={() => void saveParameters()}>
+            Parameter speichern
           </button>
         </div>
       </div>

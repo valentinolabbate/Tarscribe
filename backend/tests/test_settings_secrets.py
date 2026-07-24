@@ -268,6 +268,60 @@ def test_profile_connection_inherits_global_key_and_delete_is_scoped(app_client)
     assert L.get_llm_config("chat")["api_key"] == "sk-global-key"
 
 
+def test_model_listing_uses_key_from_selected_connection(app_client, monkeypatch):
+    client, settings_store, _fake_keyring, _tmp = app_client
+    response = client.put(
+        "/api/llm/config",
+        headers=_headers(),
+        json={
+            "connections": [
+                {
+                    "id": "local",
+                    "name": "LM Studio",
+                    "provider": "lmstudio",
+                    "base_url": LMSTUDIO_URL,
+                },
+                {
+                    "id": "openrouter",
+                    "name": "OpenRouter",
+                    "provider": "openrouter",
+                    "base_url": OPENROUTER_URL,
+                },
+            ],
+            "profiles": {
+                "chat": {"connection_id": "openrouter", "model": "z-ai/glm-4.6"}
+            },
+        },
+    )
+    assert response.status_code == 200
+    settings_store.set_llm_api_key("sk-or-openrouter-key", OPENROUTER_URL)
+
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"data": [{"id": "z-ai/glm-4.6"}]}
+
+    def fake_get(url, headers, timeout):
+        captured.update(url=url, headers=headers, timeout=timeout)
+        return FakeResponse()
+
+    import tarscribe_backend.llm as L
+
+    monkeypatch.setattr(L.httpx, "get", fake_get)
+    models = client.get(
+        "/api/llm/models?connection_id=openrouter", headers=_headers()
+    )
+
+    assert models.status_code == 200
+    assert models.json() == {"models": ["z-ai/glm-4.6"]}
+    assert captured["url"] == f"{OPENROUTER_URL}/models"
+    assert captured["headers"] == {"Authorization": "Bearer sk-or-openrouter-key"}
+
+
 def test_profile_base_url_must_be_http(app_client):
     client, _settings_store, _fake_keyring, _tmp = app_client
     response = client.put(

@@ -538,8 +538,11 @@ export const api = {
         body: JSON.stringify({ api_key: apiKey, base_url: baseUrl }),
       },
     ),
-  deleteLlmApiKey: () =>
-    request<{ saved: boolean; api_key_set: boolean }>("/api/llm/api-key", { method: "DELETE" }),
+  deleteLlmApiKey: (baseUrl?: string) =>
+    request<{ saved: boolean; api_key_set: boolean }>(
+      `/api/llm/api-key${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ""}`,
+      { method: "DELETE" },
+    ),
 
   // RAG / Wissens-Chat
   getRagConfig: () => request<RagConfig>("/api/rag/config"),

@@ -209,16 +209,41 @@ def has_hf_token() -> bool:
     return bool(get_hf_token())
 
 
-def get_llm_api_key() -> str | None:
-    return _secret_get(LLM_API_KEY_KEY)
+def _normalize_base_url(base_url: str) -> str:
+    return base_url.strip().rstrip("/").casefold()
 
 
-def set_llm_api_key(key: str | None) -> None:
+def _llm_scoped_account(base_url: str) -> str:
+    return f"{LLM_API_KEY_KEY}@{_normalize_base_url(base_url)}"
+
+
+def _global_llm_base_url() -> str:
+    return ((load_prefs().get("llm") or {}).get("base_url") or "").strip()
+
+
+def get_llm_api_key(base_url: str | None = None) -> str | None:
+    if not base_url or not base_url.strip():
+        return _secret_get(LLM_API_KEY_KEY)
+    scoped = _secret_get(_llm_scoped_account(base_url))
+    if scoped:
+        return scoped
+    if _normalize_base_url(base_url) == _normalize_base_url(_global_llm_base_url()):
+        return _secret_get(LLM_API_KEY_KEY)
+    return None
+
+
+def set_llm_api_key(key: str | None, base_url: str | None = None) -> None:
+    if base_url and base_url.strip():
+        if _normalize_base_url(base_url) == _normalize_base_url(_global_llm_base_url()):
+            _secret_set(LLM_API_KEY_KEY, key)
+            return
+        _secret_set(_llm_scoped_account(base_url), key)
+        return
     _secret_set(LLM_API_KEY_KEY, key)
 
 
-def has_llm_api_key() -> bool:
-    return bool(get_llm_api_key())
+def has_llm_api_key(base_url: str | None = None) -> bool:
+    return bool(get_llm_api_key(base_url))
 
 
 def get_rag_api_key() -> str | None:

@@ -171,3 +171,108 @@ def test_secret_write_endpoint_returns_503_without_secure_store(monkeypatch):
     assert response.status_code == 503
     _assert_no_secret(response.json(), "caldav-secret-value")
     assert not (tmp / ".secrets.json").exists()
+
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1"
+LMSTUDIO_URL = "http://localhost:1234/v1"
+
+
+def _set_global_lmstudio(client) -> None:
+    response = client.put(
+        "/api/llm/config",
+        headers=_headers(),
+        json={"provider": "lmstudio", "base_url": LMSTUDIO_URL, "model": "local-chat-model"},
+    )
+    assert response.status_code == 200
+
+
+def test_scoped_llm_api_key_is_used_for_profile_connection(app_client):
+    client, settings_store, fake_keyring, _tmp = app_client
+    _set_global_lmstudio(client)
+
+    response = client.put(
+        "/api/llm/config",
+        headers=_headers(),
+        json={
+            "profiles": {
+                "chat": {"model": "local-chat-model"},
+                "summaries": {
+                    "provider": "openrouter",
+                    "base_url": OPENROUTER_URL,
+                    "model": "z-ai/glm-4.6",
+                },
+            }
+        },
+    )
+    assert response.status_code == 200
+
+    key_response = client.put(
+        "/api/llm/api-key",
+        headers=_headers(),
+        json={"api_key": "sk-or-openrouter-key", "base_url": OPENROUTER_URL},
+    )
+    assert key_response.status_code == 200
+    assert fake_keyring.get_password(
+        "Tarscribe", f"llm_api_key@{OPENROUTER_URL}"
+    ) == "sk-or-openrouter-key"
+    assert fake_keyring.get_password("Tarscribe", "llm_api_key") is None
+
+    import tarscribe_backend.llm as L
+
+    summaries_cfg = L.get_llm_config("summaries")
+    assert summaries_cfg["base_url"] == OPENROUTER_URL
+    assert summaries_cfg["provider"] == "openrouter"
+    assert summaries_cfg["api_key"] == "sk-or-openrouter-key"
+
+    chat_cfg = L.get_llm_config("chat")
+    assert chat_cfg["base_url"] == LMSTUDIO_URL
+    assert chat_cfg["api_key"] is None
+
+    config = client.get("/api/llm/config", headers=_headers()).json()
+    assert config["api_key_set"] is False
+    assert config["profiles"]["summaries"]["api_key_set"] is True
+    assert config["profiles"]["chat"]["api_key_set"] is False
+    _assert_no_secret(config, "sk-or-openrouter-key")
+
+
+def test_llm_api_key_for_global_base_url_stays_in_legacy_slot(app_client):
+    client, settings_store, fake_keyring, _tmp = app_client
+    _set_global_lmstudio(client)
+
+    response = client.put(
+        "/api/llm/api-key",
+        headers=_headers(),
+        json={"api_key": "sk-global-key", "base_url": LMSTUDIO_URL},
+    )
+    assert response.status_code == 200
+    assert fake_keyring.get_password("Tarscribe", "llm_api_key") == "sk-global-key"
+    assert settings_store.get_llm_api_key(LMSTUDIO_URL) == "sk-global-key"
+    assert settings_store.get_llm_api_key(OPENROUTER_URL) is None
+
+
+def test_profile_connection_inherits_global_key_and_delete_is_scoped(app_client):
+    client, settings_store, fake_keyring, _tmp = app_client
+    _set_global_lmstudio(client)
+    settings_store.set_llm_api_key("sk-global-key")
+    settings_store.set_llm_api_key("sk-or-openrouter-key", OPENROUTER_URL)
+
+    delete_response = client.delete(
+        f"/api/llm/api-key?base_url={OPENROUTER_URL}", headers=_headers()
+    )
+    assert delete_response.status_code == 200
+    assert settings_store.get_llm_api_key(OPENROUTER_URL) is None
+    assert settings_store.get_llm_api_key() == "sk-global-key"
+
+    import tarscribe_backend.llm as L
+
+    assert L.get_llm_config("chat")["api_key"] == "sk-global-key"
+
+
+def test_profile_base_url_must_be_http(app_client):
+    client, _settings_store, _fake_keyring, _tmp = app_client
+    response = client.put(
+        "/api/llm/config",
+        headers=_headers(),
+        json={"profiles": {"summaries": {"base_url": "openrouter.ai/api/v1"}}},
+    )
+    assert response.status_code == 422

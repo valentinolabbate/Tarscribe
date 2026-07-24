@@ -57,25 +57,20 @@ def test_llm_profiles_migrate_and_resolve_per_use_case(client):
         json={"model": "shared-model", "reasoning_effort": "low"},
     )
     assert legacy.status_code == 200
-    assert legacy.json()["profiles"] == {
-        "chapters": {
-            "model": "shared-model",
-            "reasoning_effort": "low",
-            "agent_mode": False,
-            "web_search": False,
-        },
-        "summaries": {
-            "model": "shared-model",
-            "reasoning_effort": "low",
-            "agent_mode": False,
-            "web_search": False,
-        },
-        "chat": {
-            "model": "shared-model",
-            "reasoning_effort": "low",
-            "agent_mode": False,
-            "web_search": False,
-        },
+    body = legacy.json()
+    expected_profile = {
+        "model": "shared-model",
+        "provider": None,
+        "base_url": None,
+        "reasoning_effort": "low",
+        "agent_mode": False,
+        "web_search": False,
+        "api_key_set": body["api_key_set"],
+    }
+    assert body["profiles"] == {
+        "chapters": expected_profile,
+        "summaries": expected_profile,
+        "chat": expected_profile,
     }
 
     updated = client.put(

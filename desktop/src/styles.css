@@ -2990,6 +2990,36 @@ select:focus {
   color: var(--text-dim);
   font-size: 11px;
 }
+.profile-connection-toggle {
+  align-self: flex-start;
+  font-size: 11px;
+}
+.profile-connection {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.profile-connection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.profile-connection-head .btn {
+  font-size: 10.5px;
+  padding: 2px 8px;
+}
+.profile-connection .llm-provider-toggle {
+  flex-wrap: wrap;
+}
+.profile-connection .llm-provider-toggle .seg-btn {
+  font-size: 10.5px;
+  padding: 3px 8px;
+}
 .llm-model-dropdown {
   position: relative;
   min-width: 0;

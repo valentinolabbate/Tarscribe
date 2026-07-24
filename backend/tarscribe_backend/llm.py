@@ -117,6 +117,8 @@ def get_llm_profiles() -> dict[str, dict]:
         stored = stored_profiles.get(use_case) or {}
         profiles[use_case] = {
             "model": stored.get("model", llm.get("model")),
+            "provider": stored.get("provider") or None,
+            "base_url": (stored.get("base_url") or "").strip() or None,
             "reasoning_effort": stored.get(
                 "reasoning_effort", llm.get("reasoning_effort")
             )
@@ -132,11 +134,14 @@ def get_llm_profiles() -> dict[str, dict]:
 def get_llm_config(use_case: LlmUseCase = "chat") -> dict:
     llm = load_prefs().get("llm") or {}
     profile = get_llm_profiles()[use_case]
+    base_url = (
+        profile.get("base_url") or llm.get("base_url") or "http://localhost:11434/v1"
+    ).rstrip("/")
     return {
-        "base_url": (llm.get("base_url") or "http://localhost:11434/v1").rstrip("/"),
+        "base_url": base_url,
         "model": profile["model"],
-        "provider": llm.get("provider") or "ollama",
-        "api_key": get_llm_api_key(),
+        "provider": profile.get("provider") or llm.get("provider") or "ollama",
+        "api_key": get_llm_api_key(base_url),
         "temperature": float(llm["temperature"]) if llm.get("temperature") is not None else 0.3,
         "top_p": float(llm["top_p"]) if llm.get("top_p") is not None else None,
         "top_k": int(llm["top_k"]) if llm.get("top_k") is not None else None,
@@ -158,7 +163,7 @@ def list_models(base_url: str | None = None, api_key: str | None = None) -> list
     cfg = get_llm_config()
     base = (base_url or cfg["base_url"]).rstrip("/")
     # Explicit key wins (e.g. testing an unsaved key); otherwise use the stored one.
-    key = api_key if api_key is not None else cfg["api_key"]
+    key = api_key if api_key is not None else get_llm_api_key(base)
     r = httpx.get(f"{base}/models", headers=_auth_headers(key), timeout=8)
     r.raise_for_status()
     data = r.json().get("data", [])

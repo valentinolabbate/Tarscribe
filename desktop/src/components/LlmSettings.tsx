@@ -10,6 +10,7 @@ import {
   NumField,
   PRESETS,
 } from "./llm-settings/model";
+import { ProfileConnection } from "./llm-settings/ProfileConnection";
 import { ResearchChannelControls } from "./llm-settings/ResearchChannelControls";
 import { ChevronDownIcon } from "./icons";
 
@@ -115,6 +116,7 @@ export function LlmSettings() {
     chat: { ...EMPTY_PROFILE },
   });
   const [models, setModels] = useState<string[]>([]);
+  const [profileModels, setProfileModels] = useState<Partial<Record<LlmUseCase, string[]>>>({});
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [openModelMenu, setOpenModelMenu] = useState<LlmUseCase | null>(null);
@@ -299,7 +301,8 @@ export function LlmSettings() {
       <label>LLM-Verbindung</label>
       <div className="settings-info-box">
         Anbieter, Endpoint und Zugang gelten gemeinsam. Modell, Thinking-Level und
-        Recherchekanäle stellst du darunter für jeden Einsatz separat ein.
+        Recherchekanäle stellst du darunter für jeden Einsatz separat ein — bei Bedarf
+        auch mit eigener Verbindung pro Profil.
       </div>
       <div className="seg llm-provider-toggle">
         {[
@@ -367,11 +370,18 @@ export function LlmSettings() {
       <div className="llm-profile-grid">
         {USE_CASES.map((useCase) => {
           const profile = profiles[useCase.id];
-          const modelOptions = buildModelSelectOptions(models, profile.model);
+          const hasCustomConnection = !!profile.base_url;
+          const availableModels = hasCustomConnection
+            ? (profileModels[useCase.id] ?? [])
+            : models;
+          const availableModelsLoaded = hasCustomConnection
+            ? profileModels[useCase.id] != null
+            : modelsLoaded;
+          const modelOptions = buildModelSelectOptions(availableModels, profile.model);
           const modelSelectDisabled = modelsLoading || (modelOptions.length === 0 && !profile.model);
           const modelPlaceholder = modelsLoading
             ? "Modelle werden geladen..."
-            : modelsLoaded
+            : availableModelsLoaded
               ? "Kein Modell"
               : "Modelle laden";
           return (
@@ -380,6 +390,19 @@ export function LlmSettings() {
                 <strong>{useCase.label}</strong>
                 <span>{useCase.detail}</span>
               </div>
+              <ProfileConnection
+                profileProvider={profile.provider ?? null}
+                profileBaseUrl={profile.base_url ?? null}
+                apiKeySet={profile.api_key_set ?? false}
+                globalProvider={provider}
+                globalBaseUrl={baseUrl}
+                onConnectionChange={async (patch) => {
+                  await updateProfile(useCase.id, patch);
+                }}
+                onModelsLoaded={(list) =>
+                  setProfileModels((current) => ({ ...current, [useCase.id]: list }))
+                }
+              />
               <label>
                 Modell
                 <LlmModelDropdown

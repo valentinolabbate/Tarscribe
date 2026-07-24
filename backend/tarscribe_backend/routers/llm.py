@@ -46,15 +46,24 @@ class SummaryUpdateIn(BaseModel):
     revision: int = Field(ge=0)
 
 
+def _config_response(llm: dict) -> dict:
+    profiles = L.get_llm_profiles()
+    global_url = (llm.get("base_url") or "").strip()
+    for profile in profiles.values():
+        resolved_url = (profile.get("base_url") or global_url).strip()
+        profile["api_key_set"] = settings_store.has_llm_api_key(resolved_url or None)
+    return {
+        **llm,
+        "profiles": profiles,
+        "api_key_set": settings_store.has_llm_api_key(),
+    }
+
+
 @router.get("/api/llm/config")
 def get_llm_config() -> dict:
     # The API key itself is a secret and never leaves the keychain; expose only
     # whether one is stored.
-    return {
-        **(settings_store.load_prefs().get("llm") or {}),
-        "profiles": L.get_llm_profiles(),
-        "api_key_set": settings_store.has_llm_api_key(),
-    }
+    return _config_response(dict(settings_store.load_prefs().get("llm") or {}))
 
 
 @router.put("/api/llm/config")
@@ -68,22 +77,29 @@ def set_llm_config(payload: LlmConfigIn) -> dict:
         for use_case, patch in profile_patch.items():
             if use_case not in L.LLM_USE_CASES or not isinstance(patch, dict):
                 continue
+            base_url = patch.get("base_url")
+            if base_url and not str(base_url).strip().lower().startswith(("http://", "https://")):
+                raise HTTPException(422, "Base-URL muss mit http:// oder https:// beginnen")
             profile = dict(profiles.get(use_case) or {})
-            profile.update(
-                {
-                    key: value
-                    for key, value in patch.items()
-                    if key in {"model", "reasoning_effort", "agent_mode", "web_search"}
-                }
-            )
+            cleaned = {}
+            for key, value in patch.items():
+                if key not in {
+                    "model",
+                    "provider",
+                    "base_url",
+                    "reasoning_effort",
+                    "agent_mode",
+                    "web_search",
+                }:
+                    continue
+                if key in {"provider", "base_url"}:
+                    value = (str(value).strip() or None) if value is not None else None
+                cleaned[key] = value
+            profile.update(cleaned)
             profiles[use_case] = profile
         llm["profiles"] = profiles
     settings_store.save_prefs({"llm": llm})
-    return {
-        **llm,
-        "profiles": L.get_llm_profiles(),
-        "api_key_set": settings_store.has_llm_api_key(),
-    }
+    return _config_response(llm)
 
 
 @router.get("/api/llm/models")
@@ -103,14 +119,15 @@ def test(payload: LlmConfigIn) -> dict:
 def set_api_key(payload: LlmApiKeyIn) -> dict:
     """Store the (secret) API key in the keychain and verify it by listing models."""
     key = payload.api_key.strip()
+    base_url = (payload.base_url or "").strip() or None
     try:
-        settings_store.set_llm_api_key(key or None)
+        settings_store.set_llm_api_key(key or None, base_url)
     except settings_store.SecretStorageUnavailable as exc:
         raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     if not key:
         return {"saved": True, "api_key_set": False}
     try:
-        models = L.list_models(payload.base_url, api_key=key)
+        models = L.list_models(base_url, api_key=key)
         return {"saved": True, "ok": True, "models": models, "api_key_set": True}
     except Exception as exc:  # noqa: BLE001
         # Stored regardless (may be a transient network error); report status.
@@ -118,9 +135,9 @@ def set_api_key(payload: LlmApiKeyIn) -> dict:
 
 
 @router.delete("/api/llm/api-key")
-def delete_api_key() -> dict:
+def delete_api_key(base_url: str | None = None) -> dict:
     try:
-        settings_store.set_llm_api_key(None)
+        settings_store.set_llm_api_key(None, (base_url or "").strip() or None)
     except settings_store.SecretStorageUnavailable as exc:
         raise HTTPException(503, "Sicherer Secret-Speicher ist nicht verfügbar") from exc
     return {"saved": True, "api_key_set": False}

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
 import type { ActionItem, DocumentSourceKind, Topic } from "../lib/types";
-import { trackPendingJob } from "./useJobs";
+import { clearAgentResearch, trackPendingJob } from "./useJobs";
 
 export function useHardware() {
   return useQuery({ queryKey: ["hardware"], queryFn: api.hardware, staleTime: Infinity });
@@ -455,6 +455,7 @@ export function useExtractActionItems(recordingId: number) {
     mutationFn: (clarification?: string) => api.extractActionItems(recordingId, clarification),
     onSuccess: (data) => {
       trackPendingJob(recordingId, data.job_id, "action_items");
+      clearAgentResearch(recordingId);
       qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
       qc.invalidateQueries({ queryKey: ["jobs", "recording", recordingId] });
     },

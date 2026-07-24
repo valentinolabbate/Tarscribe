@@ -6,9 +6,10 @@ import {
   useRecordingJobs,
   useUpdateActionItem,
 } from "../hooks/queries";
-import { useJobFor } from "../hooks/useJobs";
+import { useAgentResearch, useJobFor } from "../hooks/useJobs";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import type { ActionItem, DiarizationData } from "../lib/types";
+import { AgentResearchDoneBadge, AgentResearchIndicator } from "./AgentResearchIndicator";
 import { EvidenceTrail } from "./EvidenceTrail";
 import { MemoryIcon, RefreshIcon, TrashIcon, WaveIcon } from "./icons";
 import {
@@ -74,6 +75,8 @@ export function MeetingTimeline({
   const remove = useDeleteActionItem();
   const undoDelete = useUndoableDelete();
   const liveJob = useJobFor(recordingId);
+  const agentResearch = useAgentResearch(recordingId);
+  const taskResearch = agentResearch?.task === "action_items" ? agentResearch : undefined;
   const persistedActionJob = jobs?.find((job) => job.phase === "action_items");
   const actionJob = liveJob?.phase === "action_items" ? liveJob : persistedActionJob;
   const [filter, setFilter] = useState<TimelineFilter>("all");
@@ -349,6 +352,11 @@ export function MeetingTimeline({
             <span>Bestehende Einträge bleiben unverändert.</span>
           )}
         </div>
+      )}
+
+      {taskResearch && <AgentResearchIndicator research={taskResearch} />}
+      {taskResearch?.done && extracting && (
+        <AgentResearchDoneBadge sources={taskResearch.sources} />
       )}
 
       {(loadingAnalysis || extracting) && !extractionFailed && (

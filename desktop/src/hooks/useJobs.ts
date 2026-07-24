@@ -161,15 +161,16 @@ export function useJobSocket(onLive?: (e: LiveEvent) => void) {
           (e) => {
             if (e.recording_id == null) return;
             const prev = agentResearch.get(e.recording_id) ?? { queries: [], done: false, sources: 0, task: e.task };
+            const prevQueries = prev.task === e.task ? prev.queries : [];
             if (e.phase === "tool_call") {
               agentResearch = new Map(agentResearch).set(e.recording_id, {
                 ...prev,
-                queries: [...prev.queries, { query: e.query || "", scope: e.scope || "topic", hits: 0, round: e.round }],
+                queries: [...prevQueries, { query: e.query || "", scope: e.scope || "topic", hits: 0, round: e.round }],
                 done: false,
                 task: e.task ?? prev.task,
               });
             } else if (e.phase === "tool_result") {
-              const queries = [...prev.queries];
+              const queries = [...prevQueries];
               if (queries.length > 0) {
                 const last = queries[queries.length - 1];
                 queries[queries.length - 1] = { ...last, hits: e.hits ?? 0 };

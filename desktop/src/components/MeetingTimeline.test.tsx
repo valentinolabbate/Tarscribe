@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentResearchState } from "../hooks/useJobs";
 import type { ActionItem } from "../lib/types";
 
 const items = vi.hoisted<ActionItem[]>(() => [
@@ -81,8 +82,13 @@ vi.mock("../hooks/queries", () => ({
   useUpdateActionItem: () => ({ isPending: false, mutate: vi.fn() }),
 }));
 
+const researchState = vi.hoisted<{ value: AgentResearchState | undefined }>(() => ({
+  value: undefined,
+}));
+
 vi.mock("../hooks/useJobs", () => ({
   useJobFor: () => undefined,
+  useAgentResearch: () => researchState.value,
 }));
 
 vi.mock("../hooks/useUndoableDelete", () => ({
@@ -91,25 +97,60 @@ vi.mock("../hooks/useUndoableDelete", () => ({
 
 import { MeetingTimeline } from "./MeetingTimeline";
 
+function renderTimeline() {
+  return renderToStaticMarkup(
+    <MeetingTimeline
+      recordingId={7}
+      recordingTitle="Produktgespräch"
+      topicName="Produkt"
+      topicColor="#0f766e"
+      currentTime={90}
+      playing={false}
+      onSeek={vi.fn()}
+      onOpenTranscript={vi.fn()}
+    />,
+  );
+}
+
 describe("MeetingTimeline", () => {
+  beforeEach(() => {
+    researchState.value = undefined;
+  });
+
   it("uses the shared evidence trail for timed and missing sources", () => {
-    const html = renderToStaticMarkup(
-      <MeetingTimeline
-        recordingId={7}
-        recordingTitle="Produktgespräch"
-        topicName="Produkt"
-        topicColor="#0f766e"
-        currentTime={90}
-        playing={false}
-        onSeek={vi.fn()}
-        onOpenTranscript={vi.fn()}
-      />,
-    );
+    const html = renderTimeline();
 
     expect(html).toContain("evidence-trail-signal");
     expect(html).toContain("Produktgespräch");
     expect(html).toContain("Wir starten mit dem Rollout im Herbst.");
     expect(html).toContain("1:24");
     expect(html).toContain("Belegspur fehlt");
+  });
+
+  it("shows live research progress for action item extraction", () => {
+    researchState.value = {
+      queries: [{ query: "Rollout Termine", scope: "topic", hits: 3, round: 0 }],
+      done: false,
+      sources: 0,
+      task: "action_items",
+    };
+    const html = renderTimeline();
+
+    expect(html).toContain("agent-research-indicator");
+    expect(html).toContain("Rollout Termine");
+    expect(html).toContain("3 Treffer");
+  });
+
+  it("ignores research that does not belong to action items", () => {
+    researchState.value = {
+      queries: [{ query: "Rollout Termine", scope: "topic", hits: 3, round: 0 }],
+      done: false,
+      sources: 0,
+      task: undefined,
+    };
+    const html = renderTimeline();
+
+    expect(html).not.toContain("agent-research-indicator");
+    expect(html).not.toContain("Rollout Termine");
   });
 });

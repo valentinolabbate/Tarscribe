@@ -30,6 +30,7 @@ export default defineConfig(async () => ({
       "/backend": {
         target: backendUrl,
         changeOrigin: true,
+        ws: true,
         rewrite: (path) => path.replace(/^\/backend/, ""),
       },
     },

@@ -460,6 +460,60 @@ def test_memory_enrichment_source_time_uses_quote_starting_line():
     assert _source_quote_position(transcript, "Ich schicke den Bericht bis Freitag.") == 36
 
 
+def test_source_quote_position_matches_quote_with_ellipsis():
+    from tarscribe_backend.evidence import source_quote_position_from_word_parts
+
+    word_parts = [
+        (10.0, "lass "),
+        (10.3, "uns "),
+        (10.6, "in "),
+        (10.8, "diesem "),
+        (11.2, "Excel-Sheet, "),
+        (11.8, "wo "),
+        (12.0, "dir "),
+        (12.2, "so "),
+        (12.4, "manuelle "),
+        (12.8, "Berechnung "),
+        (13.2, "ist, "),
+        (13.6, "da "),
+        (13.8, "noch "),
+        (14.0, "einiges "),
+        (14.3, "drinsteckt. "),
+        (14.8, "Und "),
+        (15.0, "das "),
+        (15.2, "nehmen "),
+        (15.5, "wir "),
+        (15.7, "auf "),
+        (15.9, "Video "),
+        (16.2, "auf."),
+    ]
+    quote = (
+        "lass uns in diesem Excel-Sheet, wo dir so manuelle Berechnung ist... "
+        "Und das nehmen wir auf Video auf"
+    )
+    assert source_quote_position_from_word_parts(word_parts, quote) == 10.0
+    assert source_quote_position_from_word_parts(word_parts, quote, hint=15.0) == 10.0
+
+
+def test_source_quote_position_matches_segment_after_ellipsis():
+    from tarscribe_backend.evidence import source_quote_position_from_word_parts
+
+    word_parts = [
+        (20.0, "völlig "),
+        (20.4, "anderes "),
+        (20.8, "Thema. "),
+        (21.4, "Und "),
+        (21.6, "das "),
+        (21.8, "nehmen "),
+        (22.0, "wir "),
+        (22.2, "auf "),
+        (22.4, "Video "),
+        (22.6, "auf."),
+    ]
+    quote = "etwas das so nie gesagt wurde... Und das nehmen wir auf Video auf…"
+    assert source_quote_position_from_word_parts(word_parts, quote) == 21.4
+
+
 def test_source_quote_uses_exact_word_timestamp_instead_of_prompt_block(client):
     from sqlmodel import Session
 

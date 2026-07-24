@@ -11,6 +11,25 @@ from sqlmodel import Session, select
 from .models import ActionItem, Transcript, Word
 
 
+_ELLIPSIS_PATTERN = re.compile(r"(?:\[?\.\.\.\]?|…+)")
+
+
+def _match_candidates(
+    quote_tokens: list[str],
+    transcript_tokens: list[re.Match[str]],
+    word_ends: list[int],
+    word_parts: Sequence[tuple[float, str]],
+) -> list[float]:
+    candidates: list[float] = []
+    for index in range(len(transcript_tokens) - len(quote_tokens) + 1):
+        window = transcript_tokens[index : index + len(quote_tokens)]
+        if [match.group() for match in window] != quote_tokens:
+            continue
+        word_index = min(bisect_right(word_ends, window[0].start()), len(word_parts) - 1)
+        candidates.append(word_parts[word_index][0])
+    return candidates
+
+
 def source_quote_position_from_word_parts(
     word_parts: Sequence[tuple[float, str]],
     quote: str,
@@ -23,8 +42,6 @@ def source_quote_position_from_word_parts(
     normalized_parts = [text.casefold() for _start, text in word_parts]
     transcript_text = "".join(normalized_parts)
     transcript_tokens = list(re.finditer(r"\w+", transcript_text))
-    if len(transcript_tokens) < len(quote_tokens):
-        return None
 
     word_ends: list[int] = []
     length = 0
@@ -32,13 +49,17 @@ def source_quote_position_from_word_parts(
         length += len(text)
         word_ends.append(length)
 
-    candidates: list[float] = []
-    for index in range(len(transcript_tokens) - len(quote_tokens) + 1):
-        window = transcript_tokens[index : index + len(quote_tokens)]
-        if [match.group() for match in window] != quote_tokens:
-            continue
-        word_index = min(bisect_right(word_ends, window[0].start()), len(word_parts) - 1)
-        candidates.append(word_parts[word_index][0])
+    candidates = _match_candidates(quote_tokens, transcript_tokens, word_ends, word_parts)
+    if not candidates:
+        for segment in _ELLIPSIS_PATTERN.split(quote.casefold()):
+            segment_tokens = re.findall(r"\w+", segment)
+            if len(segment_tokens) < 3 or len(" ".join(segment_tokens)) < 8:
+                continue
+            candidates = _match_candidates(
+                segment_tokens, transcript_tokens, word_ends, word_parts
+            )
+            if candidates:
+                break
 
     if not candidates:
         return None

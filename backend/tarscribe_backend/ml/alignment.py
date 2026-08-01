@@ -12,6 +12,9 @@ from dataclasses import dataclass
 
 
 _TERMINAL_PUNCTUATION = regex.compile(r"[.!?…]+(?:[\"')\]}»”’]+)?$")
+_OPENING_PUNCTUATION = frozenset("([{¿¡")
+_CLOSING_PUNCTUATION = frozenset(".,!?…:;)]}")
+_AMBIGUOUS_QUOTES = frozenset("\"'«»‹›„‚“‘”’")
 _BOUNDARY_MAX_WORDS = 3
 _BOUNDARY_MAX_SECONDS = 1.2
 _PAUSE_BOUNDARY_SECONDS = 0.6
@@ -98,9 +101,60 @@ def _is_backchannel(words) -> bool:
     return normalized in _BACKCHANNELS
 
 
+def _has_lexical_content(word) -> bool:
+    return any(char.isalnum() for char in str(_value(word, "text") or ""))
+
+
+def _punctuation_direction(text: str) -> str | None:
+    token = text.strip()
+    if not token or any(char.isalnum() for char in token):
+        return None
+    characters = set(token)
+    known = _OPENING_PUNCTUATION | _CLOSING_PUNCTUATION | _AMBIGUOUS_QUOTES
+    if not characters <= known:
+        return None
+    if characters & _CLOSING_PUNCTUATION:
+        return "previous"
+    if characters & _OPENING_PUNCTUATION:
+        return "next"
+    if characters <= _AMBIGUOUS_QUOTES:
+        return "next" if text[:1].isspace() else "previous"
+    return None
+
+
+def _attach_punctuation_speakers(words, speakers: list[str]) -> list[str]:
+    lexical = [_has_lexical_content(word) for word in words]
+    previous_lexical: list[int | None] = []
+    previous: int | None = None
+    for index, is_lexical in enumerate(lexical):
+        previous_lexical.append(previous)
+        if is_lexical:
+            previous = index
+    next_lexical: list[int | None] = [None] * len(words)
+    following: int | None = None
+    for index in range(len(words) - 1, -1, -1):
+        next_lexical[index] = following
+        if lexical[index]:
+            following = index
+
+    result = list(speakers)
+    for index, word in enumerate(words):
+        direction = _punctuation_direction(str(_value(word, "text") or ""))
+        if direction is None:
+            continue
+        preferred = previous_lexical[index] if direction == "previous" else next_lexical[index]
+        fallback = next_lexical[index] if direction == "previous" else previous_lexical[index]
+        target = preferred if preferred is not None else fallback
+        if target is not None:
+            result[index] = result[target]
+    return result
+
+
 def stabilize_speaker_boundaries(words, speakers: list[str]) -> list[str]:
     if len(words) != len(speakers) or len(words) < 2:
         return list(speakers)
+
+    speakers = _attach_punctuation_speakers(words, speakers)
 
     ranges: list[tuple[int, int]] = []
     start = 0

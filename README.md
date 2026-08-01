@@ -90,7 +90,7 @@ während die eigentlichen Arbeitslisten als klare Hauptflächen im Vordergrund b
 - Während der Aufnahme live transkribieren und Sprecher optional live trennen
 - WAV, MP3, M4A, OGG, WebM, FLAC, AAC, MOV und MP4 importieren
 - Aufnahmen automatisch in Kapitel gliedern
-- Unsichere Wortstellen lokal prüfen, den Audiokontext hören und Korrekturen nicht-destruktiv übernehmen
+- Unsichere Wortstellen im Text anspringen, per Schaltfläche oder Doppelklick als korrekt bestätigen, anhören oder inline nicht-destruktiv korrigieren
 - Korrigierte Schreibweisen einheitlich in Transkript, Sprecheransicht, Export, Suche und neuen KI-Auswertungen verwenden
 - Sprecher erkennen, benennen, zusammenführen und als bekannte Stimme speichern
 - Spontane Gedanken über einen konfigurierbaren globalen Diktat-Hotkey festhalten

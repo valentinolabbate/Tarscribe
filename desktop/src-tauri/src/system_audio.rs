@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 const MINIMUM_MACOS_VERSION: &str = "14.2";
+const START_RETRY_DELAY: Duration = Duration::from_millis(350);
 
 #[derive(Debug, Serialize)]
 pub struct SystemAudioCapability {
@@ -71,7 +73,17 @@ pub fn start_system_audio_recording(app: AppHandle) -> Result<(), String> {
         .map_err(|error| format!("Aufnahmeordner konnte nicht erstellt werden: {error}"))?;
     let path = directory.join(format!("{}.caf", Uuid::new_v4().simple()));
 
-    native_start(&path)?;
+    let start_result = start_with_retry(
+        || {
+            let _ = std::fs::remove_file(&path);
+            native_start(&path)
+        },
+        std::thread::sleep,
+    );
+    if let Err(error) = start_result {
+        let _ = std::fs::remove_file(&path);
+        return Err(error);
+    }
     *active_path = Some(path);
     Ok(())
 }
@@ -146,6 +158,20 @@ fn stop_inner() -> Option<PathBuf> {
         native_stop();
     }
     path
+}
+
+fn start_with_retry<F, W>(mut start: F, mut wait: W) -> Result<(), String>
+where
+    F: FnMut() -> Result<(), String>,
+    W: FnMut(Duration),
+{
+    match start() {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            wait(START_RETRY_DELAY);
+            start()
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -256,12 +282,68 @@ fn parse_version(version: &str) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_version;
+    use super::{parse_version, start_with_retry, START_RETRY_DELAY};
 
     #[test]
     fn parses_macos_versions_for_capability_check() {
         assert_eq!(parse_version("14.2"), Some((14, 2)));
         assert_eq!(parse_version("15.5.1"), Some((15, 5)));
         assert_eq!(parse_version("invalid"), None);
+    }
+
+    #[test]
+    fn starts_without_retry_when_first_attempt_succeeds() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+
+        let result = start_with_retry(
+            || {
+                attempts += 1;
+                Ok(())
+            },
+            |duration| waits.push(duration),
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(attempts, 1);
+        assert!(waits.is_empty());
+    }
+
+    #[test]
+    fn retries_once_after_initial_start_failure() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+
+        let result = start_with_retry(
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err("initialization pending".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+            |duration| waits.push(duration),
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(attempts, 2);
+        assert_eq!(waits, vec![START_RETRY_DELAY]);
+    }
+
+    #[test]
+    fn returns_second_start_error_after_retry() {
+        let mut attempts = 0;
+
+        let result = start_with_retry(
+            || {
+                attempts += 1;
+                Err(format!("failure {attempts}"))
+            },
+            |_| {},
+        );
+
+        assert_eq!(result, Err("failure 2".to_string()));
+        assert_eq!(attempts, 2);
     }
 }

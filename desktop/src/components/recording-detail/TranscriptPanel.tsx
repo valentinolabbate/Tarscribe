@@ -21,6 +21,8 @@ export function TranscriptPanel({
   onOpenSpeakers,
   qualityReport,
   onSelectIssue,
+  onAcknowledgeIssue,
+  selectedIssueId,
   reviewMode,
   onToggleReview,
 }: {
@@ -36,6 +38,8 @@ export function TranscriptPanel({
   onOpenSpeakers: () => void;
   qualityReport?: QualityReport;
   onSelectIssue: (issue: QualityIssue) => void;
+  onAcknowledgeIssue: (issue: QualityIssue) => void;
+  selectedIssueId: string | null;
   reviewMode: boolean;
   onToggleReview: () => void;
 }) {
@@ -104,7 +108,7 @@ export function TranscriptPanel({
                 </div>
                 <p className="utt-text" onClick={() => playerRef.current?.seek(utterance.start)}>
                   {utterance.words?.length ? (
-                    <QualityText words={utterance.words} issues={issues} onSelect={onSelectIssue} />
+                    <QualityText words={utterance.words} issues={issues} selectedId={selectedIssueId} onSelect={onSelectIssue} onAcknowledge={onAcknowledgeIssue} />
                   ) : utterance.text}
                 </p>
               </div>
@@ -131,7 +135,7 @@ export function TranscriptPanel({
                   </button>
                 </div>
                 <p className="utt-text" onClick={() => playerRef.current?.seek(sentence.start)}>
-                  <QualityText words={sentence.words} issues={issues} onSelect={onSelectIssue} />
+                  <QualityText words={sentence.words} issues={issues} selectedId={selectedIssueId} onSelect={onSelectIssue} onAcknowledge={onAcknowledgeIssue} />
                 </p>
               </div>
             );
@@ -139,7 +143,7 @@ export function TranscriptPanel({
         </div>
       ) : (
         <div className="transcript transcript-focused">
-          <p className="transcript-text"><QualityText words={transcript.words} issues={issues} onSelect={onSelectIssue} /></p>
+          <p className="transcript-text"><QualityText words={transcript.words} issues={issues} selectedId={selectedIssueId} onSelect={onSelectIssue} onAcknowledge={onAcknowledgeIssue} /></p>
         </div>
       )}
     </section>

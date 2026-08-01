@@ -24,8 +24,9 @@ from ..models import (
     JobStatus,
     Recording,
     Summary,
+    TranscriptCorrection,
 )
-from ..transcript_quality import analyze_words, quality_summary
+from ..transcript_quality import analyze_words, filter_acknowledged_issues, quality_summary
 from ..transcript_view import effective_text, load_effective_words
 
 router = APIRouter(prefix="/api/recordings", tags=["transcription"])
@@ -50,6 +51,18 @@ def get_transcript(recording_id: int, session: Session = Depends(get_session)) -
     snapshot, words = loaded
     transcript = snapshot.transcript
     issues = analyze_words(words, transcript_id=transcript.id or 0, revision=transcript.revision)
+    acknowledgements = session.exec(
+        select(TranscriptCorrection).where(
+            TranscriptCorrection.recording_id == recording_id,
+            TranscriptCorrection.source_transcript_id == transcript.id,
+            TranscriptCorrection.status == "ignored",
+        )
+    ).all()
+    issues = filter_acknowledged_issues(
+        issues,
+        acknowledgements,
+        transcript_id=transcript.id or 0,
+    )
     return {
         "transcript_id": transcript.id,
         "asr_model": transcript.asr_model,

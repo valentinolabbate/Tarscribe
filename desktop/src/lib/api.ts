@@ -428,7 +428,27 @@ export const api = {
       transcript_revision: number;
       reindex_scheduled: boolean;
       quality_summary: QualityReport["quality"];
+      quality_report: QualityReport;
     }>(`/api/recordings/${id}/corrections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  acknowledgeQualityIssue: (
+    id: number,
+    payload: {
+      expected_revision: number;
+      start_word_idx: number;
+      end_word_idx: number;
+      expected_original_text: string;
+    },
+  ) =>
+    request<{
+      acknowledgement: Correction;
+      transcript_revision: number;
+      reindex_scheduled: false;
+      quality_report: QualityReport;
+    }>(`/api/recordings/${id}/quality/acknowledge`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

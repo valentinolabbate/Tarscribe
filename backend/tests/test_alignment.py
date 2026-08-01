@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
-from tarscribe_backend.ml.alignment import word_speakers
+import pytest
+
+from tarscribe_backend.ml.alignment import build_utterances, word_speakers
 from tarscribe_backend.ml.diarization import SpeakerSegment
 from tarscribe_backend.ml.live_diarization import LiveSegment, assign_speakers_to_words
 
@@ -119,3 +121,80 @@ def test_live_alignment_uses_the_same_boundary_stabilization():
     aligned = assign_speakers_to_words(words, segments)
 
     assert [word["speaker_id"] for word in aligned] == ["live-speaker-1"] * 5
+
+
+@pytest.mark.parametrize("mark", [".", "?", "!"])
+def test_closing_punctuation_stays_with_previous_speaker(mark):
+    words = [
+        _word(0.0, 0.3, " Morgen"),
+        _word(0.3, 0.6, mark),
+        _word(0.6, 0.9, " Hallo"),
+        _word(0.9, 1.2, " zusammen"),
+        _word(1.2, 1.3, "."),
+    ]
+    original_words = [(word.start, word.end, word.text) for word in words]
+    segments = [
+        SpeakerSegment(0.0, 0.3, "Anna"),
+        SpeakerSegment(0.3, 1.3, "Ben"),
+    ]
+
+    utterances = build_utterances(words, segments)
+
+    assert [(item.speaker, item.start, item.end, item.text) for item in utterances] == [
+        ("Anna", 0.0, 0.6, f"Morgen{mark}"),
+        ("Ben", 0.6, 1.3, "Hallo zusammen."),
+    ]
+    assert [(word.start, word.end, word.text) for word in words] == original_words
+
+
+@pytest.mark.parametrize(
+    ("token", "rendered"),
+    [
+        (' "', '"'),
+        (" “", "“"),
+        (" (", "("),
+        (" [", "["),
+    ],
+)
+def test_opening_punctuation_stays_with_following_speaker(token, rendered):
+    words = [
+        _word(0.0, 0.3, " Ende"),
+        _word(0.3, 0.4, "."),
+        _word(0.4, 0.7, token),
+        _word(0.7, 0.95, "Hallo"),
+        _word(0.95, 1.0, "."),
+    ]
+    original_words = [(word.start, word.end, word.text) for word in words]
+    segments = [
+        SpeakerSegment(0.0, 0.7, "Anna"),
+        SpeakerSegment(0.7, 1.0, "Ben"),
+    ]
+
+    utterances = build_utterances(words, segments)
+
+    assert [(item.speaker, item.start, item.end, item.text) for item in utterances] == [
+        ("Anna", 0.0, 0.4, "Ende."),
+        ("Ben", 0.4, 1.0, f"{rendered}Hallo."),
+    ]
+    assert [(word.start, word.end, word.text) for word in words] == original_words
+
+
+@pytest.mark.parametrize("mark", ['"', "“", "’", "»"])
+def test_closing_quote_stays_with_previous_speaker(mark):
+    words = [
+        _word(0.0, 0.3, " Hallo"),
+        _word(0.3, 0.4, mark),
+        _word(0.4, 0.7, " Danach"),
+        _word(0.7, 0.8, "."),
+    ]
+    segments = [
+        SpeakerSegment(0.0, 0.3, "Anna"),
+        SpeakerSegment(0.3, 0.8, "Ben"),
+    ]
+
+    utterances = build_utterances(words, segments)
+
+    assert [(item.speaker, item.text) for item in utterances] == [
+        ("Anna", f"Hallo{mark}"),
+        ("Ben", "Danach."),
+    ]

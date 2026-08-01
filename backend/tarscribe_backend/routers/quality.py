@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from threading import Lock
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -9,10 +11,11 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..jobs import enqueue_embedding
 from ..models import Recording, TranscriptCorrection
-from ..transcript_quality import analyze_words, quality_summary
+from ..transcript_quality import analyze_words, filter_acknowledged_issues, quality_summary
 from ..transcript_view import load_effective_words, load_raw_words
 
 router = APIRouter(tags=["quality"])
+_ACKNOWLEDGEMENT_LOCK = Lock()
 
 
 class CorrectionIn(BaseModel):
@@ -21,6 +24,13 @@ class CorrectionIn(BaseModel):
     end_word_idx: int = Field(ge=0)
     expected_original_text: str = Field(min_length=1, max_length=2000)
     corrected_text: str = Field(min_length=1, max_length=2000)
+
+
+class AcknowledgeIn(BaseModel):
+    expected_revision: int = Field(ge=0)
+    start_word_idx: int = Field(ge=0)
+    end_word_idx: int = Field(ge=0)
+    expected_original_text: str = Field(min_length=1, max_length=2000)
 
 
 def _snapshot_or_404(session: Session, recording_id: int):
@@ -43,6 +53,11 @@ def _report(session: Session, recording_id: int) -> dict:
         .where(TranscriptCorrection.recording_id == recording_id)
         .order_by(TranscriptCorrection.created_at.desc())
     ).all()
+    issues = filter_acknowledged_issues(
+        issues,
+        corrections,
+        transcript_id=snapshot.transcript.id or 0,
+    )
     return {
         "transcript_id": snapshot.transcript.id,
         "revision": snapshot.transcript.revision,
@@ -69,6 +84,109 @@ def _serialize_correction(correction: TranscriptCorrection) -> dict:
 @router.get("/api/recordings/{recording_id}/quality")
 def recording_quality(recording_id: int, session: Session = Depends(get_session)) -> dict:
     return _report(session, recording_id)
+
+
+def _acknowledge_issue(recording_id: int, payload: AcknowledgeIn, session: Session) -> dict:
+    snapshot = _snapshot_or_404(session, recording_id)
+    if payload.end_word_idx < payload.start_word_idx:
+        raise HTTPException(422, "Ungültiger Wortbereich")
+    if snapshot.transcript.revision != payload.expected_revision:
+        raise HTTPException(409, "Transkript wurde inzwischen geändert")
+    span = [
+        word
+        for word in snapshot.words
+        if payload.start_word_idx <= word.idx <= payload.end_word_idx
+    ]
+    if not span or span[0].idx != payload.start_word_idx or span[-1].idx != payload.end_word_idx:
+        raise HTTPException(422, "Wortbereich existiert nicht mehr")
+    raw_text = "".join(word.text for word in span)
+    if raw_text != payload.expected_original_text:
+        raise HTTPException(409, "Der ursprüngliche Text stimmt nicht mehr überein")
+    existing = session.exec(
+        select(TranscriptCorrection).where(
+            TranscriptCorrection.recording_id == recording_id,
+            TranscriptCorrection.source_transcript_id == snapshot.transcript.id,
+            TranscriptCorrection.status == "ignored",
+            TranscriptCorrection.start_word_idx == payload.start_word_idx,
+            TranscriptCorrection.end_word_idx == payload.end_word_idx,
+        )
+    ).all()
+    identical = next(
+        (correction for correction in existing if correction.original_text == raw_text),
+        None,
+    )
+    if identical is not None:
+        return {
+            "acknowledgement": _serialize_correction(identical),
+            "transcript_revision": snapshot.transcript.revision,
+            "reindex_scheduled": False,
+            "quality_report": _report(session, recording_id),
+        }
+    if existing:
+        raise HTTPException(409, "Die Prüfstelle stimmt nicht mehr überein")
+    loaded = load_effective_words(session, recording_id)
+    if loaded is None:
+        raise HTTPException(404, "Noch kein Transkript vorhanden")
+    _, words = loaded
+    issues = analyze_words(
+        words,
+        transcript_id=snapshot.transcript.id or 0,
+        revision=snapshot.transcript.revision,
+    )
+    issue = next(
+        (
+            candidate
+            for candidate in issues
+            if candidate.start_word_idx == payload.start_word_idx
+            and candidate.end_word_idx == payload.end_word_idx
+            and candidate.raw_text == raw_text
+        ),
+        None,
+    )
+    if issue is None:
+        raise HTTPException(409, "Stelle ist keine offene Prüfstelle")
+    acknowledgement = TranscriptCorrection(
+        recording_id=recording_id,
+        source_transcript_id=snapshot.transcript.id,
+        source_revision=snapshot.transcript.revision,
+        start_word_idx=payload.start_word_idx,
+        end_word_idx=payload.end_word_idx,
+        start_sec=span[0].start,
+        end_sec=span[-1].end,
+        original_text=raw_text,
+        corrected_text=raw_text,
+        context_before="".join(
+            word.text
+            for word in snapshot.words[
+                max(0, payload.start_word_idx - 5) : payload.start_word_idx
+            ]
+        ),
+        context_after="".join(
+            word.text
+            for word in snapshot.words[
+                payload.end_word_idx + 1 : payload.end_word_idx + 6
+            ]
+        ),
+        source="review",
+        status="ignored",
+    )
+    session.add(acknowledgement)
+    session.commit()
+    session.refresh(acknowledgement)
+    return {
+        "acknowledgement": _serialize_correction(acknowledgement),
+        "transcript_revision": snapshot.transcript.revision,
+        "reindex_scheduled": False,
+        "quality_report": _report(session, recording_id),
+    }
+
+
+@router.post("/api/recordings/{recording_id}/quality/acknowledge")
+def acknowledge_issue(
+    recording_id: int, payload: AcknowledgeIn, session: Session = Depends(get_session)
+) -> dict:
+    with _ACKNOWLEDGEMENT_LOCK:
+        return _acknowledge_issue(recording_id, payload, session)
 
 
 @router.get("/api/recordings/{recording_id}/corrections")
@@ -115,7 +233,14 @@ def create_correction(
             None,
         )
         if identical:
-            return {"correction": _serialize_correction(identical), "transcript_revision": snapshot.transcript.revision, "reindex_scheduled": False, "quality_summary": _report(session, recording_id)["quality"]}
+            report = _report(session, recording_id)
+            return {
+                "correction": _serialize_correction(identical),
+                "transcript_revision": snapshot.transcript.revision,
+                "reindex_scheduled": False,
+                "quality_summary": report["quality"],
+                "quality_report": report,
+            }
         raise HTTPException(409, "Die Korrektur überlappt mit einer bestehenden Änderung")
     correction = TranscriptCorrection(
         recording_id=recording_id,
@@ -142,6 +267,7 @@ def create_correction(
         "transcript_revision": snapshot.transcript.revision,
         "reindex_scheduled": reindex_job is not None,
         "quality_summary": report["quality"],
+        "quality_report": report,
     }
 
 

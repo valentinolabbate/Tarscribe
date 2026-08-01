@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
+from .models import TranscriptCorrection
 from .transcript_view import EffectiveWord
 
 CRITICAL_CONFIDENCE = 0.35
@@ -66,6 +67,24 @@ def analyze_words(
             )
         )
     return issues
+
+
+def filter_acknowledged_issues(
+    issues: list[QualityIssue],
+    corrections: list[TranscriptCorrection],
+    *,
+    transcript_id: int,
+) -> list[QualityIssue]:
+    acknowledged = {
+        (correction.start_word_idx, correction.end_word_idx, correction.original_text)
+        for correction in corrections
+        if correction.status == "ignored" and correction.source_transcript_id == transcript_id
+    }
+    return [
+        issue
+        for issue in issues
+        if (issue.start_word_idx, issue.end_word_idx, issue.raw_text) not in acknowledged
+    ]
 
 
 def quality_summary(words: list[EffectiveWord], issues: list[QualityIssue]) -> dict:

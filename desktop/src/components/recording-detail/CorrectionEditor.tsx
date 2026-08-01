@@ -16,20 +16,29 @@ export function CorrectionEditor({
 }) {
   const [value, setValue] = useState(issue.effective_text);
   useEffect(() => setValue(issue.effective_text), [issue.issue_id, issue.effective_text]);
+  const changed = value !== issue.effective_text;
   return (
-    <div className="correction-editor" role="dialog" aria-label="Transkriptstelle korrigieren">
+    <div className="correction-editor" role="group" aria-label="Transkriptstelle korrigieren">
       <div className="correction-editor-head">
-        <div><span className="quality-kicker">Stelle prüfen</span><strong>{issue.raw_text.trim()}</strong></div>
+        <div><span className="quality-kicker">Text ändern</span><strong>{issue.raw_text.trim()}</strong></div>
         <button className="icon-btn" onClick={onClose} aria-label="Korrektureditor schließen">×</button>
       </div>
       <label>
         Korrigierter Text
-        <input value={value} onChange={(event) => setValue(event.target.value)} autoFocus />
+        <input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") onClose();
+            if (event.key === "Enter" && changed && value.trim() && !pending) onSave(value);
+          }}
+          autoFocus
+        />
       </label>
       <div className="correction-editor-actions">
         <button className="btn ghost" onClick={onReplay}>▶ Kontext hören</button>
-        <button className="btn" disabled={pending || !value.trim()} onClick={() => onSave(value)}>
-          {pending ? "Speichert …" : "Korrektur übernehmen"}
+        <button className="btn" disabled={pending || !value.trim() || !changed} onClick={() => onSave(value)}>
+          {pending ? "Speichert …" : "Änderung übernehmen"}
         </button>
       </div>
     </div>

@@ -13,6 +13,7 @@ import {
   useTranscript,
   useUpdateRecording,
   useCreateCorrection,
+  useAcknowledgeQualityIssue,
   useRecordingQuality,
 } from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
@@ -31,9 +32,15 @@ import { SpeakersWorkspace } from "./recording-detail/SpeakersWorkspace";
 import { SummaryWorkspace } from "./recording-detail/SummaryWorkspace";
 import { TranscriptPanel } from "./recording-detail/TranscriptPanel";
 import { QualityReviewPanel } from "./recording-detail/QualityReviewPanel";
-import { CorrectionEditor } from "./recording-detail/CorrectionEditor";
 import { groupWordsIntoSentences, type DetailTab } from "./recording-detail/model";
 import { useRecordingFlowSteps } from "./recording-detail/useRecordingFlowSteps";
+
+function nextQualityIssue(report: { issues: QualityIssue[] }, current: QualityIssue) {
+  return report.issues.find((issue) => issue.start_word_idx > current.end_word_idx)
+    ?? report.issues[0]
+    ?? null;
+}
+
 export function RecordingDetail({
   recording,
   topics,
@@ -67,6 +74,7 @@ export function RecordingDetail({
   const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, isTranscribed);
   const { data: qualityReport } = useRecordingQuality(recording.id, isTranscribed && !!transcript);
   const createCorrection = useCreateCorrection(recording.id);
+  const acknowledgeIssue = useAcknowledgeQualityIssue(recording.id);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
   const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
   const { data: actionItems } = useRecordingActionItems(recording.id, isTranscribed && !!transcript);
@@ -79,6 +87,7 @@ export function RecordingDetail({
   const [playing, setPlaying] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState<QualityIssue | null>(null);
+  const [editingIssueId, setEditingIssueId] = useState<string | null>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   const sentences = useMemo(
     () => (transcript && !diar ? groupWordsIntoSentences(transcript.words) : []),
@@ -197,21 +206,51 @@ export function RecordingDetail({
   function selectIssue(issue: QualityIssue) {
     setSelectedIssue(issue);
     setReviewMode(true);
-    playerRef.current?.playRange(Math.max(0, issue.start_sec - 2), Math.min(recording.duration_sec, issue.end_sec + 2));
+    if (editingIssueId && editingIssueId !== issue.issue_id) setEditingIssueId(null);
   }
 
-  async function saveCorrection(correctedText: string) {
-    if (!transcript || !selectedIssue) return;
+  function replayIssue(issue: QualityIssue) {
+    playerRef.current?.playRange(
+      Math.max(0, issue.start_sec - 2),
+      Math.min(recording.duration_sec, issue.end_sec + 2),
+    );
+  }
+
+  function editIssue(issue: QualityIssue) {
+    selectIssue(issue);
+    setEditingIssueId(issue.issue_id);
+  }
+
+  async function acknowledgeQualityIssue(issue: QualityIssue) {
+    if (!qualityReport) return;
     try {
-      await createCorrection.mutateAsync({
-        expected_revision: transcript.revision,
-        start_word_idx: selectedIssue.start_word_idx,
-        end_word_idx: selectedIssue.end_word_idx,
-        expected_original_text: selectedIssue.raw_text,
+      const result = await acknowledgeIssue.mutateAsync({
+        expected_revision: qualityReport.revision,
+        start_word_idx: issue.start_word_idx,
+        end_word_idx: issue.end_word_idx,
+        expected_original_text: issue.raw_text,
+      });
+      toast("Als korrekt bestätigt", "success");
+      setEditingIssueId(null);
+      setSelectedIssue(nextQualityIssue(result.quality_report, issue));
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  }
+
+  async function saveCorrection(issue: QualityIssue, correctedText: string) {
+    if (!qualityReport) return;
+    try {
+      const result = await createCorrection.mutateAsync({
+        expected_revision: qualityReport.revision,
+        start_word_idx: issue.start_word_idx,
+        end_word_idx: issue.end_word_idx,
+        expected_original_text: issue.raw_text,
         corrected_text: correctedText,
       });
       toast("Korrektur übernommen", "success");
-      setSelectedIssue(null);
+      setEditingIssueId(null);
+      setSelectedIssue(nextQualityIssue(result.quality_report, issue));
     } catch (error) {
       toast((error as Error).message, "error");
     }
@@ -322,24 +361,28 @@ export function RecordingDetail({
                   reassign={reassign}
                   qualityReport={qualityReport}
                   onSelectIssue={selectIssue}
+                  onAcknowledgeIssue={(issue) => void acknowledgeQualityIssue(issue)}
+                  selectedIssueId={selectedIssue?.issue_id ?? null}
                   reviewMode={reviewMode}
-                  onToggleReview={() => setReviewMode((value) => !value)}
+                  onToggleReview={() => {
+                    setReviewMode((value) => !value);
+                    setEditingIssueId(null);
+                  }}
                   onOpenSpeakers={() => setActiveTab("speakers")}
                 />
                 {qualityReport && reviewMode && (
                   <QualityReviewPanel
                     report={qualityReport}
                     selectedId={selectedIssue?.issue_id ?? null}
+                    editingId={editingIssueId}
+                    acknowledging={acknowledgeIssue.isPending}
+                    correcting={createCorrection.isPending}
                     onSelect={selectIssue}
-                  />
-                )}
-                {selectedIssue && (
-                  <CorrectionEditor
-                    issue={selectedIssue}
-                    pending={createCorrection.isPending}
-                    onClose={() => setSelectedIssue(null)}
-                    onReplay={() => playerRef.current?.playRange(Math.max(0, selectedIssue.start_sec - 2), Math.min(recording.duration_sec, selectedIssue.end_sec + 2))}
-                    onSave={(text) => void saveCorrection(text)}
+                    onAcknowledge={(issue) => void acknowledgeQualityIssue(issue)}
+                    onEdit={editIssue}
+                    onReplay={replayIssue}
+                    onSave={(issue, text) => void saveCorrection(issue, text)}
+                    onCancelEdit={() => setEditingIssueId(null)}
                   />
                 )}
               </div>

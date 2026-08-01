@@ -242,11 +242,28 @@ export function useCreateCorrection(recordingId: number) {
       expected_original_text: string;
       corrected_text: string;
     }) => api.createCorrection(recordingId, payload),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      qc.setQueryData(["quality", recordingId], result.quality_report);
       qc.invalidateQueries({ queryKey: ["transcript", recordingId] });
       qc.invalidateQueries({ queryKey: ["diarization", recordingId] });
       qc.invalidateQueries({ queryKey: ["quality", recordingId] });
       qc.invalidateQueries({ queryKey: ["rag-status"] });
+    },
+  });
+}
+
+export function useAcknowledgeQualityIssue(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      expected_revision: number;
+      start_word_idx: number;
+      end_word_idx: number;
+      expected_original_text: string;
+    }) => api.acknowledgeQualityIssue(recordingId, payload),
+    onSuccess: (result) => {
+      qc.setQueryData(["quality", recordingId], result.quality_report);
+      qc.invalidateQueries({ queryKey: ["transcript", recordingId] });
     },
   });
 }

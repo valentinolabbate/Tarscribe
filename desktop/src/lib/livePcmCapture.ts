@@ -45,7 +45,7 @@ export class LivePcmCapture {
   private systemPolling = false;
   private systemPaused = false;
   private systemNativeRate = 0;
-  private systemRemainder = new Float32Array(0);
+  private systemRemainder: Float32Array<ArrayBufferLike> = new Float32Array(0);
 
   async start(opts: PcmCaptureOptions): Promise<void> {
     const sampleRate = opts.sampleRate ?? 16000;
@@ -204,7 +204,7 @@ export class SystemAudioPcmCapture {
   private targetSampleRate = 16000;
   private nativeSampleRate = 0;
   private chunkSamples = 32000;
-  private remainder = new Float32Array(0);
+  private remainder: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private pending = new Float32Array(0);
   private options: SystemAudioCaptureOptions | null = null;
 

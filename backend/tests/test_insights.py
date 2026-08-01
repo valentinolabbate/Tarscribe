@@ -300,6 +300,94 @@ def test_project_memory_radar_and_decision_ledger(client):
     assert client.get("/api/memory").json()["stats"]["unsupported_tasks"] == 0
 
 
+def test_memory_agent_endpoints_are_filtered_and_paginated(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ActionItem
+
+    rec_id, topic_id = _make_recording()
+    with Session(db.get_engine()) as session:
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Vertrag freigeben",
+                assignee="Ada",
+                due_date="2026-08-02",
+                review_state="pending",
+                source_quote="Ada gibt den Vertrag morgen frei.",
+                source_start_sec=42,
+                confidence=0.91,
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Budget prüfen",
+                assignee="Ben",
+                review_state="confirmed",
+                source_quote="Ben prüft das Budget.",
+                source_start_sec=84,
+                confidence=0.94,
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="decision",
+                text="SQLite bleibt gesetzt",
+                review_state="confirmed",
+                decision_status="current",
+                source_quote="Wir bleiben bei SQLite.",
+                source_start_sec=126,
+                confidence=0.98,
+            )
+        )
+        session.add(
+            ActionItem(
+                recording_id=rec_id,
+                kind="task",
+                text="Verworfener Entwurf",
+                review_state="rejected",
+            )
+        )
+        session.commit()
+
+    overview = client.get(
+        f"/api/memory/overview?topic_id={topic_id}&attention_limit=1"
+    ).json()
+    assert overview["stats"]["open_commitments"] == 2
+    assert overview["stats"]["current_decisions"] == 1
+    assert len(overview["attention_items"]) == 1
+    assert overview["scope"] == {"topic_id": topic_id, "mine_only": False}
+
+    first = client.get("/api/memory/items?kind=task&limit=1").json()
+    assert first["count"] == 1
+    assert first["has_more"] is True
+    assert first["next_cursor"] and not first["next_cursor"].isdigit()
+    assert first["items"][0]["review_state"] != "rejected"
+    second = client.get(
+        f"/api/memory/items?kind=task&limit=1&cursor={first['next_cursor']}"
+    ).json()
+    assert second["count"] == 1
+    assert second["items"][0]["id"] != first["items"][0]["id"]
+    by_recording = client.get(f"/api/memory/items?recording_id={rec_id}").json()
+    assert by_recording["count"] == 3
+
+    queried = client.get("/api/memory/items?query=SQLite&kind=decision").json()
+    assert [item["text"] for item in queried["items"]] == ["SQLite bleibt gesetzt"]
+    detail = client.get(f"/api/memory/items/{queried['items'][0]['id']}").json()
+    assert detail["source_quote"] == "Wir bleiben bei SQLite."
+    assert detail["source_start_sec"] == 126
+
+    rejected = client.get(
+        "/api/memory/items?review_state=rejected&include_rejected=true"
+    ).json()
+    assert [item["text"] for item in rejected["items"]] == ["Verworfener Entwurf"]
+
+
 @pytest.mark.asyncio
 async def test_memory_enrichment_preserves_existing_item_state(client, monkeypatch):
     from sqlmodel import Session, select
@@ -1295,6 +1383,68 @@ def test_threads_rebuild_clusters_semantically_similar_transcripts(client):
     assert rec_threads[0]["mentions"][0]["start_sec"] == 12
 
 
+def test_thread_agent_endpoints_return_compact_pages(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import ThreadMention, TopicThread
+
+    rec_a, topic_a = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=2))
+    rec_b, _ = _make_recording(created_at=datetime.now(timezone.utc) - timedelta(days=1))
+    with Session(db.get_engine()) as session:
+        first = TopicThread(title="Produktstrategie")
+        second = TopicThread(title="Budget")
+        session.add(first)
+        session.add(second)
+        session.flush()
+        session.add(
+            ThreadMention(
+                thread_id=first.id,
+                recording_id=rec_a,
+                start_sec=12,
+                text="Wir sprechen über die Produktstrategie.",
+            )
+        )
+        session.add(
+            ThreadMention(
+                thread_id=first.id,
+                recording_id=rec_b,
+                start_sec=24,
+                text="Die Produktstrategie wird konkretisiert.",
+            )
+        )
+        session.add(
+            ThreadMention(
+                thread_id=second.id,
+                recording_id=rec_b,
+                start_sec=36,
+                text="Das Budget bleibt stabil.",
+            )
+        )
+        session.commit()
+        first_id = first.id
+
+    page = client.get("/api/threads/page?limit=1").json()
+    assert page["count"] == 1
+    assert page["has_more"] is True
+    assert page["next_cursor"] and not page["next_cursor"].isdigit()
+    assert "mentions" not in page["items"][0]
+    assert page["items"][0]["latest_mention"]["text"]
+
+    topic_page = client.get(f"/api/threads/page?topic_id={topic_a}").json()
+    assert [item["title"] for item in topic_page["items"]] == ["Produktstrategie"]
+    assert topic_page["items"][0]["mention_count"] == 1
+
+    detail = client.get(f"/api/threads/{first_id}?limit=1").json()
+    assert detail["returned_count"] == 1
+    assert detail["mention_count"] == 2
+    assert detail["has_more"] is True
+    next_page = client.get(
+        f"/api/threads/{first_id}?limit=1&cursor={detail['next_cursor']}"
+    ).json()
+    assert next_page["mentions"][0]["id"] != detail["mentions"][0]["id"]
+
+
 def test_people_memory_collects_sourced_speaker_context(client):
     from sqlmodel import Session
 
@@ -1391,6 +1541,17 @@ def test_people_memory_collects_sourced_speaker_context(client):
         30.0,
         45.0,
     }
+
+    compact = client.get(
+        f"/api/known-speakers/{speaker_id}/memory"
+        "?include_decisions=false&limit=1&thread_mention_limit=1"
+    ).json()
+    assert len(compact["recordings"]) == 1
+    assert len(compact["tasks"]) == 1
+    assert compact["decisions"] == []
+    assert len(compact["threads"]) == 1
+    assert len(compact["threads"][0]["mentions"]) == 1
+    assert compact["threads"][0]["mention_count"] == 2
 
 
 # ── Speaker stats ────────────────────────────────────────────────────────────

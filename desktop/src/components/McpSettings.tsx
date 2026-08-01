@@ -7,9 +7,10 @@ const fallbackCapabilities: McpCapability[] = [
   { id: "upload", label: "Upload & Pipeline", ready: true, tools: [] },
   { id: "context", label: "Kontext", ready: true, tools: [] },
   { id: "search", label: "Suche", ready: true, tools: [] },
-  { id: "tasks", label: "Aufgaben", ready: true, tools: [] },
+  { id: "memory", label: "Gedächtnis", ready: true, tools: [] },
+  { id: "people", label: "Personen", ready: true, tools: [] },
+  { id: "threads", label: "Themen-Threads", ready: true, tools: [] },
   { id: "analysis", label: "Analyse", ready: true, tools: [] },
-  { id: "export", label: "Export", ready: true, tools: [] },
 ];
 
 export function McpSettings() {
@@ -17,9 +18,11 @@ export function McpSettings() {
   const [diagnostics, setDiagnostics] = useState<McpDiagnostics | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [showManual, setShowManual] = useState(false);
+  const [toolset, setToolset] = useState<"focused" | "full">("focused");
 
   function load() {
     api.getMcpInfo().then(setInfo).catch(() => setInfo(null));
+    api.getSettings().then((settings) => setToolset(settings.mcp_toolset)).catch(() => {});
   }
   useEffect(load, []);
 
@@ -77,6 +80,26 @@ export function McpSettings() {
     }
   }
 
+  async function changeToolset(next: "focused" | "full") {
+    setToolset(next);
+    setBusy("__mcp_toolset");
+    try {
+      await api.updateSettings({ mcp_toolset: next });
+      setDiagnostics(null);
+      toast(
+        next === "focused"
+          ? "Fokussierte Toolauswahl gespeichert. Agent-Host neu starten."
+          : "Vollständige Toolauswahl gespeichert. Agent-Host neu starten.",
+        "success",
+      );
+    } catch (error) {
+      setToolset(info?.toolset ?? "focused");
+      toast(`Toolauswahl konnte nicht gespeichert werden: ${(error as Error).message}`, "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // Detected hosts first, then the rest.
   const targets = info
     ? [...info.targets].sort((a, b) => Number(b.present) - Number(a.present))
@@ -97,12 +120,33 @@ export function McpSettings() {
     <div className="field">
       <label>MCP-Server für Agenten</label>
       <div className="rec-sub" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
-        Erlaubt KI-Agenten, Aufnahmen autonom zu laden, zu transkribieren und Sprecher zu
-        erkennen. Der Server ist in der App enthalten — kein separater Install. Tarscribe muss
-        dafür laufen. Ein Klick richtet den Host ein; danach den jeweiligen Host neu starten.
+        Erlaubt KI-Agenten, Aufnahmen zu verarbeiten und das belegte Gedächtnis mit Zusagen,
+        Entscheidungen, Personen und Themen-Threads abzufragen. Der Server ist in der App
+        enthalten — kein separater Install. Tarscribe muss dafür laufen. Ein Klick richtet den
+        Host ein; danach den jeweiligen Host neu starten.
       </div>
 
       {!info && <div className="rec-sub" style={{ fontSize: 12 }}>Wird geladen…</div>}
+
+      <div className="mcp-toolset-row">
+        <div>
+          <strong>Toolauswahl</strong>
+          <span>
+            {toolset === "focused"
+              ? "Kompakte Standardauswahl ohne blockierende oder redundante Werkzeuge."
+              : "Zusätzlich Low-Level-Werkzeuge, Legacy-Namen und blockierende Abläufe."}
+          </span>
+        </div>
+        <select
+          value={toolset}
+          disabled={busy === "__mcp_toolset"}
+          onChange={(event) => changeToolset(event.target.value as "focused" | "full")}
+          aria-label="MCP-Toolauswahl"
+        >
+          <option value="focused">Fokussiert</option>
+          <option value="full">Vollständig</option>
+        </select>
+      </div>
 
       <div className="mcp-health-card">
         <span className={`mcp-status-dot ${diagnostics?.ok ? "ok" : diagnostics ? "warn" : ""}`} />
@@ -127,7 +171,7 @@ export function McpSettings() {
           </div>
           <div>
             <span>Tools</span>
-            <strong>{diagnostics.tools.count}</strong>
+            <strong>{diagnostics.tools.count} · {diagnostics.toolset.active === "focused" ? "fokussiert" : "voll"}</strong>
           </div>
         </div>
       )}

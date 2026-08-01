@@ -8,6 +8,7 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ class BackendUnavailable(RuntimeError):
 class Connection:
     base_url: str
     token: str
+    toolset: str = "focused"
 
 
 # ── discovery ────────────────────────────────────────────────────────────────
@@ -42,7 +44,11 @@ def discover() -> Connection:
     """Locate the running backend via env overrides or the connection file."""
     base = os.environ.get("TARSCRIBE_BASE_URL")
     if base:
-        return Connection(base.rstrip("/"), os.environ.get("TARSCRIBE_AUTH_TOKEN", ""))
+        return Connection(
+            base.rstrip("/"),
+            os.environ.get("TARSCRIBE_AUTH_TOKEN", ""),
+            os.environ.get("TARSCRIBE_MCP_TOOLSET", "focused"),
+        )
 
     path = _connection_path()
     try:
@@ -54,7 +60,11 @@ def discover() -> Connection:
         ) from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise BackendUnavailable(f"Verbindungsdatei unlesbar: {exc}") from exc
-    return Connection(str(data["base_url"]).rstrip("/"), str(data.get("token", "")))
+    return Connection(
+        str(data["base_url"]).rstrip("/"),
+        str(data.get("token", "")),
+        str(data.get("toolset", "focused")),
+    )
 
 
 # ── HTTP client ──────────────────────────────────────────────────────────────
@@ -103,7 +113,21 @@ class BackendClient:
     def list_topics(self) -> list[dict]:
         return self._request("GET", "/api/topics")
 
-    def list_recordings(self) -> list[dict]:
+    def list_recordings(
+        self,
+        *,
+        topic_id: int | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        params: dict[str, Any] = {"limit": limit}
+        if topic_id is not None:
+            params["topic_id"] = topic_id
+        if cursor is not None:
+            params["cursor"] = cursor
+        return self._request("GET", "/api/recordings/page", params=params)
+
+    def list_all_recordings(self) -> list[dict]:
         return self._request("GET", "/api/recordings")
 
     def get_recording(self, recording_id: int) -> dict:
@@ -117,6 +141,33 @@ class BackendClient:
 
     def get_transcript(self, recording_id: int) -> dict:
         return self._request("GET", f"/api/recordings/{recording_id}/transcript")
+
+    def get_transcript_context(
+        self,
+        recording_id: int,
+        *,
+        start_sec: float | None = None,
+        end_sec: float | None = None,
+        cursor: str | None = None,
+        limit: int = 500,
+        include_words: bool = False,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "limit": limit,
+            "include_words": str(include_words).lower(),
+        }
+        for key, value in {
+            "start_sec": start_sec,
+            "end_sec": end_sec,
+            "cursor": cursor,
+        }.items():
+            if value is not None:
+                params[key] = value
+        return self._request(
+            "GET",
+            f"/api/recordings/{recording_id}/transcript/context",
+            params=params,
+        )
 
     def get_diarization(self, recording_id: int) -> dict:
         return self._request("GET", f"/api/recordings/{recording_id}/diarization")
@@ -148,6 +199,120 @@ class BackendClient:
 
     def list_recording_threads(self, recording_id: int) -> list[dict]:
         return self._request("GET", f"/api/recordings/{recording_id}/threads")
+
+    def get_memory_overview(
+        self,
+        *,
+        topic_id: int | None = None,
+        mine_only: bool = False,
+        attention_limit: int = 10,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "mine_only": str(mine_only).lower(),
+            "attention_limit": attention_limit,
+        }
+        if topic_id is not None:
+            params["topic_id"] = topic_id
+        return self._request("GET", "/api/memory/overview", params=params)
+
+    def list_memory_items(
+        self,
+        *,
+        kind: str | None = None,
+        topic_id: int | None = None,
+        recording_id: int | None = None,
+        done: bool | None = None,
+        review_state: str | None = None,
+        decision_status: str | None = None,
+        mine_only: bool = False,
+        involved_only: bool = False,
+        attention: str | None = None,
+        due_before: str | None = None,
+        query: str | None = None,
+        include_rejected: bool = False,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        params: dict[str, Any] = {
+            "mine_only": str(mine_only).lower(),
+            "involved_only": str(involved_only).lower(),
+            "include_rejected": str(include_rejected).lower(),
+            "limit": limit,
+        }
+        values = {
+            "kind": kind,
+            "topic_id": topic_id,
+            "recording_id": recording_id,
+            "review_state": review_state,
+            "decision_status": decision_status,
+            "attention": attention,
+            "due_before": due_before,
+            "query": query,
+            "cursor": cursor,
+        }
+        params.update({key: value for key, value in values.items() if value is not None})
+        if done is not None:
+            params["done"] = str(done).lower()
+        return self._request("GET", "/api/memory/items", params=params)
+
+    def get_memory_item(self, item_id: int) -> dict:
+        return self._request("GET", f"/api/memory/items/{item_id}")
+
+    def get_people_memory(
+        self,
+        speaker_id: int,
+        *,
+        include_recordings: bool = True,
+        include_tasks: bool = True,
+        include_decisions: bool = True,
+        include_threads: bool = True,
+        limit: int = 10,
+        thread_mention_limit: int = 5,
+    ) -> dict:
+        return self._request(
+            "GET",
+            f"/api/known-speakers/{speaker_id}/memory",
+            params={
+                "include_recordings": str(include_recordings).lower(),
+                "include_tasks": str(include_tasks).lower(),
+                "include_decisions": str(include_decisions).lower(),
+                "include_threads": str(include_threads).lower(),
+                "limit": limit,
+                "thread_mention_limit": thread_mention_limit,
+            },
+        )
+
+    def list_thread_summaries(
+        self,
+        *,
+        topic_id: int | None = None,
+        recorded_after: str | None = None,
+        cursor: str | None = None,
+        limit: int = 10,
+    ) -> dict:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if topic_id is not None:
+            params["topic_id"] = topic_id
+        if recorded_after is not None:
+            params["recorded_after"] = recorded_after
+        return self._request("GET", "/api/threads/page", params=params)
+
+    def get_thread(
+        self,
+        thread_id: int,
+        *,
+        topic_id: int | None = None,
+        cursor: str | None = None,
+        limit: int = 20,
+    ) -> dict:
+        params: dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        if topic_id is not None:
+            params["topic_id"] = topic_id
+        return self._request("GET", f"/api/threads/{thread_id}", params=params)
 
     def semantic_search(
         self,
@@ -220,6 +385,9 @@ class BackendClient:
 
     def extract_action_items(self, recording_id: int) -> dict:
         return self._request("POST", f"/api/recordings/{recording_id}/action-items/extract")
+
+    def export_recording_note(self, recording_id: int) -> dict:
+        return self._request("POST", f"/api/recordings/{recording_id}/send-to-folder")
 
     def update_action_item(
         self,
@@ -390,7 +558,7 @@ def get_recording_context(
     recording_id: int,
     *,
     include_transcript: bool = True,
-    include_diarization: bool = True,
+    include_diarization: bool = False,
     include_chapters: bool = True,
     include_summaries: bool = True,
     include_action_items: bool = True,
@@ -406,10 +574,13 @@ def get_recording_context(
 
     payload: dict[str, Any] = {
         "recording": client.get_recording(recording_id),
-        "jobs": client.get_jobs(recording_id),
+        "jobs": client.get_jobs(recording_id)[-20:],
     }
     if include_transcript:
-        payload["transcript"] = optional("Transkript", lambda: client.get_transcript(recording_id))
+        payload["transcript"] = optional(
+            "Transkript",
+            lambda: client.get_transcript_context(recording_id, limit=500, include_words=False),
+        )
     if include_diarization:
         payload["diarization"] = optional(
             "Diarisierung", lambda: client.get_diarization(recording_id)
@@ -417,15 +588,33 @@ def get_recording_context(
     if include_chapters:
         payload["chapters"] = optional("Kapitel", lambda: client.get_chapters(recording_id))
     if include_summaries:
-        payload["summaries"] = optional(
-            "Zusammenfassungen", lambda: client.list_summaries(recording_id)
-        )
+        summaries = optional("Zusammenfassungen", lambda: client.list_summaries(recording_id))
+        if isinstance(summaries, list):
+            summaries = [
+                {
+                    **summary,
+                    "content": str(summary.get("content") or "")[:4000],
+                    "truncated": len(str(summary.get("content") or "")) > 4000,
+                }
+                for summary in summaries[:5]
+            ]
+        payload["summaries"] = summaries
     if include_action_items:
-        payload["action_items"] = optional(
-            "Aufgaben", lambda: client.list_recording_action_items(recording_id)
+        payload["memory_items"] = optional(
+            "Gedächtnis",
+            lambda: client.list_memory_items(recording_id=recording_id, limit=20),
         )
     if include_threads:
-        payload["threads"] = optional("Threads", lambda: client.list_recording_threads(recording_id))
+        threads = optional("Threads", lambda: client.list_recording_threads(recording_id))
+        if isinstance(threads, list):
+            threads = [
+                {
+                    **{key: value for key, value in thread.items() if key != "mentions"},
+                    "mentions": list(thread.get("mentions") or [])[:3],
+                }
+                for thread in threads[:10]
+            ]
+        payload["threads"] = threads
     return payload
 
 
@@ -500,18 +689,64 @@ def create_summary(
     return result
 
 
-def export_summary(client: BackendClient, summary_id: int, file_path: str) -> dict:
-    """Write a summary's Markdown content to ``file_path``. Returns the path."""
-    summary = client.get_summary(summary_id)
-    content = (summary.get("content") or "").strip()
-    if not content:
-        raise RuntimeError(
-            f"Zusammenfassung {summary_id} hat noch keinen Inhalt — ist der Job fertig?"
-        )
-    target = Path(file_path).expanduser()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    return {"path": str(target), "bytes": len(content.encode("utf-8"))}
+def prepare_meeting(
+    client: BackendClient,
+    *,
+    topic_id: int | None = None,
+    speaker_ids: list[int] | None = None,
+    lookback_days: int = 90,
+    item_limit: int = 15,
+    thread_limit: int = 8,
+) -> dict:
+    selected_speakers = list(dict.fromkeys(speaker_ids or []))
+    if len(selected_speakers) > 5:
+        raise RuntimeError("Höchstens fünf Personen können gleichzeitig vorbereitet werden.")
+    if not 1 <= lookback_days <= 3650:
+        raise RuntimeError("lookback_days muss zwischen 1 und 3650 liegen.")
+    if not 1 <= item_limit <= 50:
+        raise RuntimeError("item_limit muss zwischen 1 und 50 liegen.")
+    if not 1 <= thread_limit <= 50:
+        raise RuntimeError("thread_limit muss zwischen 1 und 50 liegen.")
+    recorded_after = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    return {
+        "scope": {
+            "topic_id": topic_id,
+            "speaker_ids": selected_speakers,
+            "lookback_days": lookback_days,
+        },
+        "overview": client.get_memory_overview(
+            topic_id=topic_id,
+            attention_limit=min(item_limit, 8),
+        ),
+        "open_commitments": client.list_memory_items(
+            kind="task",
+            topic_id=topic_id,
+            done=False,
+            limit=item_limit,
+        ),
+        "current_decisions": client.list_memory_items(
+            kind="decision",
+            topic_id=topic_id,
+            decision_status="current",
+            limit=item_limit,
+        ),
+        "people": [
+            client.get_people_memory(
+                speaker_id,
+                include_tasks=False,
+                include_decisions=False,
+                limit=min(item_limit, 20),
+                thread_mention_limit=3,
+            )
+            for speaker_id in selected_speakers
+        ],
+        "recent_threads": client.list_thread_summaries(
+            topic_id=topic_id,
+            recorded_after=recorded_after,
+            limit=thread_limit,
+        ),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def analyze_recording(

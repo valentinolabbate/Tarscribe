@@ -40,6 +40,7 @@ def info() -> dict:
         "connection_file": str(mcp_connection_path()),
         "snippet": M.registration_snippet(),
         "targets": M.target_status(),
+        "toolset": M.selected_toolset(),
     }
 
 
@@ -63,6 +64,7 @@ def _connection_file_status() -> dict:
         "version": payload.get("version"),
         "started_at": payload.get("started_at"),
         "token_present": bool(payload.get("token")),
+        "toolset": payload.get("toolset", "focused"),
         "error": error,
     }
 
@@ -75,47 +77,9 @@ def _tool_names() -> list[str]:
 
 
 def _capabilities(tool_names: set[str]) -> list[dict]:
-    rows = [
-        (
-            "upload",
-            "Upload & Pipeline",
-            ["upload_recording", "process_recording_pipeline", "start_transcription"],
-        ),
-        (
-            "context",
-            "Kontext abrufen",
-            ["get_recording_context", "get_transcript", "get_diarization", "list_summaries"],
-        ),
-        (
-            "search",
-            "Suche",
-            ["search_recordings"],
-        ),
-        (
-            "tasks",
-            "Aufgaben",
-            ["list_action_items", "update_action_item"],
-        ),
-        (
-            "analysis",
-            "Analyse",
-            ["analyze_recording", "create_summary", "wait_for_jobs"],
-        ),
-        (
-            "export",
-            "Export",
-            ["export_summary"],
-        ),
-    ]
-    return [
-        {
-            "id": cap_id,
-            "label": label,
-            "ready": all(name in tool_names for name in names),
-            "tools": names,
-        }
-        for cap_id, label, names in rows
-    ]
+    from ..mcp_server import server
+
+    return server.capability_rows(tool_names)
 
 
 @router.get("/diagnostics")
@@ -129,11 +93,15 @@ def diagnostics() -> dict:
         tool_error = str(exc)
     tool_set = set(tools)
     capabilities = _capabilities(tool_set)
+    from ..mcp_server import server
+
+    toolset = server.toolset_summary()
     tools_ok = bool(tools) and tool_error is None
     return {
         "ok": connection["ok"] and tools_ok,
         "connection_file": connection,
         "backend": {"ok": True, "status": "ok"},
         "tools": {"ok": tools_ok, "count": len(tools), "names": tools, "error": tool_error},
+        "toolset": toolset,
         "capabilities": capabilities,
     }

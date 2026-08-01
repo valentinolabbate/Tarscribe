@@ -15,9 +15,12 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import __version__
-from .config import Settings, mcp_connection_path
+
+if TYPE_CHECKING:
+    from .config import Settings
 
 # The agent host launches this module with the app's runtime venv interpreter.
 MCP_MODULE = "tarscribe_backend.mcp_server"
@@ -29,8 +32,22 @@ SERVER_KEY = "tarscribe"
 _BACKEND_ROOT = str(Path(__file__).resolve().parents[1])
 
 
-def write_connection_file(settings: Settings) -> None:
-    path = mcp_connection_path()
+def selected_toolset() -> str:
+    from .settings_store import load_prefs
+
+    value = load_prefs().get("mcp_toolset", "focused")
+    return value if value in {"focused", "full"} else "focused"
+
+
+def _connection_path() -> Path:
+    from .config import mcp_connection_path
+
+    return mcp_connection_path()
+
+
+def write_connection_file(settings: Settings, *, toolset: str | None = None) -> None:
+    path = _connection_path()
+    active_toolset = toolset if toolset in {"focused", "full"} else selected_toolset()
     payload = {
         "base_url": f"http://{settings.host}:{settings.port}",
         "token": settings.auth_token,
@@ -38,6 +55,7 @@ def write_connection_file(settings: Settings) -> None:
         "pid": os.getpid(),
         "version": __version__,
         "started_at": datetime.now(timezone.utc).isoformat(),
+        "toolset": active_toolset,
     }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,7 +68,7 @@ def write_connection_file(settings: Settings) -> None:
 
 def remove_connection_file() -> None:
     try:
-        mcp_connection_path().unlink()
+        _connection_path().unlink()
     except (FileNotFoundError, OSError):
         pass
 

@@ -173,7 +173,78 @@ def test_mcp_diagnostics(client):
     assert "connection_file" in body
     assert body["tools"]["count"] > 0
     capability_ids = {item["id"] for item in body["capabilities"]}
-    assert {"context", "search", "tasks", "analysis"} <= capability_ids
+    assert {
+        "context",
+        "search",
+        "memory",
+        "people",
+        "threads",
+        "analysis",
+    } <= capability_ids
+    assert body["toolset"]["active"] == "focused"
+    assert body["tools"]["count"] == body["toolset"]["focused_count"]
+
+
+def test_mcp_toolset_setting_updates_connection_descriptor(client, monkeypatch, tmp_path):
+    from tarscribe_backend import mcp_link
+
+    descriptor_path = tmp_path / "mcp-connection.json"
+    monkeypatch.setattr(mcp_link, "_connection_path", lambda: descriptor_path)
+    response = client.put("/api/settings", json={"mcp_toolset": "full"})
+    assert response.status_code == 200
+    assert response.json()["mcp_toolset"] == "full"
+    descriptor = json.loads(descriptor_path.read_text())
+    assert descriptor["toolset"] == "full"
+
+
+def test_recording_and_transcript_context_use_bounded_opaque_pages(client):
+    from sqlmodel import Session
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, Topic, Transcript, Word
+
+    with Session(db.get_engine()) as session:
+        topic = Topic(name="MCP")
+        session.add(topic)
+        session.flush()
+        recording = Recording(topic_id=topic.id, title="Lang", audio_path="/tmp/lang.wav")
+        session.add(recording)
+        session.flush()
+        transcript = Transcript(recording_id=recording.id, asr_model="test", language="de")
+        session.add(transcript)
+        session.flush()
+        for index in range(4):
+            session.add(
+                Word(
+                    transcript_id=transcript.id,
+                    idx=index,
+                    start=float(index),
+                    end=float(index + 1),
+                    text=f" Wort{index}",
+                    confidence=0.9,
+                )
+            )
+        session.commit()
+        recording_id = recording.id
+
+    recordings = client.get("/api/recordings/page?limit=1").json()
+    assert recordings["count"] == 1
+    assert recordings["next_cursor"] is None
+
+    first = client.get(f"/api/recordings/{recording_id}/transcript/context?limit=2").json()
+    assert first["returned_word_count"] == 2
+    assert "words" not in first
+    assert first["next_cursor"] and not first["next_cursor"].isdigit()
+    second = client.get(
+        f"/api/recordings/{recording_id}/transcript/context",
+        params={"limit": 2, "cursor": first["next_cursor"], "include_words": True},
+    ).json()
+    assert second["text"].endswith("Wort3")
+    assert len(second["words"]) == 2
+    assert second["has_more"] is False
+    assert client.get(
+        f"/api/recordings/{recording_id}/transcript/context?cursor=not-a-cursor"
+    ).status_code == 400
 
 
 def test_mcp_registration_api_is_not_exposed(client):

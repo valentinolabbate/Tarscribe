@@ -10,9 +10,10 @@ import {
 } from "../hooks/queries";
 import { useUndoableDelete } from "../hooks/useUndoableDelete";
 import { fmtDate } from "../lib/format";
-import type { ActionItem, Topic } from "../lib/types";
+import type { ActionItem, MemoryEnrichmentRun, Topic } from "../lib/types";
 import { EvidenceTrail } from "./EvidenceTrail";
 import {
+  CloseIcon,
   MemoryIcon,
   RefreshIcon,
   SearchIcon,
@@ -24,6 +25,7 @@ import { needsEvidenceReview } from "./memory/model";
 import type { MemoryContentView } from "./MemorySectionNav";
 
 type RadarFilter = "attention" | "evidence" | "overdue" | "soon" | "undated" | "all";
+const MEMORY_ENRICHMENT_DISMISSED_RUN_KEY = "ts-memory-enrichment-dismissed-run";
 type MemoryPatch = Partial<
   Pick<
     ActionItem,
@@ -45,6 +47,31 @@ const decisionLabels: Record<ActionItem["decision_status"], string> = {
   superseded: "Ersetzt",
   rejected: "Verworfen",
 };
+
+export function parseDismissedMemoryEnrichmentRunId(value: string | null): number | null {
+  if (value == null) return null;
+  const runId = Number(value);
+  return Number.isInteger(runId) && runId > 0 ? runId : null;
+}
+
+function readDismissedMemoryEnrichmentRunId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return parseDismissedMemoryEnrichmentRunId(
+      window.localStorage.getItem(MEMORY_ENRICHMENT_DISMISSED_RUN_KEY),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function persistDismissedMemoryEnrichmentRunId(runId: number) {
+  try {
+    window.localStorage.setItem(MEMORY_ENRICHMENT_DISMISSED_RUN_KEY, String(runId));
+  } catch {
+    return;
+  }
+}
 
 function priority(item: ActionItem): number {
   if (needsEvidenceReview(item)) return 0;
@@ -365,11 +392,50 @@ function DecisionCard({
   );
 }
 
+export function MemoryEnrichmentCompletion({
+  run,
+  onDismiss,
+}: {
+  run: MemoryEnrichmentRun;
+  onDismiss: () => void;
+}) {
+  return (
+    <section className={`memory-enrichment complete ${run.status}`}>
+      <div className="memory-enrichment-icon"><TasksIcon width={20} height={20} /></div>
+      <div className="memory-enrichment-copy">
+        <span className="page-kicker">Altbestand integriert</span>
+        <h3>
+          {run.enriched_items} {run.enriched_items === 1 ? "Belegspur" : "Belegspuren"} ergänzt
+        </h3>
+        <p>
+          {run.unmatched_items > 0
+            ? `${run.unmatched_items} Einträge blieben unverändert, weil kein eindeutiger Beleg gefunden wurde.`
+            : "Alle geeigneten Einträge wurden geprüft, ohne ihren Fortschritt zu verändern."}
+        </p>
+      </div>
+      <div className="memory-enrichment-result">
+        <strong>{run.total_items}</strong>
+        <span>Einträge geprüft</span>
+      </div>
+      <button
+        type="button"
+        className="memory-enrichment-dismiss"
+        aria-label="Meldung dauerhaft schließen"
+        title="Nicht mehr anzeigen"
+        onClick={onDismiss}
+      >
+        <CloseIcon width={16} height={16} />
+      </button>
+    </section>
+  );
+}
+
 function MemoryEnrichmentPanel() {
   const queryClient = useQueryClient();
   const { data: status, isLoading } = useMemoryEnrichmentStatus();
   const start = useStartMemoryEnrichment();
   const retry = useRetryMemoryEnrichment();
+  const [dismissedRunId, setDismissedRunId] = useState(readDismissedMemoryEnrichmentRunId);
   const run = status?.latest_run;
   const active = run?.status === "pending" || run?.status === "running";
   const terminal = run?.status === "done" || run?.status === "partial" || run?.status === "failed";
@@ -431,23 +497,15 @@ function MemoryEnrichmentPanel() {
   }
 
   if (run && terminal) {
+    if (dismissedRunId === run.id) return null;
     return (
-      <section className={`memory-enrichment complete ${run.status}`}>
-        <div className="memory-enrichment-icon"><TasksIcon width={20} height={20} /></div>
-        <div className="memory-enrichment-copy">
-          <span className="page-kicker">Altbestand integriert</span>
-          <h3>{run.enriched_items} Belegspuren ergänzt</h3>
-          <p>
-            {run.unmatched_items > 0
-              ? `${run.unmatched_items} Einträge blieben unverändert, weil kein eindeutiger Beleg gefunden wurde.`
-              : "Alle geeigneten Einträge wurden geprüft, ohne ihren Fortschritt zu verändern."}
-          </p>
-        </div>
-        <div className="memory-enrichment-result">
-          <strong>{run.total_items}</strong>
-          <span>Einträge geprüft</span>
-        </div>
-      </section>
+      <MemoryEnrichmentCompletion
+        run={run}
+        onDismiss={() => {
+          persistDismissedMemoryEnrichmentRunId(run.id);
+          setDismissedRunId(run.id);
+        }}
+      />
     );
   }
 

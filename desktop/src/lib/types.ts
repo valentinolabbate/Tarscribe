@@ -100,6 +100,7 @@ export interface AppSettings {
   caldav: { url: string; username: string };
   caldav_password_set: boolean;
   secret_storage: SecretStorageStatus;
+  mcp_toolset: "focused" | "full";
 }
 
 export interface WordSeg {
@@ -298,6 +299,7 @@ export interface McpInfo {
   connection_file: string;
   snippet: string;
   targets: McpHostTarget[];
+  toolset: "focused" | "full";
 }
 
 export interface McpRegistrationResult {
@@ -324,6 +326,7 @@ export interface McpDiagnostics {
     version: string | null;
     started_at: string | null;
     token_present: boolean;
+    toolset: "focused" | "full";
     error: string | null;
   };
   backend: { ok: boolean; status: string };
@@ -332,6 +335,13 @@ export interface McpDiagnostics {
     count: number;
     names: string[];
     error: string | null;
+  };
+  toolset: {
+    active: "focused" | "full";
+    focused_count: number;
+    full_count: number;
+    focused_tools: string[];
+    full_tools: string[];
   };
   capabilities: McpCapability[];
 }

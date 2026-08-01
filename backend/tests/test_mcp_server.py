@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import httpx
 import pytest
@@ -14,7 +17,12 @@ from tarscribe_backend.mcp_server import client as C
 
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch):
-    for var in ("TARSCRIBE_BASE_URL", "TARSCRIBE_AUTH_TOKEN", "TARSCRIBE_MCP_CONNECTION_FILE"):
+    for var in (
+        "TARSCRIBE_BASE_URL",
+        "TARSCRIBE_AUTH_TOKEN",
+        "TARSCRIBE_MCP_CONNECTION_FILE",
+        "TARSCRIBE_MCP_TOOLSET",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -219,6 +227,92 @@ def test_search_action_items_and_context_helpers():
     assert context["summaries"][0]["content"] == "Kurz"
 
 
+def test_memory_client_helpers_send_compact_query_parameters():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        seen[path] = dict(request.url.params)
+        if path == "/api/memory/overview":
+            return httpx.Response(200, json={"stats": {}, "attention_items": []})
+        if path == "/api/memory/items":
+            return httpx.Response(200, json={"items": [], "next_cursor": None})
+        if path == "/api/memory/items/7":
+            return httpx.Response(200, json={"id": 7, "source_quote": "Beleg"})
+        if path == "/api/known-speakers/3/memory":
+            return httpx.Response(200, json={"speaker": {"id": 3}})
+        if path == "/api/threads/page":
+            return httpx.Response(200, json={"items": [], "next_cursor": None})
+        if path == "/api/threads/9":
+            return httpx.Response(200, json={"id": 9, "mentions": []})
+        return httpx.Response(404, text=path)
+
+    with _client(handler) as c:
+        c.get_memory_overview(topic_id=2, mine_only=True, attention_limit=4)
+        c.list_memory_items(
+            kind="task",
+            done=False,
+            attention="overdue",
+            query="Vertrag",
+            cursor=17,
+            limit=5,
+        )
+        assert c.get_memory_item(7)["source_quote"] == "Beleg"
+        c.get_people_memory(3, include_decisions=False, limit=6, thread_mention_limit=2)
+        c.list_thread_summaries(topic_id=2, cursor=10, limit=5)
+        c.get_thread(9, topic_id=2, cursor=20, limit=10)
+
+    assert seen["/api/memory/overview"] == {
+        "mine_only": "true",
+        "attention_limit": "4",
+        "topic_id": "2",
+    }
+    assert seen["/api/memory/items"]["done"] == "false"
+    assert seen["/api/memory/items"]["attention"] == "overdue"
+    assert seen["/api/memory/items"]["cursor"] == "17"
+    assert seen["/api/known-speakers/3/memory"]["include_decisions"] == "false"
+    assert seen["/api/known-speakers/3/memory"]["thread_mention_limit"] == "2"
+    assert seen["/api/threads/page"]["cursor"] == "10"
+    assert seen["/api/threads/9"]["topic_id"] == "2"
+
+
+def test_prepare_meeting_builds_a_bounded_memory_brief():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        seen.append((path, dict(request.url.params)))
+        if path == "/api/memory/overview":
+            return httpx.Response(200, json={"stats": {"attention_count": 2}})
+        if path == "/api/memory/items":
+            kind = request.url.params.get("kind")
+            return httpx.Response(200, json={"items": [{"kind": kind}], "next_cursor": None})
+        if path == "/api/known-speakers/3/memory":
+            return httpx.Response(200, json={"speaker": {"id": 3, "name": "Ada"}})
+        if path == "/api/threads/page":
+            return httpx.Response(200, json={"items": [{"id": 9}], "next_cursor": None})
+        return httpx.Response(404, text=path)
+
+    with _client(handler) as c:
+        brief = C.prepare_meeting(
+            c,
+            topic_id=2,
+            speaker_ids=[3, 3],
+            lookback_days=30,
+            item_limit=4,
+            thread_limit=2,
+        )
+
+    assert brief["scope"]["speaker_ids"] == [3]
+    assert brief["people"][0]["speaker"]["name"] == "Ada"
+    assert brief["open_commitments"]["items"][0]["kind"] == "task"
+    assert brief["current_decisions"]["items"][0]["kind"] == "decision"
+    thread_params = next(params for path, params in seen if path == "/api/threads/page")
+    assert thread_params["topic_id"] == "2"
+    assert thread_params["limit"] == "2"
+    assert "recorded_after" in thread_params
+
+
 # ── orchestrator ─────────────────────────────────────────────────────────────
 def test_process_recording_end_to_end(tmp_path):
     audio = tmp_path / "a.wav"
@@ -403,26 +497,15 @@ def test_create_summary_no_templates_raises():
             C.create_summary(c, 5)
 
 
-def test_export_summary_writes_markdown(tmp_path):
+def test_export_recording_note_uses_configured_backend_destination():
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/api/summaries/3":
-            return httpx.Response(200, json={"id": 3, "content": "# Titel\nInhalt."})
+        if request.url.path == "/api/recordings/3/send-to-folder" and request.method == "POST":
+            return httpx.Response(200, json={"path": "/configured/Meeting.md"})
         return httpx.Response(404, text=request.url.path)
 
-    target = tmp_path / "out" / "summary.md"
     with _client(handler) as c:
-        res = C.export_summary(c, 3, str(target))
-    assert target.read_text(encoding="utf-8") == "# Titel\nInhalt."
-    assert res["path"] == str(target)
-
-
-def test_export_summary_empty_content_raises(tmp_path):
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"id": 3, "content": "   "})
-
-    with _client(handler) as c:
-        with pytest.raises(RuntimeError, match="keinen Inhalt"):
-            C.export_summary(c, 3, str(tmp_path / "x.md"))
+        res = c.export_recording_note(3)
+    assert res["path"] == "/configured/Meeting.md"
 
 
 # ── host status ──────────────────────────────────────────────────────────────
@@ -495,21 +578,96 @@ def test_server_exposes_expected_tools():
     from tarscribe_backend.mcp_server import server
 
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    assert tools == {
+        "create_summary",
+        "create_topic",
+        "get_chapters",
+        "get_job_status",
+        "get_memory_item",
+        "get_memory_overview",
+        "get_person_memory",
+        "get_recording_context",
+        "get_thread",
+        "get_transcript",
+        "import_and_process_recording",
+        "list_memory_items",
+        "list_people",
+        "list_recordings",
+        "list_summaries",
+        "list_threads",
+        "list_topics",
+        "prepare_meeting",
+        "process_existing_recording",
+        "search_knowledge",
+        "update_memory_item",
+    }
     assert {
         "analyze_recording",
-        "get_recording_context",
+        "export_recording_note",
         "process_recording_pipeline",
         "search_recordings",
-        "list_action_items",
-        "update_action_item",
         "wait_for_jobs",
-        "upload_recording",
-        "start_transcription",
-        "start_chapter_detection",
-        "get_chapters",
-        "get_diarization",
-        "list_topics",
-        "list_templates",
-        "create_summary",
-        "export_summary",
+    } <= set(server.toolset_summary()["full_tools"])
+
+
+def test_full_toolset_registers_advanced_and_legacy_tools():
+    env = os.environ.copy()
+    env["TARSCRIBE_MCP_TOOLSET"] = "full"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import asyncio,json; from tarscribe_backend.mcp_server import server; "
+            "print(json.dumps([t.name for t in asyncio.run(server.mcp.list_tools())]))",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    tools = set(json.loads(result.stdout))
+    assert {
+        "analyze_recording",
+        "export_recording_note",
+        "process_recording_pipeline",
+        "search_recordings",
+        "wait_for_jobs",
     } <= tools
+
+
+def test_server_tools_expose_capabilities_and_safety_annotations():
+    import asyncio
+
+    from tarscribe_backend.mcp_server import server
+
+    tools = {tool.name: tool for tool in asyncio.run(server.mcp.list_tools())}
+    overview = tools["get_memory_overview"]
+    assert overview.annotations.readOnlyHint is True
+    assert overview.annotations.destructiveHint is False
+    assert overview.meta == {"tarscribe": {"capability": "memory"}}
+    assert tools["update_memory_item"].annotations.readOnlyHint is False
+    assert tools["process_existing_recording"].annotations.destructiveHint is False
+    assert all(tool.outputSchema is not None for tool in tools.values())
+
+    capabilities = server.capability_rows(set(tools))
+    memory = next(row for row in capabilities if row["id"] == "memory")
+    assert memory["ready"] is True
+    assert {
+        "get_memory_overview",
+        "list_memory_items",
+        "get_memory_item",
+        "prepare_meeting",
+        "update_memory_item",
+    } == set(memory["tools"])
+
+    resources = {str(resource.uri) for resource in asyncio.run(server.mcp.list_resources())}
+    templates = {
+        str(resource.uriTemplate)
+        for resource in asyncio.run(server.mcp.list_resource_templates())
+    }
+    assert "tarscribe://memory/overview" in resources
+    assert {
+        "tarscribe://memory/items/{item_id}",
+        "tarscribe://people/{speaker_id}",
+        "tarscribe://threads/{thread_id}",
+    } <= templates

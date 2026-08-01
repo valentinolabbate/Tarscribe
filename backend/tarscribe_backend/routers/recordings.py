@@ -24,6 +24,7 @@ from ..models import (
     RecordingStatus,
     Topic,
 )
+from ..pagination import CursorError, decode_cursor, encode_cursor
 from ..schemas import RecordingUpdate
 from ..upload_security import (
     AUDIO_UPLOAD_SUFFIXES,
@@ -93,6 +94,31 @@ def list_recordings(
     if topic_id is not None:
         stmt = stmt.where(Recording.topic_id == topic_id)
     return list(session.exec(stmt).all())
+
+
+@router.get("/page")
+def list_recordings_page(
+    topic_id: int | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=20, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        offset = decode_cursor(cursor, "recordings", default=0) or 0
+    except CursorError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    stmt = select(Recording).order_by(Recording.created_at.desc(), Recording.id.desc())
+    if topic_id is not None:
+        stmt = stmt.where(Recording.topic_id == topic_id)
+    rows = list(session.exec(stmt.offset(offset).limit(limit + 1)).all())
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return {
+        "items": page,
+        "count": len(page),
+        "has_more": has_more,
+        "next_cursor": encode_cursor("recordings", offset + limit) if has_more else None,
+    }
 
 
 @router.get("/{recording_id}")

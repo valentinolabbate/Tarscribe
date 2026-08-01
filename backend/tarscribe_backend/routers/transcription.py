@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -26,6 +26,7 @@ from ..models import (
     Summary,
     TranscriptCorrection,
 )
+from ..pagination import CursorError, decode_cursor, encode_cursor
 from ..transcript_quality import analyze_words, filter_acknowledged_issues, quality_summary
 from ..transcript_view import effective_text, load_effective_words
 
@@ -85,6 +86,64 @@ def get_transcript(recording_id: int, session: Session = Depends(get_session)) -
             for w in words
         ],
     }
+
+
+@router.get("/{recording_id}/transcript/context")
+def get_transcript_context(
+    recording_id: int,
+    start_sec: float | None = Query(default=None, ge=0),
+    end_sec: float | None = Query(default=None, gt=0),
+    cursor: str | None = None,
+    limit: int = Query(default=500, ge=1, le=2000),
+    include_words: bool = False,
+    session: Session = Depends(get_session),
+) -> dict:
+    if end_sec is not None and start_sec is not None and end_sec <= start_sec:
+        raise HTTPException(422, "end_sec muss nach start_sec liegen")
+    try:
+        offset = decode_cursor(cursor, f"transcript:{recording_id}", default=0) or 0
+    except CursorError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    loaded = load_effective_words(session, recording_id)
+    if not loaded:
+        raise HTTPException(404, "Noch kein Transkript vorhanden")
+    snapshot, words = loaded
+    selected = [
+        word
+        for word in words
+        if (start_sec is None or word.end >= start_sec) and (end_sec is None or word.start < end_sec)
+    ]
+    page = selected[offset : offset + limit]
+    next_offset = offset + limit
+    has_more = next_offset < len(selected)
+    transcript = snapshot.transcript
+    payload = {
+        "transcript_id": transcript.id,
+        "asr_model": transcript.asr_model,
+        "language": transcript.language,
+        "revision": transcript.revision,
+        "text": effective_text(page),
+        "start_sec": page[0].start if page else start_sec,
+        "end_sec": page[-1].end if page else end_sec,
+        "total_word_count": len(selected),
+        "returned_word_count": len(page),
+        "has_more": has_more,
+        "next_cursor": (
+            encode_cursor(f"transcript:{recording_id}", next_offset) if has_more else None
+        ),
+    }
+    if include_words:
+        payload["words"] = [
+            {
+                "start": word.start,
+                "end": word.end,
+                "text": word.text,
+                "confidence": word.confidence,
+                "corrected": word.correction_id is not None,
+            }
+            for word in page
+        ]
+    return payload
 
 
 def _reenqueue_for_phase(session: Session, recording_id: int, phase: JobPhase) -> int:

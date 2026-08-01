@@ -74,7 +74,8 @@ Unterseitenleiste:
 
 Jeder geeignete Eintrag behält seine Belegspur mit Aufnahme, Originalzitat und Zeitmarke.
 Ältere Aufgaben lassen sich nachträglich anreichern, ohne Text, Frist oder Fortschritt zu
-überschreiben.
+überschreiben. Die Abschlussmeldung einer solchen Altbestands-Anreicherung kann dauerhaft für
+den jeweiligen Lauf geschlossen werden; ein späterer neuer Lauf wird wieder angezeigt.
 
 Die Startseite bündelt Aufnahme, Diktat, nächste offene Aufgaben und den letzten
 Wiedereinstieg in einem „Heute“-Arbeitsplatz. Eine gemeinsame visuelle Quellenspur verbindet
@@ -189,16 +190,28 @@ du dafür einen lokalen oder externen Endpoint konfigurierst.
 Tarscribe enthält einen Model-Context-Protocol-Server. Unter
 **Einstellungen → Agenten (MCP)** lässt er sich für unterstützte Hosts registrieren. Die
 Tarscribe-App muss dabei laufen; der MCP-Server verbindet sich mit ihrem lokal geschützten
-Backend.
+Backend. Standardmäßig startet er mit der **fokussierten** Toolauswahl. Sie hält die sichtbare
+Auswahl kompakt, verwendet eindeutige Namen und gibt längere Vorgänge als Jobs zurück. Das
+optionale Profil **Vollständig** ergänzt Low-Level-Werkzeuge, blockierende Abläufe und ältere
+Toolnamen für bestehende Agenten-Konfigurationen; nach einem Wechsel muss der Agent-Host neu
+gestartet werden.
 
 Agenten können unter anderem:
 
-- Themenbereiche, Aufnahmen, bekannte Sprecher und laufende Jobs abfragen
-- Audiodateien hochladen und vollständige Verarbeitungspipelines starten
-- Transkripte, Kapitel, Diarisierung und Zusammenfassungen lesen
-- projektweit suchen und kompakten Aufnahmekontext abrufen
-- Aufgaben auflisten und aktualisieren
-- Zusammenfassungen aus Vorlagen erstellen und exportieren
+- Themenbereiche, paginierte Aufnahmen, Personen und laufende Jobs abfragen
+- Audiodateien importieren sowie Verarbeitungsschritte asynchron starten und beobachten
+- begrenzte Transkriptausschnitte, Kapitel und Zusammenfassungen lesen; Wortdetails sind optional
+- projektweit mit `search_knowledge` suchen und kompakten Aufnahmekontext abrufen
+- Zusagen und Entscheidungen gemeinsam über das Gedächtnis filtern und aktualisieren
+- das Projektgedächtnis nach Themenbereich, Aufnahme, Status oder Aufmerksamkeit paginiert abfragen
+- belegte Personenprofile und wiederkehrende Themen-Threads lesen
+- eine Meeting-Vorbereitung aus offenen Zusagen, aktuellen Entscheidungen, Personen und Threads erstellen
+- Zusammenfassungen aus Vorlagen als Job erstellen
+
+Listen und Transkriptausschnitte verwenden begrenzte Seiten mit undurchsichtigen Folge-Cursorn,
+die unverändert an den nächsten Aufruf übergeben werden. Der vollständige Modus kann eine
+Markdown-Notiz exportieren, jedoch ausschließlich in den am Themenbereich konfigurierten,
+bereits vorhandenen Export-Ordner; freie Dateipfade nimmt der MCP-Server nicht an.
 
 ## Datenschutz und Sicherheit
 

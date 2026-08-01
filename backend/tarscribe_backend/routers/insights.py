@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import re
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -31,6 +32,7 @@ from ..models import (
     TopicThread,
     Word,
 )
+from ..pagination import CursorError, decode_cursor, encode_cursor
 from ..overlay import load_overlay
 from ..settings_store import load_prefs
 
@@ -260,6 +262,17 @@ def get_project_memory(session: Session = Depends(get_session)) -> dict:
         for item, rec, topic in rows
     ]
     visible = [item for item in items if item["review_state"] != "rejected"]
+    stats, _ = _memory_stats(visible)
+    return {
+        "stats": stats,
+        "commitments": [item for item in visible if item["kind"] == "task"],
+        "decisions": [item for item in visible if item["kind"] == "decision"],
+        "rejected": [item for item in items if item["review_state"] == "rejected"],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _memory_stats(visible: list[dict]) -> tuple[dict, list[dict]]:
     commitments = [item for item in visible if item["kind"] == "task"]
     decisions = [item for item in visible if item["kind"] == "decision"]
     attention = [
@@ -277,27 +290,193 @@ def get_project_memory(session: Session = Depends(get_session)) -> dict:
             )
         )
     ]
-    return {
-        "stats": {
-            "open_commitments": sum(not item["done"] for item in commitments),
-            "overdue_commitments": sum("overdue" in item["attention_flags"] for item in commitments),
-            "needs_review": sum(item["review_state"] == "pending" for item in visible),
-            "unsupported_tasks": sum(
-                "needs_evidence_review" in item["attention_flags"] for item in commitments
-            ),
-            "current_decisions": sum(
-                item["decision_status"] in ("current", "proposed") for item in decisions
-            ),
-            "superseded_decisions": sum(
-                item["decision_status"] == "superseded" for item in decisions
-            ),
-            "attention_count": len(attention),
-        },
-        "commitments": commitments,
-        "decisions": decisions,
-        "rejected": [item for item in items if item["review_state"] == "rejected"],
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+    stats = {
+        "open_commitments": sum(not item["done"] for item in commitments),
+        "overdue_commitments": sum(
+            "overdue" in item["attention_flags"] for item in commitments
+        ),
+        "needs_review": sum(item["review_state"] == "pending" for item in visible),
+        "unsupported_tasks": sum(
+            "needs_evidence_review" in item["attention_flags"] for item in commitments
+        ),
+        "current_decisions": sum(
+            item["decision_status"] in ("current", "proposed") for item in decisions
+        ),
+        "superseded_decisions": sum(
+            item["decision_status"] == "superseded" for item in decisions
+        ),
+        "attention_count": len(attention),
     }
+    return stats, attention
+
+
+def _memory_rows(
+    session: Session,
+    topic_id: int | None = None,
+    recording_id: int | None = None,
+    cursor: int | None = None,
+):
+    stmt = (
+        select(ActionItem, Recording, Topic)
+        .join(Recording, ActionItem.recording_id == Recording.id)
+        .join(Topic, Recording.topic_id == Topic.id)
+        .order_by(ActionItem.id.desc())
+    )
+    if topic_id is not None:
+        stmt = stmt.where(Recording.topic_id == topic_id)
+    if recording_id is not None:
+        stmt = stmt.where(ActionItem.recording_id == recording_id)
+    if cursor is not None:
+        stmt = stmt.where(ActionItem.id < cursor)
+    return session.exec(stmt).all()
+
+
+def _matches_memory_query(item: dict, query: str) -> bool:
+    needle = query.casefold()
+    return any(
+        needle in str(item.get(field) or "").casefold()
+        for field in ("text", "assignee", "recipient", "source_quote", "recording_title")
+    )
+
+
+@router.get("/memory/overview")
+def get_memory_overview(
+    topic_id: int | None = None,
+    mine_only: bool = False,
+    attention_limit: int = Query(default=10, ge=1, le=25),
+    session: Session = Depends(get_session),
+) -> dict:
+    my_name = my_speaker_name(session)
+    involved_recording_ids = my_involved_recording_ids(session)
+    items = [
+        _item_dict(item, rec, topic, my_name, involved_recording_ids)
+        for item, rec, topic in _memory_rows(session, topic_id=topic_id)
+    ]
+    visible = [item for item in items if item["review_state"] != "rejected"]
+    if mine_only:
+        visible = [item for item in visible if item["is_mine"] or item["include_in_tasks"]]
+    stats, attention = _memory_stats(visible)
+    flag_priority = {
+        "overdue": 0,
+        "due_soon": 1,
+        "needs_review": 2,
+        "needs_evidence_review": 3,
+        "low_confidence": 4,
+        "missing_owner": 5,
+    }
+    attention.sort(
+        key=lambda item: (
+            min((flag_priority.get(flag, 99) for flag in item["attention_flags"]), default=99),
+            -(item["id"] or 0),
+        )
+    )
+    return {
+        "stats": stats,
+        "attention_items": attention[:attention_limit],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "scope": {"topic_id": topic_id, "mine_only": mine_only},
+    }
+
+
+MemoryKind = Literal["task", "decision"]
+MemoryReviewState = Literal["pending", "confirmed", "rejected"]
+MemoryDecisionStatus = Literal["proposed", "current", "superseded", "rejected"]
+MemoryAttention = Literal[
+    "needs_review",
+    "low_confidence",
+    "missing_source",
+    "needs_evidence_review",
+    "missing_owner",
+    "missing_due",
+    "overdue",
+    "due_soon",
+]
+
+
+@router.get("/memory/items")
+def list_memory_items(
+    kind: MemoryKind | None = None,
+    topic_id: int | None = None,
+    recording_id: int | None = None,
+    done: bool | None = None,
+    review_state: MemoryReviewState | None = None,
+    decision_status: MemoryDecisionStatus | None = None,
+    mine_only: bool = False,
+    involved_only: bool = False,
+    attention: MemoryAttention | None = None,
+    due_before: date | None = None,
+    query: str | None = Query(default=None, max_length=200),
+    include_rejected: bool = False,
+    cursor: str | None = None,
+    limit: int = Query(default=20, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        cursor_id = decode_cursor(cursor, "memory")
+    except CursorError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    my_name = my_speaker_name(session)
+    involved_recording_ids = my_involved_recording_ids(session)
+    items = [
+        _item_dict(item, rec, topic, my_name, involved_recording_ids)
+        for item, rec, topic in _memory_rows(
+            session,
+            topic_id=topic_id,
+            recording_id=recording_id,
+            cursor=cursor_id,
+        )
+    ]
+    if kind is not None:
+        items = [item for item in items if item["kind"] == kind]
+    if done is not None:
+        items = [item for item in items if item["done"] is done]
+    if review_state is not None:
+        items = [item for item in items if item["review_state"] == review_state]
+    elif not include_rejected:
+        items = [item for item in items if item["review_state"] != "rejected"]
+    if decision_status is not None:
+        items = [item for item in items if item["decision_status"] == decision_status]
+    if mine_only:
+        items = [item for item in items if item["is_mine"] or item["include_in_tasks"]]
+    if involved_only:
+        items = [item for item in items if item["is_involved"]]
+    if attention is not None:
+        items = [item for item in items if attention in item["attention_flags"]]
+    if due_before is not None:
+        cutoff = due_before.isoformat()
+        items = [
+            item for item in items if item["due_date"] is not None and item["due_date"] <= cutoff
+        ]
+    if query:
+        items = [item for item in items if _matches_memory_query(item, query)]
+    has_more = len(items) > limit
+    page = items[:limit]
+    return {
+        "items": page,
+        "count": len(page),
+        "has_more": has_more,
+        "next_cursor": encode_cursor("memory", page[-1]["id"]) if has_more and page else None,
+    }
+
+
+@router.get("/memory/items/{item_id}")
+def get_memory_item(item_id: int, session: Session = Depends(get_session)) -> dict:
+    row = session.exec(
+        select(ActionItem, Recording, Topic)
+        .join(Recording, ActionItem.recording_id == Recording.id)
+        .join(Topic, Recording.topic_id == Topic.id)
+        .where(ActionItem.id == item_id)
+    ).first()
+    if not row:
+        raise HTTPException(404, "Gedächtniseintrag nicht gefunden")
+    item, recording, topic = row
+    return _item_dict(
+        item,
+        recording,
+        topic,
+        my_speaker_name(session),
+        my_involved_recording_ids(session),
+    )
 
 
 def _enrichment_run_dict(run: MemoryEnrichmentRun | None) -> dict | None:
@@ -668,6 +847,104 @@ def list_threads(session: Session = Depends(get_session)) -> list[dict]:
     return _load_thread_payload(session)
 
 
+@router.get("/threads/page")
+def list_threads_page(
+    topic_id: int | None = None,
+    recorded_after: datetime | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=10, ge=1, le=50),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        offset = decode_cursor(cursor, "threads", default=0) or 0
+    except CursorError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if recorded_after is not None and recorded_after.tzinfo is None:
+        recorded_after = recorded_after.replace(tzinfo=timezone.utc)
+    summaries = []
+    for thread in _load_thread_payload(session):
+        mentions = sorted(
+            thread["mentions"],
+            key=lambda mention: mention["recording_created_at"] or mention["created_at"],
+            reverse=True,
+        )
+        if topic_id is not None:
+            mentions = [mention for mention in mentions if mention["topic_id"] == topic_id]
+        if recorded_after is not None:
+            mentions = [
+                mention
+                for mention in mentions
+                if mention["recording_created_at"] is not None
+                and datetime.fromisoformat(mention["recording_created_at"]) >= recorded_after
+            ]
+        if not mentions:
+            continue
+        summaries.append(
+            {
+                "id": thread["id"],
+                "title": thread["title"],
+                "updated_at": thread["updated_at"],
+                "created_at": thread["created_at"],
+                "mention_count": len(mentions),
+                "recording_count": len({mention["recording_id"] for mention in mentions}),
+                "topic_ids": sorted(
+                    {mention["topic_id"] for mention in mentions if mention["topic_id"] is not None}
+                ),
+                "latest_mention": mentions[0],
+            }
+        )
+    page = summaries[offset : offset + limit]
+    next_offset = offset + limit
+    next_cursor = encode_cursor("threads", next_offset) if next_offset < len(summaries) else None
+    return {
+        "items": page,
+        "count": len(page),
+        "has_more": next_cursor is not None,
+        "next_cursor": next_cursor,
+    }
+
+
+@router.get("/threads/{thread_id}")
+def get_thread(
+    thread_id: int,
+    topic_id: int | None = None,
+    cursor: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> dict:
+    try:
+        offset = decode_cursor(cursor, f"thread:{thread_id}", default=0) or 0
+    except CursorError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    rows = _load_thread_payload(session, thread_filter=thread_id)
+    if not rows:
+        raise HTTPException(404, "Themen-Thread nicht gefunden")
+    thread = rows[0]
+    mentions = sorted(
+        thread["mentions"],
+        key=lambda mention: mention["recording_created_at"] or mention["created_at"],
+        reverse=True,
+    )
+    if topic_id is not None:
+        mentions = [mention for mention in mentions if mention["topic_id"] == topic_id]
+    page = mentions[offset : offset + limit]
+    next_offset = offset + limit
+    next_cursor = (
+        encode_cursor(f"thread:{thread_id}", next_offset)
+        if next_offset < len(mentions)
+        else None
+    )
+    return {
+        **{key: value for key, value in thread.items() if key != "mentions"},
+        "mention_count": len(mentions),
+        "recording_count": len({mention["recording_id"] for mention in mentions}),
+        "mentions": page,
+        "returned_count": len(page),
+        "has_more": next_cursor is not None,
+        "next_cursor": next_cursor,
+    }
+
+
 @router.get("/recordings/{recording_id}/threads")
 def list_recording_threads(recording_id: int, session: Session = Depends(get_session)) -> list[dict]:
     _get_recording(session, recording_id)
@@ -675,7 +952,16 @@ def list_recording_threads(recording_id: int, session: Session = Depends(get_ses
 
 
 @router.get("/known-speakers/{speaker_id}/memory")
-def get_people_memory(speaker_id: int, session: Session = Depends(get_session)) -> dict:
+def get_people_memory(
+    speaker_id: int,
+    include_recordings: bool = True,
+    include_tasks: bool = True,
+    include_decisions: bool = True,
+    include_threads: bool = True,
+    limit: int | None = Query(default=None, ge=1, le=50),
+    thread_mention_limit: int | None = Query(default=None, ge=1, le=20),
+    session: Session = Depends(get_session),
+) -> dict:
     speaker = session.get(KnownSpeaker, speaker_id)
     if not speaker:
         raise HTTPException(404, "Sprecher nicht gefunden")
@@ -796,6 +1082,13 @@ def get_people_memory(speaker_id: int, session: Session = Depends(get_session)) 
         thread_payload.sort(key=lambda thread: thread["updated_at"], reverse=True)
 
     open_tasks = sum(not item["done"] for item in task_payload)
+    selected_threads = thread_payload if limit is None else thread_payload[:limit]
+    if thread_mention_limit is not None:
+        selected_threads = [
+            {**thread, "mentions": thread["mentions"][:thread_mention_limit]}
+            for thread in selected_threads
+        ]
+    select_limit = slice(None, limit)
     return {
         "speaker": {
             "id": speaker.id,
@@ -811,10 +1104,10 @@ def get_people_memory(speaker_id: int, session: Session = Depends(get_session)) 
             "talk_sec": round(sum(rec["talk_sec"] for rec in recording_payload), 3),
             "last_seen_at": recording_payload[0]["created_at"] if recording_payload else None,
         },
-        "recordings": recording_payload,
-        "tasks": task_payload,
-        "decisions": decision_payload,
-        "threads": thread_payload,
+        "recordings": recording_payload[select_limit] if include_recordings else [],
+        "tasks": task_payload[select_limit] if include_tasks else [],
+        "decisions": decision_payload[select_limit] if include_decisions else [],
+        "threads": selected_threads if include_threads else [],
     }
 
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from .. import settings_store
 from ..calendar_sync import test_caldav_connection
+from ..config import get_settings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -51,6 +52,7 @@ class PrefsIn(BaseModel):
     meeting_detection_enabled: bool | None = None
     meeting_detection_apps: list[str] | None = None
     caldav: dict | None = None
+    mcp_toolset: Literal["focused", "full"] | None = None
 
 
 @router.get("")
@@ -68,6 +70,10 @@ def get_settings_payload() -> dict:
 def update_settings(payload: PrefsIn) -> dict:
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
     prefs = settings_store.save_prefs(patch)
+    if "mcp_toolset" in patch:
+        from ..mcp_link import write_connection_file
+
+        write_connection_file(get_settings(), toolset=prefs["mcp_toolset"])
     return {
         **prefs,
         "hf_token_set": settings_store.has_hf_token(),

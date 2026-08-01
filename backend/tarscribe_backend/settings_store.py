@@ -75,6 +75,7 @@ DEFAULT_PREFS: dict[str, Any] = {
         "max_context_tokens": 12000,
         "top_k": 6,
     },
+    "mcp_toolset": "focused",
 }
 
 

@@ -42,6 +42,7 @@ const settings: AppSettings = {
   caldav: { url: "https://example.test/calendar", username: "user" },
   caldav_password_set: false,
   secret_storage: { available: true, secure: true, keyring_available: true, fallback_enabled: false },
+  mcp_toolset: "focused",
 };
 
 const hardware: HardwareInfo = {

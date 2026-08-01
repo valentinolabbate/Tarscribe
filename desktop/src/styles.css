@@ -1660,6 +1660,33 @@ select:focus {
   border-radius: var(--radius-sm);
   padding: 10px;
 }
+
+.mcp-toolset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+
+.mcp-toolset-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.mcp-toolset-row span {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.mcp-toolset-row select {
+  min-width: 132px;
+}
 .mcp-status-dot {
   width: 10px;
   height: 10px;
@@ -3927,12 +3954,35 @@ select:focus {
   transition: width 0.25s ease;
 }
 .memory-enrichment.complete {
+  padding-right: 54px;
   border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
   background: color-mix(in srgb, var(--ok) 5%, var(--bg-elevated));
 }
 .memory-enrichment.complete .memory-enrichment-icon {
   border-color: color-mix(in srgb, var(--ok) 32%, var(--border));
   color: var(--ok);
+}
+.memory-enrichment-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+}
+.memory-enrichment-dismiss:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+.memory-enrichment-dismiss:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .memory-enrichment.partial {
   border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
@@ -4474,6 +4524,9 @@ select:focus {
     align-items: start;
     gap: 11px;
     padding: 13px;
+  }
+  .memory-enrichment.complete {
+    padding-right: 48px;
   }
   .memory-enrichment-icon {
     width: 38px;
@@ -9236,6 +9289,10 @@ button.evidence-trail:hover {
 
 .start-page {
   gap: 20px;
+  height: 100%;
+  min-height: 0;
+  max-width: 1520px;
+  overflow: hidden;
 }
 .start-page .page-kicker {
   color: var(--text-dim);
@@ -9419,14 +9476,17 @@ button.evidence-trail:hover {
 .start-workspace {
   display: grid;
   grid-template-columns: minmax(340px, 0.86fr) minmax(0, 1.34fr);
+  flex: 1 1 auto;
   gap: 20px;
-  min-height: 430px;
+  min-height: 0;
 }
 .start-today-column {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   gap: 14px;
+  overflow: hidden;
 }
 .start-today,
 .start-recent {
@@ -9437,7 +9497,11 @@ button.evidence-trail:hover {
   background: var(--bg-elevated);
 }
 .start-today {
+  display: flex;
   flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
 }
 .start-section-head,
 .start-knowledge-head {
@@ -9458,7 +9522,13 @@ button.evidence-trail:hover {
 }
 .start-today-list {
   display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 8px;
+  scrollbar-gutter: stable;
 }
 .start-today-item {
   display: flex;
@@ -9657,9 +9727,10 @@ button.evidence-trail:hover {
 .start-knowledge {
   display: flex;
   min-width: 0;
-  min-height: 430px;
+  min-height: 0;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
   padding: 17px 19px 19px;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -9669,6 +9740,7 @@ button.evidence-trail:hover {
 .start-knowledge .chat-panel {
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 .start-knowledge .chat-panel-title span {
   color: var(--text-dim);
@@ -9677,6 +9749,7 @@ button.evidence-trail:hover {
 .start-insights {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  flex: 0 0 auto;
   gap: 14px;
   padding-top: 2px;
 }
@@ -10061,15 +10134,42 @@ button.evidence-trail:hover {
 }
 
 @media (max-width: 980px) {
+  .start-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
   .start-workspace {
     grid-template-columns: 1fr;
+    flex: 0 0 auto;
   }
   .start-today-column {
     display: grid;
     grid-template-columns: minmax(0, 1.25fr) minmax(240px, 0.75fr);
+    overflow: visible;
+  }
+  .start-today {
+    overflow: visible;
+  }
+  .start-today-list {
+    overflow: visible;
+    padding-right: 0;
   }
   .start-knowledge {
+    height: min(620px, calc(100vh - 130px));
     min-height: 500px;
+  }
+}
+
+@media (min-width: 981px) and (max-height: 820px) {
+  .start-page {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+  .start-workspace {
+    height: 560px;
+    flex: 0 0 auto;
   }
 }
 
@@ -10112,6 +10212,7 @@ button.evidence-trail:hover {
     padding: 14px;
   }
   .start-knowledge {
+    height: min(620px, calc(100vh - 96px));
     min-height: 520px;
   }
   .evidence-trail-meta span {

@@ -62,6 +62,8 @@ def warmup() -> dict:
     with asr_lock:
         backend = get_backend()
         # Touch the model loader (downloads on first call) without transcribing.
-        if hasattr(backend, "_ensure_model"):
+        if hasattr(backend, "prepare"):
+            backend.prepare()
+        elif hasattr(backend, "_ensure_model"):
             backend._ensure_model()
     return {"ok": True, "engine": getattr(backend, "name", "unknown")}

@@ -24,10 +24,18 @@ class WordSeg:
 
 
 @dataclass
+class SpeakerSpan:
+    start: float
+    end: float
+    speaker: str
+
+
+@dataclass
 class TranscriptResult:
     language: str | None
     words: list[WordSeg] = field(default_factory=list)
     model: str = ""
+    speakers: list[SpeakerSpan] = field(default_factory=list)
 
     @property
     def text(self) -> str:

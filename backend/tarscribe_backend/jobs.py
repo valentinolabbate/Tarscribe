@@ -6,6 +6,8 @@ persisted on the Job row and broadcast over the WebSocket hub.
 
 from __future__ import annotations
 
+import json
+
 import asyncio
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -383,6 +385,23 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                     )
                 )
 
+            if result.speakers:
+                for previous in s.exec(select(DiarizationRun).where(
+                    DiarizationRun.recording_id == recording_id
+                )).all():
+                    previous.is_active = False
+                    s.add(previous)
+                run = DiarizationRun(
+                    recording_id=recording_id, model=result.model,
+                    params_json=json.dumps({"source": "asr", "speaker_scope": "chunk"}),
+                    num_speakers=len({span.speaker for span in result.speakers}), is_active=True,
+                )
+                s.add(run)
+                s.flush()
+                for span in result.speakers:
+                    s.add(Segment(run_id=run.id, start=span.start, end=span.end,
+                                  speaker_label=span.speaker))
+
             rec = s.get(Recording, recording_id)
             if rec:
                 rec.language = result.language
@@ -393,7 +412,10 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
         try:
-            enqueue_diarization(recording_id)
+            if result.speakers:
+                maybe_enqueue_action_items(recording_id)
+            else:
+                enqueue_diarization(recording_id)
         except Exception:  # noqa: BLE001
             traceback.print_exc()
     except JobCanceled:

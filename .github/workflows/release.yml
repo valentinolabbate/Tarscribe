@@ -36,7 +36,9 @@ jobs:
 
       - name: Stage backend + uv resources
         working-directory: desktop
-        run: ./scripts/stage-resources.sh
+        run: |
+          if ! command -v cmake >/dev/null; then brew install cmake; fi
+          ./scripts/stage-resources.sh
 
       - name: Prepare release notes
         id: release_notes

@@ -78,6 +78,8 @@ export interface AppSettings {
   performance_profile: PerformanceProfile;
   asr_override: string | null;
   asr_model: string;
+  asr_hotwords?: string[];
+  live_asr_override?: "" | "parakeet-mlx" | "nemotron-mlx" | "vibevoice-mlx";
   recording_source: RecordingSource;
   recording_device_id: string;
   diarization_model: string;

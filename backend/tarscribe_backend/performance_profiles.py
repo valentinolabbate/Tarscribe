@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .asr_catalog import EXPERIMENTAL_ASR
+
 DEFAULT_PROFILE = "balanced"
 PROFILE_IDS = ("m1_8gb", "balanced", "quality")
 
@@ -101,7 +103,11 @@ def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None =
     if engine_override:
         profile = "balanced"
 
-    if engine_override == "parakeet-mlx":
+    if engine_override in EXPERIMENTAL_ASR:
+        selection = {"engine": engine_override,
+                     "model_id": EXPERIMENTAL_ASR[engine_override]["model"],
+                     "hotwords": prefs.get("asr_hotwords", [])}
+    elif engine_override == "parakeet-mlx":
         selection = _apple_asr(profile)
     elif engine_override == "mlx-whisper":
         selection = _mlx_whisper_asr(profile)
@@ -114,7 +120,7 @@ def resolve_asr_selection(prefs: dict[str, Any], hw: Any, override: str | None =
 
     model_name = _clean_model_name(prefs.get("asr_model"))
     if model_name:
-        if selection["engine"] in ("parakeet-mlx", "mlx-whisper"):
+        if selection["engine"] in ("parakeet-mlx", "mlx-whisper", *EXPERIMENTAL_ASR):
             selection["model_id"] = model_name
         elif selection["engine"] == "faster-whisper":
             selection["model_size"] = model_name

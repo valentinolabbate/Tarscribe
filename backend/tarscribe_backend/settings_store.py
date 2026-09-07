@@ -32,6 +32,8 @@ DEFAULT_PREFS: dict[str, Any] = {
     "performance_profile": DEFAULT_PROFILE,
     "asr_override": None,  # force an ASR engine, else auto by hardware
     "asr_model": "",  # optional free-form model name/id for the selected ASR engine
+    "asr_hotwords": [],
+    "live_asr_override": "",
     "recording_source": "microphone",  # future: system audio, optionally mixed with microphone
     "recording_device_id": "",  # empty => browser/system default microphone
     "diarization_model": DEFAULT_DIARIZATION_MODEL,

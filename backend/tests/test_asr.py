@@ -484,3 +484,52 @@ def test_successful_diarization_and_matching_then_start_action_extraction(
         assert session.get(Job, job_id).status == JobStatus.done
     assert matched == [recording_id]
     assert extracted == [recording_id]
+
+
+def test_native_asr_speakers_are_persisted_without_duplicate_diarization(
+    jobs_env, tmp_path, monkeypatch
+):
+    import json
+    import numpy as np
+    import soundfile as sf
+    from sqlmodel import select
+
+    from tarscribe_backend.ml.asr import factory
+    from tarscribe_backend.ml.asr.base import SpeakerSpan, TranscriptResult, WordSeg
+    from tarscribe_backend.models import DiarizationRun, Job, JobStatus, Segment
+
+    db, jobs = jobs_env
+    wav = tmp_path / "speech.wav"
+    sf.write(str(wav), np.zeros(16000), 16000)
+    recording_id, job_id = _seed_asr_job(db, str(wav))
+    with db.session_scope() as session:
+        previous = DiarizationRun(recording_id=recording_id, model="previous", is_active=True)
+        session.add(previous)
+        session.flush()
+        previous_id = previous.id
+
+    class Backend:
+        name = "moss-mlx"
+
+        def transcribe(self, *_args, **_kwargs):
+            return TranscriptResult(
+                language="de", model="moss-mlx:test",
+                words=[WordSeg(start=0, end=0.5, text=" Hallo")],
+                speakers=[SpeakerSpan(start=0, end=1, speaker="ASR_0000_S01")],
+            )
+
+    extracted = []
+    monkeypatch.setattr(factory, "get_backend", lambda *_args: Backend())
+    monkeypatch.setattr(jobs, "schedule_reindex", lambda *_args: None)
+    monkeypatch.setattr(jobs, "enqueue_diarization", lambda *_: pytest.fail("Duplicate diarization"))
+    monkeypatch.setattr(jobs, "maybe_enqueue_action_items", extracted.append)
+    jobs._run_asr(recording_id, job_id, None)
+    with db.session_scope() as session:
+        assert session.get(Job, job_id).status == JobStatus.done
+        assert not session.get(DiarizationRun, previous_id).is_active
+        run = session.exec(select(DiarizationRun).where(DiarizationRun.model == "moss-mlx:test")).one()
+        assert run.is_active
+        assert json.loads(run.params_json) == {"source": "asr", "speaker_scope": "chunk"}
+        segment = session.exec(select(Segment).where(Segment.run_id == run.id)).one()
+        assert segment.speaker_label == "ASR_0000_S01"
+    assert extracted == [recording_id]

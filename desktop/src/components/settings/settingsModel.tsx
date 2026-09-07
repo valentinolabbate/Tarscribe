@@ -1,6 +1,32 @@
 import type { LocalModelStatus } from "../../lib/types";
 
-export type AsrEngine = "" | "parakeet-mlx" | "mlx-whisper" | "faster-whisper";
+export type AsrEngine = "" | "parakeet-mlx" | "mlx-whisper" | "faster-whisper"
+  | "qwen3-mlx" | "nemotron-mlx" | "moss-mlx" | "vibevoice-mlx" | "vibevoice-bitnet";
+
+export const ASR_ENGINE_LABELS: Record<Exclude<AsrEngine, "">, string> = {
+  "parakeet-mlx": "Parakeet MLX", "mlx-whisper": "MLX Whisper", "faster-whisper": "faster-whisper",
+  "qwen3-mlx": "Qwen3-ASR", "nemotron-mlx": "Nemotron 3.5", "moss-mlx": "MOSS",
+  "vibevoice-mlx": "VibeVoice Streaming", "vibevoice-bitnet": "VibeVoice BitNet",
+};
+
+export const ASR_PURPOSES = [
+  { id: "everyday", label: "Bewährt" }, { id: "quality", label: "Qualität" },
+  { id: "live", label: "Live" }, { id: "speakers", label: "Sprecher" },
+  { id: "cpu", label: "CPU" }, { id: "all", label: "Alle" },
+] as const;
+export type AsrPurpose = (typeof ASR_PURPOSES)[number]["id"];
+
+export function asrPurpose(engine: AsrEngine): AsrPurpose {
+  if (engine === "qwen3-mlx") return "quality";
+  if (engine === "nemotron-mlx" || engine === "vibevoice-mlx") return "live";
+  if (engine === "moss-mlx") return "speakers";
+  if (engine === "vibevoice-bitnet" || engine === "faster-whisper") return "cpu";
+  return "everyday";
+}
+
+export function experimentalAsr(engine: AsrEngine): boolean {
+  return !["", "parakeet-mlx", "mlx-whisper", "faster-whisper"].includes(engine);
+}
 
 export const ASR_MODEL_SUGGESTIONS: Array<{
   engine: Exclude<AsrEngine, "">;
@@ -8,6 +34,30 @@ export const ASR_MODEL_SUGGESTIONS: Array<{
   model: string;
   note: string;
 }> = [
+  {
+    engine: "qwen3-mlx", label: "Qwen3-ASR 1.7B", model: "mlx-community/Qwen3-ASR-1.7B-8bit",
+    note: "Apple-GPU · Qualitätsalternative mit zusätzlichem Wort-Aligner",
+  },
+  {
+    engine: "nemotron-mlx", label: "Nemotron 3.5 ASR",
+    model: "mlx-community/nemotron-3.5-asr-streaming-0.6b",
+    note: "Apple-GPU · Streaming-Architektur mit nativen Zeitmarken",
+  },
+  {
+    engine: "moss-mlx", label: "MOSS Transcribe Diarize",
+    model: "OpenMOSS-Team/MOSS-Transcribe-Diarize",
+    note: "Apple-GPU · Sprechertrennung und Transkription gemeinsam",
+  },
+  {
+    engine: "vibevoice-mlx", label: "VibeVoice ASR Streaming",
+    model: "microsoft/VibeVoice-ASR-Streaming-1.5B",
+    note: "Apple-GPU · Inkrementelle Erkennung mit Fachbegriffen",
+  },
+  {
+    engine: "vibevoice-bitnet", label: "VibeVoice ASR BitNet",
+    model: "microsoft/VibeVoice-ASR-BitNet",
+    note: "CPU-Erkennung · Separate Laufzeit, Wortausrichtung über Apple-GPU",
+  },
   {
     engine: "parakeet-mlx",
     label: "Parakeet MLX",
@@ -30,7 +80,7 @@ export const ASR_MODEL_SUGGESTIONS: Array<{
     engine: "mlx-whisper",
     label: "MLX Distil Large v3",
     model: "mlx-community/distil-whisper-large-v3",
-    note: "Apple-GPU, schneller Large-v3-Ableger",
+    note: "Apple-GPU, auf Englisch spezialisiert",
   },
   { engine: "faster-whisper", label: "Whisper Small", model: "small", note: "CPU auf Mac, CUDA auf NVIDIA" },
   { engine: "faster-whisper", label: "Whisper Medium", model: "medium", note: "CPU auf Mac, CUDA auf NVIDIA" },
@@ -74,14 +124,15 @@ export const DIARIZATION_MODEL_SUGGESTIONS = [
 ];
 
 export function asrModelPlaceholder(engine: AsrEngine): string {
+  if (experimentalAsr(engine)) return ASR_MODEL_SUGGESTIONS.find((s) => s.engine === engine)?.model ?? "";
   if (engine === "faster-whisper") return "medium, large-v3 oder eigener Modellname";
   if (engine === "mlx-whisper") return "mlx-community/whisper-large-v3-mlx";
   return "mlx-community/parakeet-tdt-0.6b-v3";
 }
 
 export function asrEngineValue(value: string | null | undefined): AsrEngine {
-  if (value === "parakeet-mlx" || value === "mlx-whisper" || value === "faster-whisper") {
-    return value;
+  if (value && Object.prototype.hasOwnProperty.call(ASR_ENGINE_LABELS, value)) {
+    return value as AsrEngine;
   }
   return "";
 }

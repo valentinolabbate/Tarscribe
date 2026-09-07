@@ -179,11 +179,52 @@ du dafür einen lokalen oder externen Endpoint konfigurierst.
 
 1. Einen Themenbereich für ein Projekt, Seminar oder Interview anlegen.
 2. Audio aufnehmen oder eine vorhandene Datei importieren.
-3. Transkription starten; anschließend folgen Sprechererkennung und -zuordnung automatisch, bevor Aufgaben extrahiert werden.
+3. Transkription starten; anschließend folgt normalerweise die separate Sprechererkennung. Modelle mit eigenen Sprecherlabels übernehmen diesen Schritt zunächst selbst.
 4. In der Aufnahme Transkript, Meeting-Zeitstrahl, Zusammenfassung, Fragen und Sprecher prüfen.
 5. Unter **Gedächtnis** offene Zusagen, Entscheidungen, Aufgaben und Personen weiterverfolgen.
 6. Die gesamte Bibliothek durchsuchen, im Wissens-Chat befragen oder als Wochen-Digest bündeln.
 7. Ergebnisse als TXT, SRT, VTT, JSON, PDF, WAV, Markdown oder Kalenderdatei exportieren.
+
+### Lokale Transkriptionsmodelle
+
+Unter **Einstellungen → Modelle** lassen sich Modelle nach Einsatzzweck filtern und suchen.
+Parakeet und Whisper bleiben die bewährten Optionen. Zusätzlich stehen auf Apple Silicon
+experimentell Qwen3-ASR 1.7B, Nemotron 3.5 ASR, MOSS Transcribe Diarize sowie VibeVoice ASR
+Streaming und BitNet zur Verfügung. Sie werden nicht automatisch zum neuen Standard.
+
+Nemotron liefert native Token-Zeitmarken. Die anderen neuen Modelle verwenden zusätzlich
+den lokalen Qwen3-ForcedAligner für Wort-Zeitmarken. Bei MOSS und VibeVoice muss dafür eine
+unterstützte Sprache gewählt werden; Qwen kann sie automatisch erkennen. Die Ausrichtung
+unterstützt Deutsch, Englisch, Französisch, Spanisch, Italienisch, Portugiesisch, Russisch,
+Japanisch, Koreanisch, Chinesisch und Kantonesisch. Fachbegriffe sind optional hinterlegbar.
+MOSS- und VibeVoice-Sprecherlabels gelten je Verarbeitungsabschnitt, nicht automatisch für
+dieselbe Person über die gesamte Aufnahme. Eine separate Diarisierung kann das anschließend
+ersetzen. Bekannte Stimmen werden durch native ASR-Sprecherlabels nicht identifiziert.
+
+Das **Modell während der Aufnahme** ist unabhängig wählbar. Nemotron und VibeVoice behalten
+ihren Streaming-Zustand und lesen nur neue Audiodaten. VibeVoice zeigt live zunächst
+Abschnitts-Zeitmarken; Wort-Zeitmarken entstehen bei der abschließenden Transkription.
+Bei Qwen, MOSS und BitNet verwendet die automatische Live-Auswahl das bewährte Systemmodell.
+**Modell lokal vorbereiten** lädt die gewählte ASR und gegebenenfalls den Wort-Aligner vorab.
+Andernfalls werden Gewichte bei der ersten Nutzung heruntergeladen; Audio wird dabei nicht übertragen.
+
+BitNet nutzt eine zusätzliche CPU-Laufzeit, die im macOS-Release samt Quell- und Lizenzhinweisen
+enthalten ist; die Wortausrichtung nutzt weiterhin Apple Silicon. Im Entwicklungscheckout
+nach `uv sync --extra mac` und mit Xcode Command Line
+Tools sowie CMake im `PATH` (Befehle vom Repository-Root):
+
+```bash
+PATH="$PWD/backend/.venv/bin:$PATH" backend/.venv/bin/python scripts/setup_bitnet.py
+```
+
+Das Skript baut eine festgelegte Revision von
+[Microsoft VibeASR.cpp](https://github.com/microsoft/VibeASR.cpp) und legt die Laufzeit im
+lokalen Modellordner ab. `TARSCRIBE_BITNET_BINARY` erlaubt einen abweichenden Binärpfad.
+Die Entwicklungsumgebung kann ohne Release und ohne Austausch der installierten App getestet
+werden. `scripts/benchmark_asr.py --audio /absoluter/pfad.wav --output /privater/testordner
+--engine qwen3-mlx` startet mit dem Backend-Python einen isolierten Offline-Test nach dem
+Modell-Download. Der Ausgabeordner muss außerhalb dieses Git-Projekts liegen; Transkripte
+werden nur mit `--keep-transcript` gespeichert. Keine privaten Audios oder Testergebnisse committen.
 
 ## Agenten über MCP
 
@@ -271,6 +312,7 @@ App-Datenverzeichnis.
 - Python 3.11 oder 3.12
 - [`uv`](https://docs.astral.sh/uv/)
 - `ffmpeg`
+- CMake und Xcode Command Line Tools für die mitgelieferte BitNet-Laufzeit
 
 ### Repository einrichten
 

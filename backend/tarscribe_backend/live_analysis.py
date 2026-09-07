@@ -200,8 +200,22 @@ class LiveAnalysisService:
         # ── Diarization ───────────────────────────────────────────────────
         now = time.monotonic()
         speakers_snap: dict | None = None
+        live_engine = prefs.get("live_asr_override") or prefs.get("asr_override")
+        native_speakers = live_engine == "vibevoice-mlx" or any(
+            w.get("speaker_source") == "asr" for w in new_words
+        )
+        if native_speakers:
+            self._diar_state = None
+            self._diar_backend = None
+            ids = sorted({w["speaker_id"] for w in new_words if w.get("speaker_id")})
+            speakers_snap = {"revision": prev_spk_revision + 1, "speakers": [
+                {"id": speaker, "display_name": f"Sprecher {index + 1}",
+                 "known_speaker_id": None, "similarity": None, "match_status": "none"}
+                for index, speaker in enumerate(ids)
+            ]}
         should_diarize = (
             live_diarization_enabled
+            and not native_speakers
             and not self._diar_degraded
             and duration >= DIAR_MIN_AUDIO_SEC
             and now - self._last_diar_at >= DIAR_INTERVAL_SEC

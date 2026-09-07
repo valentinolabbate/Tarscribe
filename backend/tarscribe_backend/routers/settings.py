@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import settings_store
 from ..calendar_sync import test_caldav_connection
@@ -34,6 +34,10 @@ class PrefsIn(BaseModel):
     performance_profile: Literal["m1_8gb", "balanced", "quality"] | None = None
     asr_override: str | None = None
     asr_model: str | None = None
+    asr_hotwords: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(
+        default=None, max_length=100
+    )
+    live_asr_override: Literal["", "parakeet-mlx", "nemotron-mlx", "vibevoice-mlx"] | None = None
     recording_source: Literal["microphone", "system_audio", "system_audio_and_microphone"] | None = None
     recording_device_id: str | None = None
     diarization_model: str | None = None
@@ -69,6 +73,8 @@ def get_settings_payload() -> dict:
 @router.put("")
 def update_settings(payload: PrefsIn) -> dict:
     patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "language" in payload.model_fields_set:
+        patch["language"] = payload.language
     prefs = settings_store.save_prefs(patch)
     if "mcp_toolset" in patch:
         from ..mcp_link import write_connection_file

@@ -28,4 +28,6 @@ cp "$BACKEND_SRC/pyproject.toml" "$RES/backend/pyproject.toml"
 find "$RES/backend" -name "__pycache__" -type d -prune -exec rm -rf {} +
 echo "    backend <- tarscribe_backend + pyproject.toml"
 
+python3 "$HERE/../scripts/setup_bitnet.py" --destination "$RES/vibeasr/asr_stream_server"
+
 echo "==> Done."

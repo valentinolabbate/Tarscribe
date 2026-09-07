@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
+from ..asr_catalog import ALIGNER_MODEL, EXPERIMENTAL_ASR
 from ..hardware import detect_hardware
 from ..performance_profiles import (
     DEFAULT_DIARIZATION_MODEL,
@@ -162,8 +163,16 @@ def model_status_payload() -> dict[str, Any]:
 
 def _asr_candidates(selection: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = [dict(candidate) for candidate in ASR_CANDIDATES]
+    candidates.extend({"engine": engine, "model": spec["model"], "label": spec["label"],
+                       "repo_id": spec["model"], "required_files": spec["files"]}
+                      for engine, spec in EXPERIMENTAL_ASR.items())
     engine = str(selection.get("engine") or "")
-    if engine == "parakeet-mlx":
+    if engine in EXPERIMENTAL_ASR:
+        spec = EXPERIMENTAL_ASR[engine]
+        model = str(selection.get("model_id") or spec["model"])
+        candidates.insert(0, {"engine": engine, "model": model, "label": spec["label"],
+                              "repo_id": model, "required_files": spec["files"]})
+    elif engine == "parakeet-mlx":
         model = str(selection.get("model_id") or PARAKEET_DEFAULT_MODEL)
         candidates.insert(
             0,
@@ -233,7 +242,34 @@ def _asr_status(candidate: dict[str, Any], *, active: bool) -> dict[str, Any]:
         active=active,
     )
     item["engine"] = engine
-    item.update(_memory_fields(_asr_memory_estimate(engine, str(candidate["model"]))))
+    if engine in EXPERIMENTAL_ASR:
+        notes = ["Experimentell; Speicherbedarf hängt von der Audiolänge ab."]
+        if EXPERIMENTAL_ASR[engine]["alignment"]:
+            aligner = _cached_repo_path(ALIGNER_MODEL, ("config.json", "model.safetensors"), [None])
+            if aligner is None:
+                item.update(downloaded=False, status="missing")
+                notes.append("Zusätzliches Qwen-Wortausrichtungsmodell fehlt noch.")
+        if engine == "vibevoice-bitnet":
+            from .asr.bitnet_backend import bitnet_binary
+
+            if not os.access(bitnet_binary(), os.X_OK):
+                item.update(downloaded=False, status="missing")
+                notes.append("BitNet-Laufzeit fehlt: scripts/setup_bitnet.py ausführen.")
+        if item["path"]:
+            index = Path(item["path"]) / "model.safetensors.index.json"
+            if index.is_file():
+                import json
+
+                try:
+                    weights = json.loads(index.read_text())["weight_map"].values()
+                    if not all((index.parent / name).is_file() for name in weights):
+                        item.update(downloaded=False, status="missing")
+                        notes.append("Modelldownload ist noch unvollständig.")
+                except (OSError, ValueError, KeyError):
+                    item.update(downloaded=False, status="missing")
+        item["note"] = " ".join(notes)
+    else:
+        item.update(_memory_fields(_asr_memory_estimate(engine, str(candidate["model"]))))
     return item
 
 
@@ -300,7 +336,7 @@ def _is_active_asr(candidate: dict[str, Any], selection: dict[str, Any]) -> bool
     engine = str(selection.get("engine") or "")
     if candidate.get("engine") != engine:
         return False
-    if engine in ("parakeet-mlx", "mlx-whisper"):
+    if engine in ("parakeet-mlx", "mlx-whisper", *EXPERIMENTAL_ASR):
         return candidate.get("model") == selection.get("model_id")
     if engine == "faster-whisper":
         return candidate.get("model") == selection.get("model_size")

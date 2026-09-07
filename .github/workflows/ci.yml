@@ -52,6 +52,10 @@ jobs:
         working-directory: desktop
         run: npm run build
 
+      - name: Frontend tests
+        working-directory: desktop
+        run: npm test
+
   rust:
     runs-on: macos-14
     steps:
@@ -65,7 +69,9 @@ jobs:
 
       - name: Stage Tauri resources
         working-directory: desktop
-        run: ./scripts/stage-resources.sh
+        run: |
+          if ! command -v cmake >/dev/null; then brew install cmake; fi
+          ./scripts/stage-resources.sh
 
       - name: Rust check
         working-directory: desktop/src-tauri

@@ -30,6 +30,13 @@ def analyze_window(
 
     Returns the new word list: frozen stable words + fresh provisional tail.
     """
+    backend = get_backend(live=True)
+    if hasattr(backend, "transcribe_live"):
+        native = backend.transcribe_live(pcm_path, session_id, current_duration_sec,
+                                         sample_rate, channels, language)
+        if native is not None:
+            return [{**word, "id": f"live-{session_id}-{index}"}
+                    for index, word in enumerate(native)]
     stable_cutoff = max(0.0, current_duration_sec - STABLE_HORIZON_SEC)
 
     # Preserve words that have passed the stability horizon (their timestamps won't change).
@@ -51,7 +58,6 @@ def analyze_window(
         if not ok:
             return stable_words
 
-        backend = get_backend()
         result = backend.transcribe(tmp_path, language=language)
 
         provisional: list[dict] = []

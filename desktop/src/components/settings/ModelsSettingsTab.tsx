@@ -1,39 +1,17 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { PERFORMANCE_PROFILES } from "../../lib/performanceProfiles";
 import type { AppSettings, HardwareInfo, ModelStatusPayload, PerformanceProfile } from "../../lib/types";
 import {
-  ASR_MODEL_SUGGESTIONS,
-  DIARIZATION_MODEL_SUGGESTIONS,
-  ModelStatusBadge,
-  ModelStatusCard,
-  activeModelStatus,
-  activeRuntimeSummary,
-  asrModelPlaceholder,
-  findModelStatus,
-  runtimeMemoryLabel,
-  type AsrEngine,
+  ASR_ENGINE_LABELS, ASR_MODEL_SUGGESTIONS, ASR_PURPOSES, DIARIZATION_MODEL_SUGGESTIONS,
+  ModelStatusBadge, ModelStatusCard, activeModelStatus, asrModelPlaceholder, asrPurpose,
+  experimentalAsr, findModelStatus, type AsrEngine, type AsrPurpose,
 } from "./settingsModel";
 
 export function ModelsSettingsTab({
-  settings,
-  setSettings,
-  hardware,
-  modelStatus,
-  modelStatusLoading,
-  token,
-  setToken,
-  busy,
-  secretStorageWarning,
-  selectedAsrEngine,
-  refreshModelStatus,
-  savePerformanceProfile,
-  saveAsrEngine,
-  saveAsrModel,
-  applyAsrSuggestion,
-  saveDiarizationModel,
-  applyDiarizationSuggestion,
-  saveToken,
-  removeToken,
+  settings, setSettings, hardware, modelStatus, modelStatusLoading, token, setToken,
+  busy, secretStorageWarning, selectedAsrEngine, refreshModelStatus, savePerformanceProfile,
+  saveAsrEngine, saveAsrModel, applyAsrSuggestion, saveDiarizationModel,
+  applyDiarizationSuggestion, saveToken, removeToken, saveAsrOptions, prepareAsrModel,
 }: {
   settings: AppSettings;
   setSettings: (settings: AppSettings) => void;
@@ -54,239 +32,185 @@ export function ModelsSettingsTab({
   applyDiarizationSuggestion: (suggestion: (typeof DIARIZATION_MODEL_SUGGESTIONS)[number]) => void;
   saveToken: () => void;
   removeToken: () => void;
+  saveAsrOptions?: (patch: Partial<Pick<AppSettings, "language" | "asr_hotwords" | "live_asr_override">>) => void;
+  prepareAsrModel?: () => void;
 }) {
-  const modelItems = modelStatus?.items ?? [];
-  const activeAsr = activeModelStatus(modelItems, "asr");
-  const activeDiarization = activeModelStatus(modelItems, "diarization");
-  const embeddingModel = findModelStatus(modelItems, "embedding", "speechbrain/spkrec-ecapa-voxceleb");
-  const runtimeSummary = activeRuntimeSummary(modelItems, hardware?.memory_gb);
+  const [purpose, setPurpose] = useState<AsrPurpose>(() => asrPurpose(selectedAsrEngine));
+  const [search, setSearch] = useState("");
+  const items = modelStatus?.items ?? [];
+  const active = activeModelStatus(items, "asr");
+  const chosen = ASR_MODEL_SUGGESTIONS.find((item) => item.engine === selectedAsrEngine
+    && item.model === settings.asr_model);
+  const experimental = experimentalAsr(selectedAsrEngine);
+  const shown = ASR_MODEL_SUGGESTIONS.filter((item) =>
+    (purpose === "all" || asrPurpose(item.engine) === purpose)
+    && (item.label + " " + item.model).toLowerCase().includes(search.toLowerCase()));
+  const needsLanguage = ["moss-mlx", "vibevoice-mlx", "vibevoice-bitnet"].includes(selectedAsrEngine);
 
-  return (
-    <>
-      <div className="settings-section-title model-status-title">
-        <div>
-          <span>Lokale Modelle</span>
-          <small>Cache-Status für die aktuell genutzten lokalen Modelle.</small>
-        </div>
-        <button className="btn" onClick={refreshModelStatus} disabled={modelStatusLoading}>
-          {modelStatusLoading ? "Prüfe…" : "Aktualisieren"}
-        </button>
+  return <div className="model-settings">
+    <section className="model-selection-summary" aria-label="Aktuelle Transkriptionsauswahl">
+      <div>
+        <span className="rec-sub">Aktuelle Transkription</span>
+        <h3>{chosen?.label ?? (selectedAsrEngine ? ASR_ENGINE_LABELS[selectedAsrEngine] : "Automatisch nach System")}</h3>
+        <p>{chosen?.note ?? "Tarscribe verwendet das zu deinem System passende Standardmodell."}</p>
       </div>
-      {runtimeSummary && (
-        <div className="model-runtime-summary">
-          <div className="model-runtime-copy">
-            <strong>Aktive Modelle: {runtimeSummary.total}</strong>
-            <span>{runtimeSummary.parts}</span>
-          </div>
-          {runtimeSummary.budgetPercent !== undefined && (
-            <div
-              className="model-runtime-budget"
-              aria-label={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
-              title={`Modell-RAM-Budget ${runtimeSummary.budgetLabel}`}
-            >
-              <span style={{ width: `${runtimeSummary.budgetPercent}%` }} />
-            </div>
-          )}
-          {runtimeSummary.budgetLabel && <small>{runtimeSummary.budgetLabel}</small>}
-        </div>
-      )}
-      <div className="model-status-grid">
-        <ModelStatusCard title="Transkription" item={activeAsr} loading={modelStatusLoading} />
-        <ModelStatusCard title="Diarisierung" item={activeDiarization} loading={modelStatusLoading} />
-        <ModelStatusCard title="Sprecher-Matching" item={embeddingModel} loading={modelStatusLoading} />
-      </div>
-      <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-        Cache-Ordner: <code>{modelStatus?.models_dir ?? "wird ermittelt"}</code>
-      </div>
+      <ModelStatusBadge item={active} loading={modelStatusLoading} />
+      {experimental && <p className="model-caution">Experimentell. Noch kein Ersatz für die bewährten Standardmodelle.</p>}
+      {active?.note && <p className="rec-sub">{active.note}</p>}
+      {prepareAsrModel && <button type="button" className="btn" disabled={busy}
+        onClick={prepareAsrModel}>{busy ? "Bitte warten…" : "Modell lokal vorbereiten"}</button>}
+    </section>
 
+    <section aria-labelledby="transcription-model-title">
       <div className="settings-section-title">
-        <span>Laufzeitprofil</span>
-        <small>Speicherverhalten und Rechenmodus, nicht deine Modellwahl.</small>
+        <span id="transcription-model-title">Transkriptionsmodell wählen</span>
+        <small>Nach Einsatzzweck filtern. Die Auswahl wird direkt gespeichert.</small>
       </div>
-      <div className="field">
-        <label>Leistungsstufe</label>
-        <div className="settings-info-box">
-          Die Leistungsstufe ist ein Laufzeitprofil. Sie wählt nur dann Standardmodelle,
-          wenn unten kein eigenes Modell eingetragen ist, und regelt sonst vor allem
-          Chunk-Größe, Rechenpräzision und Speaker-Matching auf knappen Geräten.
-        </div>
-        <div className="performance-options">
-          {PERFORMANCE_PROFILES.map((profile) => {
-            const active = settings.performance_profile === profile.id;
-            const recommended = hardware?.recommended_profile === profile.id;
-            return (
-              <button
-                key={profile.id}
-                type="button"
-                className={active ? "performance-option active" : "performance-option"}
-                onClick={() => savePerformanceProfile(profile.id)}
-              >
-                <span className="performance-option-head">
-                  <strong>{profile.label}</strong>
-                  {recommended && <span className="mini-badge">Empfohlen</span>}
-                </span>
-                <span>{profile.detail}</span>
-                <span className="performance-option-meta">
-                  <span>{profile.asr}</span>
-                  <span>{profile.diarization}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-          {hardware
-            ? `${hardware.is_apple_silicon ? "Apple Silicon" : `${hardware.os} / ${hardware.arch}`}${hardware.memory_gb ? `, ${hardware.memory_gb} GB RAM` : ""}. Hohe Qualität ist für moderne Laptops realistisch; 24 GB RAM sind komfortabel, 16 GB funktionieren bei vielen Workflows ebenfalls.`
-            : "Prüfe RAM und GPU für die empfohlene Stufe…"}
-        </div>
+      <div className="model-purpose-filter" role="group" aria-label="Modelle nach Einsatzzweck">
+        {ASR_PURPOSES.map((item) => <button key={item.id} type="button"
+          className={purpose === item.id ? "active" : ""} aria-pressed={purpose === item.id}
+          onClick={() => setPurpose(item.id)}>{item.label}</button>)}
       </div>
+      <input className="model-search" type="search" aria-label="Modelle durchsuchen"
+        placeholder="Modell suchen" value={search} onChange={(event) => setSearch(event.target.value)} />
+      <div className="model-choice-list" role="group" aria-label="Transkriptionsmodelle">
+        {shown.map((item) => {
+          const selected = item.engine === selectedAsrEngine && item.model === settings.asr_model;
+          const unsupported = hardware !== null && !hardware.is_apple_silicon && experimentalAsr(item.engine);
+          return <button key={item.engine + ":" + item.model} type="button" aria-pressed={selected}
+            disabled={busy || unsupported} className={selected ? "model-choice selected" : "model-choice"}
+            onClick={() => applyAsrSuggestion(item)}>
+            <span className="model-choice-marker" aria-hidden="true">{selected ? "✓" : ""}</span>
+            <span className="model-choice-copy"><strong>{item.label}</strong>
+              <small>{unsupported ? "Benötigt Apple Silicon für die Wortausrichtung" : item.note}</small>
+            </span>
+            <span className="model-choice-meta">
+              {experimentalAsr(item.engine) && <span className="model-experimental">Experimentell</span>}
+              <ModelStatusBadge item={findModelStatus(items, "asr", item.model, item.engine)} loading={modelStatusLoading} />
+            </span>
+          </button>;
+        })}
+        {!shown.length && <p className="rec-sub">Kein Modell gefunden. Wähle „Alle“ oder ändere die Suche.</p>}
+      </div>
+      <button type="button" className="btn ghost" onClick={() => saveAsrEngine("")} disabled={busy}>
+        Automatische Auswahl verwenden
+      </button>
+      {experimental && <div className="settings-info-box">
+        {selectedAsrEngine === "nemotron-mlx"
+          ? "Native Token-Zeitmarken und zustandsbehaftetes Live-Streaming ohne erneute Verarbeitung alter Audiofenster."
+          : "Ein zusätzliches lokales Qwen-Modell richtet den Text wortgenau an der Aufnahme aus. Das benötigt zusätzliche Rechenzeit und Speicher."}
+        {["moss-mlx", "vibevoice-mlx"].includes(selectedAsrEngine)
+          && " Sprecherlabels gelten zunächst je Audioabschnitt. Für globale Sprecherzuordnung kannst du anschließend die separate Diarisierung starten."}
+        {selectedAsrEngine === "vibevoice-bitnet"
+          && " Die zusätzliche BitNet-Laufzeit ist in der macOS-App enthalten; im Entwicklungscheckout wird sie mit scripts/setup_bitnet.py gebaut."}
+      </div>}
+      {experimental && <div className="field">
+        <label htmlFor="asr-language">Sprache für Transkription und Wortausrichtung</label>
+        <select id="asr-language" value={settings.language ?? ""}
+          onChange={(event) => saveAsrOptions?.({ language: event.target.value || null })}>
+          <option value="">Automatisch</option>
+          {[['de', 'Deutsch'], ['en', 'Englisch'], ['fr', 'Französisch'], ['es', 'Spanisch'],
+            ['it', 'Italienisch'], ['pt', 'Portugiesisch'], ['ru', 'Russisch'], ['zh', 'Chinesisch'],
+            ['ja', 'Japanisch'], ['ko', 'Koreanisch'], ['yue', 'Kantonesisch']]
+            .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+        {needsLanguage && !settings.language && <p className="model-caution" role="status">
+          Bitte eine Sprache wählen, bevor du dieses Modell verwendest.
+        </p>}
+      </div>}
+    </section>
 
-      <div className="settings-section-title">
-        <span>Transkription</span>
-        <small>Engine auswählen, Modell frei eintragen.</small>
+    <details className="model-settings-details">
+      <summary>Modell während der Aufnahme</summary>
+      <div className="field"><label htmlFor="live-asr-model">Live-Transkription</label>
+        <select id="live-asr-model" value={settings.live_asr_override ?? ""}
+          onChange={(event) => saveAsrOptions?.({ live_asr_override: event.target.value as AppSettings["live_asr_override"] })}>
+          <option value="">Automatisch</option>
+          <option value="parakeet-mlx" disabled={hardware !== null && !hardware.is_apple_silicon}>Parakeet (bewährt)</option>
+          <option value="nemotron-mlx" disabled={hardware !== null && !hardware.is_apple_silicon}>Nemotron 3.5 (Streaming)</option>
+          <option value="vibevoice-mlx" disabled={hardware !== null && !hardware.is_apple_silicon}>VibeVoice (Streaming mit Sprechern)</option>
+        </select>
+        <small>Unabhängig von der abschließenden Transkription. Automatisch verwendet bei Qwen, MOSS und BitNet das bewährte Systemmodell.</small>
+        {settings.live_asr_override === "vibevoice-mlx" && <small>
+          Live-Zeitmarken beziehen sich auf Audioabschnitte; die Wortausrichtung erfolgt nach der Aufnahme.
+          Native Sprecherlabels ersetzen die separate Live-Diarisierung, ohne bekannte Stimmen zu identifizieren.
+        </small>}
       </div>
-      <div className="field">
-        <label>Transkriptions-Modell</label>
-        <div className="model-row">
-          <select
-            value={selectedAsrEngine}
-            aria-label="Transkriptions-Engine"
-            onChange={(event) => saveAsrEngine(event.target.value as AsrEngine)}
-          >
-            <option value="">Automatisch nach System</option>
-            <option value="parakeet-mlx">Parakeet MLX</option>
-            <option value="mlx-whisper">MLX Whisper</option>
-            <option value="faster-whisper">faster-whisper</option>
-          </select>
-          <input
-            type="text"
-            list="asr-model-suggestions"
-            value={settings.asr_model ?? ""}
-            placeholder={asrModelPlaceholder(selectedAsrEngine)}
-            onChange={(event) => setSettings({ ...settings, asr_model: event.target.value })}
-            onBlur={(event) => saveAsrModel(event.target.value)}
-            spellCheck={false}
-          />
-          <datalist id="asr-model-suggestions">
-            {ASR_MODEL_SUGGESTIONS.map((suggestion) => (
-              <option key={`${suggestion.engine}:${suggestion.model}`} value={suggestion.model} />
-            ))}
-          </datalist>
-        </div>
-        <div className="suggestion-chips">
-          {ASR_MODEL_SUGGESTIONS.filter(
-            (suggestion) => !selectedAsrEngine || suggestion.engine === selectedAsrEngine,
-          ).map((suggestion) => {
-            const item = findModelStatus(modelItems, "asr", suggestion.model, suggestion.engine);
-            const runtime = runtimeMemoryLabel(item);
-            return (
-              <button
-                key={`${suggestion.engine}:${suggestion.model}`}
-                type="button"
-                className="suggestion-chip"
-                onClick={() => applyAsrSuggestion(suggestion)}
-              >
-                <span>{suggestion.label}</span>
-                <code>{suggestion.model}</code>
-                <span className="suggestion-chip-foot">
-                  <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
-                  <ModelStatusBadge item={item} loading={modelStatusLoading} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {selectedAsrEngine === "faster-whisper" && hardware?.is_apple_silicon && (
-          <div className="settings-info-box" style={{ marginTop: 8 }}>
-            faster-whisper läuft auf diesem Mac über CPU. Für Whisper Large v3 auf Apple-GPU
-            wähle MLX Whisper und den Vorschlag MLX Whisper Large v3.
-          </div>
-        )}
-        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
-          Die Vorschläge füllen das Feld nur aus. MLX Whisper nutzt Apple-GPU/Metal;
-          die volle Large-v3-Variante braucht mehr RAM als Turbo oder Parakeet.
-        </div>
-      </div>
+    </details>
 
-      <div className="settings-section-title">
-        <span>Diarisierung</span>
-        <small>Sprechertrennung und pyannote-Modell.</small>
+    <details className="model-settings-details">
+      <summary>Erweiterte Transkriptionsoptionen</summary>
+      <div className="field"><label htmlFor="asr-engine">Transkriptions-Engine</label>
+        <select id="asr-engine" value={selectedAsrEngine} onChange={(event) => saveAsrEngine(event.target.value as AsrEngine)}>
+          <option value="">Automatisch nach System</option>
+          {Object.entries(ASR_ENGINE_LABELS).map(([engine, label]) => <option key={engine} value={engine}>{label}</option>)}
+        </select>
       </div>
-      <div className="field">
-        <label>Hugging Face Token</label>
-        {secretStorageWarning}
-        {settings.hf_token_set ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-            <span className="badge ready">✓ Token hinterlegt</span>
-            <button className="btn ghost danger" onClick={removeToken} disabled={busy}>
-              Entfernen
-            </button>
-          </div>
-        ) : (
-          <>
-            <input
-              type="password"
-              placeholder="hf_xxxxxxxxxxxxxxxxxxxx"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              spellCheck={false}
-              autoComplete="off"
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-              <button className="btn primary" onClick={saveToken} disabled={busy || !token.trim()}>
-                {busy ? "Prüfe…" : "Speichern & prüfen"}
-              </button>
-            </div>
-          </>
-        )}
-        <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-faint)", lineHeight: 1.5 }}>
-          Für viele pyannote-Modelle ist ein Token nötig. Er wird in der OS-Keychain
-          gespeichert; die Modelllizenz akzeptierst du bei Hugging Face.
-        </div>
+      <div className="field"><label htmlFor="asr-model-id">Eigene Modell-ID oder lokaler Modellordner</label>
+        <input id="asr-model-id" value={settings.asr_model ?? ""} placeholder={asrModelPlaceholder(selectedAsrEngine)}
+          onChange={(event) => setSettings({ ...settings, asr_model: event.target.value })}
+          onBlur={(event) => saveAsrModel(event.target.value)} spellCheck={false} />
+        <small>Nur Modelle derselben Architektur sind kompatibel. Leer verwendet den Engine-Standard.</small>
       </div>
+      <div className="field"><label htmlFor="asr-hotwords">Fachbegriffe und Namen</label>
+        <textarea id="asr-hotwords" rows={3} defaultValue={(settings.asr_hotwords ?? []).join(", ")}
+          placeholder="Begriffe durch Kommas trennen"
+          onBlur={(event) => saveAsrOptions?.({ asr_hotwords: event.target.value.split(",").map((term) => term.trim()).filter(Boolean).slice(0, 100) })} />
+        <small>Für Qwen, MOSS und VibeVoice. Die Begriffe bleiben lokal und garantieren keine bestimmte Schreibweise.</small>
+      </div>
+    </details>
 
-      <div className="field">
-        <label>Diarisierungs-Modell</label>
-        <input
-          type="text"
-          list="diarization-model-suggestions"
-          value={settings.diarization_model}
-          placeholder="pyannote/speaker-diarization-community-1"
+    <details className="model-settings-details">
+      <summary>Sprechertrennung und Hugging Face</summary>
+      <p className="rec-sub">Separate Diarisierung für bewährte ASR-Modelle oder zur erneuten globalen Sprecherzuordnung.</p>
+      <div className="field"><label htmlFor="diar-model">Diarisierungs-Modell</label>
+        <select id="diar-model" value={DIARIZATION_MODEL_SUGGESTIONS.some((s) => s.model === settings.diarization_model) ? settings.diarization_model : "custom"}
+          onChange={(event) => {
+            const suggestion = DIARIZATION_MODEL_SUGGESTIONS.find((s) => s.model === event.target.value);
+            if (suggestion) applyDiarizationSuggestion(suggestion);
+            else setSettings({ ...settings, diarization_model: "" });
+          }}>
+          {DIARIZATION_MODEL_SUGGESTIONS.map((s) => <option key={s.model} value={s.model}>{s.label}</option>)}
+          <option value="custom">Eigenes Modell</option>
+        </select>
+        <input aria-label="Eigene Diarisierungs-Modell-ID" value={settings.diarization_model}
           onChange={(event) => setSettings({ ...settings, diarization_model: event.target.value })}
-          onBlur={(event) => saveDiarizationModel(event.target.value)}
-          spellCheck={false}
-        />
-        <datalist id="diarization-model-suggestions">
-          {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => (
-            <option key={suggestion.model} value={suggestion.model} />
-          ))}
-        </datalist>
-        <div className="suggestion-chips">
-          {DIARIZATION_MODEL_SUGGESTIONS.map((suggestion) => {
-            const item = findModelStatus(modelItems, "diarization", suggestion.model);
-            const runtime = runtimeMemoryLabel(item);
-            return (
-              <button
-                key={suggestion.model}
-                type="button"
-                className="suggestion-chip"
-                onClick={() => applyDiarizationSuggestion(suggestion)}
-              >
-                <span>{suggestion.label}</span>
-                <code>{suggestion.model}</code>
-                <span className="suggestion-chip-foot">
-                  <small>{suggestion.note}{runtime ? ` · ${runtime}` : ""}</small>
-                  <ModelStatusBadge item={item} loading={modelStatusLoading} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ fontSize: 11.5, color: "var(--text-faint)", marginTop: 4, lineHeight: 1.5 }}>
-          Vorschläge sind nur Startpunkte. Du kannst jedes kompatible pyannote-Modell oder
-          einen eigenen Modellpfad eintragen.
-        </div>
+          onBlur={(event) => saveDiarizationModel(event.target.value)} spellCheck={false} />
       </div>
-    </>
-  );
+      <div className="field"><label htmlFor="model-hf-token">Hugging Face Token</label>
+        {secretStorageWarning}
+        {settings.hf_token_set ? <div className="model-token-row">
+          <span className="badge ready">Token hinterlegt</span>
+          <button className="btn ghost danger" onClick={removeToken} disabled={busy}>Entfernen</button>
+        </div> : <>
+          <input id="model-hf-token" type="password" value={token} placeholder="hf_…"
+            onChange={(event) => setToken(event.target.value)} spellCheck={false} autoComplete="off" />
+          <button className="btn" onClick={saveToken} disabled={busy || !token.trim()}>Speichern & prüfen</button>
+        </>}
+        <small>Für pyannote-Downloads mit Zugangszustimmung. Speicherung ausschließlich im sicheren Secret-Speicher.</small>
+      </div>
+    </details>
+
+    <details className="model-settings-details">
+      <summary>Leistung und lokale Downloads</summary>
+      <div className="field"><label htmlFor="model-profile">Laufzeitprofil</label>
+        <select id="model-profile" value={settings.performance_profile}
+          onChange={(event) => savePerformanceProfile(event.target.value as PerformanceProfile)}>
+          {PERFORMANCE_PROFILES.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}
+        </select>
+        <small>{hardware?.memory_gb ? hardware.memory_gb + " GB RAM verfügbar. " : ""}
+          Eine explizite Modellwahl bleibt erhalten. Experimentelle Modelle haben noch keine verlässliche RAM-Schätzung.</small>
+      </div>
+      <div className="settings-section-title model-status-title"><span>Lokale Modelle</span>
+        <button className="btn" onClick={refreshModelStatus} disabled={modelStatusLoading}>{modelStatusLoading ? "Prüfe…" : "Aktualisieren"}</button>
+      </div>
+      <div className="model-status-grid">
+        <ModelStatusCard title="Transkription" item={active} loading={modelStatusLoading} />
+        <ModelStatusCard title="Diarisierung" item={activeModelStatus(items, "diarization")} loading={modelStatusLoading} />
+        <ModelStatusCard title="Sprecher-Matching" item={findModelStatus(items, "embedding", "speechbrain/spkrec-ecapa-voxceleb")} loading={modelStatusLoading} />
+      </div>
+      <p className="rec-sub model-cache-path">Cache-Ordner: <code>{modelStatus?.models_dir ?? "wird ermittelt"}</code></p>
+      <p className="rec-sub">Fehlende Gewichte werden bei der ersten Nutzung geladen. Audiodaten werden nicht hochgeladen.</p>
+    </details>
+  </div>;
 }

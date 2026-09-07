@@ -30,6 +30,18 @@ def build_backend(override: str | None = None, selection: dict | None = None) ->
     selection = selection or _selection(override)
     engine = selection["engine"]
 
+    if engine == "vibevoice-bitnet":
+        from .bitnet_backend import BitNetBackend
+
+        return BitNetBackend(model_id=selection.get("model_id"), hotwords=selection.get("hotwords"))
+
+    if engine in ("qwen3-mlx", "nemotron-mlx", "moss-mlx", "vibevoice-mlx"):
+        from .mlx_audio_backend import MlxAudioBackend
+
+        return MlxAudioBackend(
+            engine, model_id=selection.get("model_id"), hotwords=selection.get("hotwords")
+        )
+
     if engine == "parakeet-mlx":
         from .parakeet_mlx_backend import DEFAULT_MODEL, ParakeetMlxBackend
 
@@ -45,6 +57,9 @@ def build_backend(override: str | None = None, selection: dict | None = None) ->
 
         return MlxWhisperBackend(model_id=selection.get("model_id") or DEFAULT_MLX_WHISPER_MODEL)
 
+    if engine != "faster-whisper":
+        raise ValueError(f"Unbekannte Transkriptions-Engine: {engine}")
+
     # faster-whisper for CUDA / CPU.
     from .faster_whisper_backend import FasterWhisperBackend
 
@@ -56,10 +71,21 @@ def build_backend(override: str | None = None, selection: dict | None = None) ->
     )
 
 
-def get_backend(override: str | None = None) -> ASRBackend:
+def get_backend(override: str | None = None, *, live: bool = False) -> ASRBackend:
     """Return a cached backend for the duration of a job (unloaded afterwards)."""
     global _cached, _cached_key
     selection = _selection(override)
+    if live:
+        prefs = load_prefs()
+        engine = prefs.get("live_asr_override")
+        if engine:
+            selection = resolve_asr_selection(
+                {**prefs, "asr_override": engine, "asr_model": ""}, detect_hardware()
+            )
+        elif selection["engine"] in ("qwen3-mlx", "moss-mlx", "vibevoice-bitnet"):
+            selection = resolve_asr_selection(
+                {**prefs, "asr_override": "", "asr_model": ""}, detect_hardware()
+            )
     key = json.dumps(selection, sort_keys=True)
     with _lock:
         if _cached is None or _cached_key != key:

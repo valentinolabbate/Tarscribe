@@ -132,9 +132,37 @@ export function useSettingsModalState() {
       setStatus({ ok: false, msg: `Leistungsstufe konnte nicht gespeichert werden: ${(error as Error).message}` });
     }
   }
+  async function saveAsrOptions(patch: Partial<Pick<AppSettings, "language" | "asr_hotwords" | "live_asr_override">>) {
+    if (!settings) return;
+    const previous = settings;
+    setSettings({ ...settings, ...patch });
+    try {
+      await api.updateSettings(patch);
+      setStatus({ ok: true, msg: "Transkriptionsoptionen gespeichert." });
+    } catch (error) {
+      setSettings(previous);
+      setStatus({ ok: false, msg: `Speichern fehlgeschlagen: ${errorMessage(error)}` });
+    }
+  }
+
+  async function prepareAsrModel() {
+    setBusy(true);
+    setStatus({ ok: true, msg: "Modell und benötigte Zusatzgewichte werden vorbereitet…" });
+    try {
+      await api.warmup();
+      await refreshModelStatus();
+      setStatus({ ok: true, msg: "Transkriptionsmodell lokal bereit." });
+    } catch (error) {
+      setStatus({ ok: false, msg: `Modell nicht bereit: ${errorMessage(error)}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveAsrEngine(asr_override: AsrEngine) {
     if (!settings) return;
-    const asr_model = normalizeAsrModelForEngine(asr_override, settings.asr_model);
+    const asr_model = asr_override === asrEngineValue(settings.asr_override)
+      ? normalizeAsrModelForEngine(asr_override, settings.asr_model) : "";
     setSettings({ ...settings, asr_override, asr_model });
     try {
       await api.updateSettings({ asr_override, asr_model });
@@ -145,6 +173,7 @@ export function useSettingsModalState() {
         ok: false,
         msg: `Transkriptions-Engine konnte nicht gespeichert werden: ${(error as Error).message}`,
       });
+      setSettings(settings);
     }
   }
 
@@ -164,6 +193,7 @@ export function useSettingsModalState() {
         ok: false,
         msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(error as Error).message}`,
       });
+      setSettings(settings);
     }
   }
 
@@ -179,6 +209,7 @@ export function useSettingsModalState() {
         ok: false,
         msg: `Transkriptions-Modell konnte nicht gespeichert werden: ${(error as Error).message}`,
       });
+      setSettings(settings);
     }
   }
 
@@ -303,6 +334,8 @@ export function useSettingsModalState() {
   }
 
   return {
+    saveAsrOptions,
+    prepareAsrModel,
     settings,
     setSettings,
     token,

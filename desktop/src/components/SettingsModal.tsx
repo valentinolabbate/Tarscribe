@@ -55,7 +55,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   } = state;
 
   const statusEl = status && (
-    <div style={{ marginTop: 8, fontSize: 12, color: status.ok ? "var(--ok)" : "var(--danger)" }}>
+    <div role="status" style={{ marginTop: 8, fontSize: 12, color: status.ok ? "var(--ok)" : "var(--danger)" }}>
       {status.msg}
     </div>
   );
@@ -142,6 +142,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <div className="settings-pane-head">
               <span>{activeTab.label}</span>
               <p>{activeTab.description}</p>
+              {tab === "models" && statusEl}
             </div>
 
             {tab === "general" && settings && (
@@ -176,6 +177,8 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
                 savePerformanceProfile={savePerformanceProfile}
                 saveAsrEngine={saveAsrEngine}
                 saveAsrModel={saveAsrModel}
+                saveAsrOptions={state.saveAsrOptions}
+                prepareAsrModel={state.prepareAsrModel}
                 applyAsrSuggestion={applyAsrSuggestion}
                 saveDiarizationModel={saveDiarizationModel}
                 applyDiarizationSuggestion={applyDiarizationSuggestion}

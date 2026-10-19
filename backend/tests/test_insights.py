@@ -1306,6 +1306,79 @@ def test_digest_endpoint_requires_configured_llm(client, monkeypatch):
     assert "Kein Chat-Modell" in r.json()["detail"]
 
 
+def test_digest_research_and_final_completion_share_one_opencode_session(client, monkeypatch):
+    from contextlib import contextmanager
+    import json
+
+    import httpx
+
+    import tarscribe_backend.agent as agent
+    import tarscribe_backend.llm as llm
+    from tarscribe_backend.routers.insights import _generate_digest_markdown
+
+    cfg = {
+        "model": "digest-session-regression-model",
+        "base_url": "https://opencode.ai/inference/go/openai/v1",
+        "provider": "opencode-go",
+        "api_key": "test-key",
+        "knowledge_search_enabled": True,
+        "web_search_enabled": False,
+    }
+    monkeypatch.setattr(llm, "get_llm_config", lambda *_args: dict(cfg))
+    monkeypatch.setattr(agent, "get_agent_rag_config", lambda *_args: dict(cfg))
+    monkeypatch.setattr(agent, "_execute_tool", lambda *_args, **_kwargs: json.dumps([
+        {"title": "Budget", "text": "Budget wurde freigegeben.", "source_type": "transcript"}
+    ]))
+    requests = []
+
+    def fake_post(url, *, json, headers, **_kwargs):
+        requests.append((json, headers))
+        if any(message["role"] == "tool" for message in json["messages"]):
+            message = {"role": "assistant", "content": "Recherche abgeschlossen."}
+        else:
+            message = {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "search-budget",
+                "type": "function",
+                "function": {"name": "search_knowledge", "arguments": '{"query":"Budget"}'},
+            }]}
+        return httpx.Response(
+            200, request=httpx.Request("POST", url), json={"choices": [{"message": message}]}
+        )
+
+    @contextmanager
+    def fake_stream(_method, url, *, json, headers, **_kwargs):
+        requests.append((json, headers))
+        yield httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            text='data: {"choices":[{"delta":{"content":"# Deine Woche"}}]}\n\ndata: [DONE]\n\n',
+        )
+
+    monkeypatch.setattr(llm.httpx, "post", fake_post)
+    monkeypatch.setattr(llm.httpx, "stream", fake_stream)
+    now = datetime.now(timezone.utc)
+    kwargs = {
+        "date_from": now - timedelta(days=7),
+        "date_to": now,
+        "recording_count": 1,
+        "context": "Budget wurde freigegeben.",
+        "chunk_size": 48000,
+    }
+
+    assert _generate_digest_markdown(**kwargs) == ("# Deine Woche", cfg["model"])
+    assert len(requests) == 3
+    first_sessions = {headers["x-opencode-session"] for _payload, headers in requests}
+    assert len(first_sessions) == 1
+    assert [payload["stream"] for payload, _headers in requests] == [False, False, True]
+    assert "Budget wurde freigegeben." in requests[-1][0]["messages"][0]["content"]
+
+    assert _generate_digest_markdown(**kwargs) == ("# Deine Woche", cfg["model"])
+    assert len(requests) == 6
+    second_sessions = {headers["x-opencode-session"] for _payload, headers in requests[3:]}
+    assert len(second_sessions) == 1
+    assert first_sessions.isdisjoint(second_sessions)
+
+
 # ── Cross-recording threads ─────────────────────────────────────────────────
 
 def test_threads_rebuild_clusters_semantically_similar_transcripts(client):

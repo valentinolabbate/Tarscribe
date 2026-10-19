@@ -263,7 +263,7 @@ export function useChatPanelController({
     try {
       await api.ragChat(
         [...history, { role: "user", content: text }],
-        { ...scopeOpts, reasoningEffort: reasoningEffort || null },
+        { ...scopeOpts, reasoningEffort: reasoningEffort || null, sessionId: `tarscribe-chat-${sessionId}` },
         {
           signal: controller.signal,
           onSources: (sources) => {

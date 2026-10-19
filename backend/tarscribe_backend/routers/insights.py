@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 import re
+import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1250,6 +1251,7 @@ def _generate_digest_markdown(
     from .. import llm as L
 
     cfg = L.get_llm_config("summaries")
+    session_id = str(uuid.uuid4())
     if not cfg["model"]:
         raise HTTPException(
             400,
@@ -1295,6 +1297,7 @@ Quellen:
     # Agentic RAG: let the LLM iteratively search the knowledge base before
     # generating the digest. Falls back to plain digest on any failure.
     agent_cfg = AG.get_agent_rag_config("summaries")
+    agent_cfg["session_id"] = session_id
     if AG.research_active(agent_cfg):
         try:
             from ..db import session_scope
@@ -1336,6 +1339,7 @@ Quellen:
                 api_key=cfg.get("api_key"),
                 reasoning_effort=cfg.get("reasoning_effort"),
                 provider=cfg.get("provider"),
+                session_id=session_id,
             )
         ).strip()
     except HTTPException:

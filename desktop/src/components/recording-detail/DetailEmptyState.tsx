@@ -1,32 +1,23 @@
 import { WaveIcon } from "../icons";
 
 export function DetailEmptyState({
-  running,
-  startingPhase,
-  transcribePending,
-  error,
-  onTranscribe,
+  loading,
+  onOpenProcessing,
 }: {
-  running: boolean;
-  startingPhase: string | null;
-  transcribePending: boolean;
-  error?: string | null;
-  onTranscribe: () => void;
+  loading: boolean;
+  onOpenProcessing: () => void;
 }) {
-  if (running || startingPhase) return null;
   return (
     <div className="detail-empty-state">
       <div className="rec-icon">
         <WaveIcon />
       </div>
       <div>
-        <h2>{error ? "Transkription fehlgeschlagen" : "Bereit zum Transkribieren"}</h2>
-        <p>Erstelle zuerst ein Transkript. Danach erscheinen Zusammenfassung, Fragen und Sprecherbereiche als eigene Tabs.</p>
+        <h2>{loading ? "Transkript wird geladen…" : "Noch kein Transkript"}</h2>
+        <p>{loading ? "Die Aufnahme wird vorbereitet."
+          : "Öffne die Verarbeitung, um das Audio zu prüfen und die Transkription zu starten."}</p>
       </div>
-      <button className="btn primary" disabled={transcribePending} onClick={onTranscribe}>
-        {error ? "Erneut transkribieren" : "Jetzt transkribieren"}
-      </button>
-      {error && <div className="detail-error">{error}</div>}
+      {!loading && <button className="btn primary" onClick={onOpenProcessing}>Zur Verarbeitung</button>}
     </div>
   );
 }

@@ -133,6 +133,7 @@ def test_document_upload_reindex_and_rag_chat_returns_sourced_answer(client):
         "/api/rag/chat",
         json={
             "topic_id": topic["id"],
+            "session_id": "tarscribe-chat-42",
             "messages": [{"role": "user", "content": "Welche Entscheidung steht im Handbuch?"}],
         },
     )
@@ -141,6 +142,7 @@ def test_document_upload_reindex_and_rag_chat_returns_sourced_answer(client):
     assert events[0]["type"] == "sources"
     assert events[0]["sources"][0]["document_id"] == document_id
     assert "".join(event.get("content", "") for event in events) == "Die Referenz nennt die Entscheidung [1]."
+    assert client.captured["llm_kwargs"]["session_id"] == "tarscribe-chat-42"
 
     llm_messages = client.captured["messages"]
     assert "Wichtige Referenz zum Projekt" in llm_messages[-1]["content"]

@@ -1,6 +1,6 @@
 import { fmtDuration, statusLabel } from "../../lib/format";
 import type { DiarizationData, Recording, Topic, TranscriptData } from "../../lib/types";
-import { FolderIcon, MoreIcon, SpeakerIdIcon } from "../icons";
+import { FolderIcon, MoreIcon } from "../icons";
 
 export function RecordingToolbar({
   recording,
@@ -9,15 +9,13 @@ export function RecordingToolbar({
   diar,
   isTranscribed,
   updatePending,
-  diarizePending,
-  running,
-  transcribePending,
+  processingOpen,
+  audioEditing,
   exportOpen,
   onBack,
   onRename,
   onMoveRecording,
-  onDetectSpeakers,
-  onRetranscribe,
+  onToggleProcessing,
   onToggleExport,
   onCloseExport,
   onExport,
@@ -30,15 +28,13 @@ export function RecordingToolbar({
   diar?: DiarizationData;
   isTranscribed: boolean;
   updatePending: boolean;
-  diarizePending: boolean;
-  running: boolean;
-  transcribePending: boolean;
+  processingOpen: boolean;
+  audioEditing: boolean;
   exportOpen: boolean;
   onBack: () => void;
   onRename: (title: string) => void;
   onMoveRecording: (topicId: number) => void;
-  onDetectSpeakers: () => void;
-  onRetranscribe: () => void;
+  onToggleProcessing: () => void;
   onToggleExport: () => void;
   onCloseExport: () => void;
   onExport: (format: string) => void;
@@ -71,6 +67,11 @@ export function RecordingToolbar({
       </div>
 
       <div className="detail-actions">
+        <button className={processingOpen ? "btn ghost" : "btn"}
+          onClick={onToggleProcessing} disabled={audioEditing}
+          title={audioEditing ? "Audiobereich zuerst übernehmen oder verwerfen" : undefined}>
+          {processingOpen ? "Zurück zur Aufnahme" : "Verarbeitung"}
+        </button>
         <div className="export-wrap">
           <button
             className="btn ghost detail-more"
@@ -96,16 +97,6 @@ export function RecordingToolbar({
                     ))}
                   </select>
                 </label>
-              )}
-              {isTranscribed && transcript && !diar && (
-                <button disabled={diarizePending || running} onClick={onDetectSpeakers}>
-                  <SpeakerIdIcon width={15} height={15} /> Sprecher erkennen
-                </button>
-              )}
-              {transcript && (
-                <button disabled={transcribePending || running} onClick={onRetranscribe}>
-                  Neu transkribieren
-                </button>
               )}
               {isTranscribed && transcript && (
                 <>

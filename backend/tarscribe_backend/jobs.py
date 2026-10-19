@@ -15,6 +15,7 @@ import re
 import threading
 import time
 import traceback
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -986,6 +987,7 @@ async def _run_summary_async(
         max_tokens = cfg.get("max_tokens")
         reasoning_effort = cfg.get("reasoning_effort")
         provider = cfg.get("provider")
+        session_id = f"tarscribe-summary-{summary_id}"
 
         from .settings_store import load_prefs as _load_prefs
         prefs = _load_prefs()
@@ -1005,6 +1007,7 @@ async def _run_summary_async(
                 api_key=api_key,
                 reasoning_effort=reasoning_effort,
                 provider=provider,
+                session_id=session_id,
             ):
                 content += delta
             return content
@@ -1065,6 +1068,7 @@ async def _run_summary_async(
         from . import rag as R
 
         agent_cfg = AG.get_agent_rag_config("summaries")
+        agent_cfg["session_id"] = session_id
         knowledge_context_found = False
         summary_research_sources: list[dict] = []
         if AG.research_active(agent_cfg):
@@ -1160,6 +1164,7 @@ async def _run_summary_async(
             api_key=api_key,
             reasoning_effort=reasoning_effort,
             provider=provider,
+            session_id=session_id,
         ):
             _raise_if_canceled(job_id)
             acc += delta
@@ -1202,6 +1207,7 @@ def _llm_chat_fn(use_case: LlmUseCase = "summaries"):
     from . import llm as L
 
     cfg = L.get_llm_config(use_case)
+    session_id = str(uuid.uuid4())
     if not cfg["model"]:
         raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
@@ -1218,6 +1224,7 @@ def _llm_chat_fn(use_case: LlmUseCase = "summaries"):
                 api_key=cfg.get("api_key"),
                 reasoning_effort=cfg.get("reasoning_effort"),
                 provider=cfg.get("provider"),
+                session_id=session_id,
             )
         )
 
@@ -1228,6 +1235,7 @@ def _llm_chat_fn_async(use_case: LlmUseCase = "summaries"):
     from . import llm as L
 
     cfg = L.get_llm_config(use_case)
+    session_id = str(uuid.uuid4())
     if not cfg["model"]:
         raise RuntimeError("Kein Chat-Modell gewählt. Bitte in den Einstellungen konfigurieren.")
 
@@ -1244,6 +1252,7 @@ def _llm_chat_fn_async(use_case: LlmUseCase = "summaries"):
             api_key=cfg.get("api_key"),
             reasoning_effort=cfg.get("reasoning_effort"),
             provider=cfg.get("provider"),
+            session_id=session_id,
         ):
             content += delta
         return content

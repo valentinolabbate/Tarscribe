@@ -254,9 +254,11 @@ async def test_research_context_tool_loop_with_search(env, monkeypatch):
     agent, _db, rag = env
 
     call_count = {"n": 0}
+    observed_session_ids: list[str] = []
 
     async def fake_achat_complete(*_args, **_kwargs):
         call_count["n"] += 1
+        observed_session_ids.append(_kwargs["session_id"])
         if call_count["n"] == 1:
             return {
                 "message": {
@@ -293,7 +295,7 @@ async def test_research_context_tool_loop_with_search(env, monkeypatch):
     ]
     monkeypatch.setattr(rag, "search", lambda *a, **kw: fake_hits)
 
-    cfg = _base_cfg()
+    cfg = _base_cfg(session_id="tarscribe-chat-42")
     notes, sources = await agent.research_context(
         session=object(),
         topic_id=1,
@@ -306,6 +308,7 @@ async def test_research_context_tool_loop_with_search(env, monkeypatch):
     assert "Budget wurde diskutiert" in notes
     assert len(sources) == 1
     assert sources[0]["recording_title"] == "Budget Meeting"
+    assert observed_session_ids == ["tarscribe-chat-42", "tarscribe-chat-42"]
 
 
 @pytest.mark.asyncio()

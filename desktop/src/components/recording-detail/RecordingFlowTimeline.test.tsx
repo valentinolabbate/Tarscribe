@@ -29,8 +29,8 @@ describe("manual recording workflow", () => {
     expect(steps[0].action?.disabled).toBe(false);
     expect(steps.slice(1).every((step) => step.action?.disabled)).toBe(true);
     const html = renderToStaticMarkup(<RecordingFlowTimeline steps={steps} />);
-    expect(html).toContain("Aufnahme-Workflow");
-    expect(html).toContain("Template für Zusammenfassung");
+    expect(html).toContain("Verarbeitungsschritte");
+    expect(html).toContain("Vorlage für Zusammenfassung");
     expect(html).toContain('<option value="2" selected="">Interview</option>');
   });
 

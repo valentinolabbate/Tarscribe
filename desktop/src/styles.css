@@ -2211,42 +2211,64 @@ select:focus {
   gap: 8px;
   flex-wrap: wrap;
 }
+.recording-processing-heading {
+  padding: 14px 4px 4px;
+}
+.recording-processing-heading h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+.recording-processing-heading p {
+  max-width: 680px;
+  margin: 7px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .recording-flow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
 }
 .recording-flow-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 16px;
   min-width: 0;
-  padding: 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
-  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.recording-flow-step:last-child {
+  border-bottom: 0;
 }
 .recording-flow-step.active {
-  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated));
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-elevated));
 }
-.recording-flow-step.done {
-  border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
+.recording-flow-step.done .recording-flow-kicker {
+  color: var(--ok);
 }
 .recording-flow-step.error {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger) 7%, var(--bg-elevated));
+  background: color-mix(in srgb, var(--danger) 5%, var(--bg-elevated));
 }
-.recording-flow-step.waiting {
-  opacity: 0.72;
+.recording-flow-step.error .recording-flow-kicker {
+  color: var(--danger);
 }
 .recording-flow-marker {
   display: grid;
   place-items: center;
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
   background: var(--bg-input);
@@ -2275,34 +2297,32 @@ select:focus {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
+}
+.recording-flow-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 12px;
 }
 .recording-flow-kicker {
   color: var(--text-faint);
-  font-size: 10.5px;
-  font-weight: 760;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 500;
 }
 .recording-flow-copy strong {
   min-width: 0;
-  overflow: hidden;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.4;
 }
 .recording-flow-copy small {
-  display: -webkit-box;
-  min-height: 31px;
-  overflow: hidden;
+  display: block;
   color: var(--text-dim);
-  font-size: 11.5px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .recording-flow-progress {
   height: 4px;
@@ -2319,11 +2339,46 @@ select:focus {
   transition: width 0.25s ease;
 }
 .recording-flow-step .btn {
-  align-self: center;
-  flex: none;
-  padding: 5px 8px;
-  font-size: 11.5px;
+  grid-column: 4;
+  min-width: 104px;
+  padding: 8px 12px;
+  font-size: 12px;
   white-space: nowrap;
+}
+.recording-activity-notice {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 15px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+}
+.recording-activity-notice > div {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+.recording-activity-notice strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+.recording-activity-notice span {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.recording-activity-notice .btn {
+  flex: none;
+  font-size: 12px;
+}
+.recording-activity-notice.failed {
+  border-left-color: var(--danger);
+}
+.recording-activity-progress {
+  font-variant-numeric: tabular-nums;
 }
 .recording-topic-select {
   display: inline-flex;
@@ -6234,9 +6289,6 @@ button.utt-time:hover {
   }
   .detail-progress {
     grid-template-columns: 1fr;
-  }
-  .recording-flow {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .detail-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -10352,8 +10404,7 @@ a:focus-visible {
   }
 }
 
-.recording-flow-step select { align-self: center; width: min(210px, 30%); min-width: 100px; }
-.recording-flow-copy small { display: block; min-height: 0; overflow: visible; }
+.recording-flow-step select { grid-column: 3; width: 200px; min-width: 0; }
 .player.audio-workbench {
   display: block;
   padding: 18px;
@@ -10444,8 +10495,13 @@ a:focus-visible {
 .trim-editor-footer .btn { font-size: 12px; }
 .trim-original-note { margin: 12px 0 0; color: var(--text-faint); font-size: 11px; }
 @media (max-width: 720px) {
-  .recording-flow-step { flex-wrap: wrap; }
-  .recording-flow-step select { margin-left: 34px; width: auto; max-width: calc(100% - 34px); }
+  .recording-flow-step { grid-template-columns: 28px minmax(0, 1fr) auto; gap: 12px; padding: 16px 14px; }
+  .recording-flow-step .btn { grid-column: 3; min-width: 0; padding: 7px 9px; }
+  .recording-flow-step select { grid-column: 2 / -1; grid-row: 2; width: 100%; }
+  .recording-flow-copy strong { font-size: 14px; }
+  .recording-activity-notice { flex-wrap: wrap; gap: 8px; }
+  .recording-activity-notice > div { min-width: 180px; }
+  .recording-activity-notice .btn { margin-left: auto; }
   .player.audio-workbench { padding: 14px; }
   .audio-workbench-header { align-items: flex-start; flex-wrap: wrap; }
   .audio-transport { gap: 8px; flex-wrap: wrap; }

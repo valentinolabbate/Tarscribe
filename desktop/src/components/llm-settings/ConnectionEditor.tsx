@@ -34,6 +34,8 @@ export function ConnectionEditor({
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const providerLabel = PROVIDER_OPTIONS.find(([value]) => value === connection.provider)?.[1]
+    ?? connection.provider;
 
   useEffect(() => {
     setDraft(connection);
@@ -51,6 +53,7 @@ export function ConnectionEditor({
     setDraft((current) => ({
       ...current,
       provider,
+      name: current.name.trim() ? current.name : PROVIDER_OPTIONS.find(([value]) => value === provider)?.[1] ?? "",
       base_url: PRESETS[provider] ?? current.base_url,
     }));
     setStatus(null);
@@ -127,7 +130,7 @@ export function ConnectionEditor({
             <span>{connection.base_url}</span>
           </div>
           <div className="llm-connection-meta">
-            <span>{connection.provider}</span>
+            <span>{providerLabel}</span>
             <span>
               {modelState?.loading
                 ? "Modelle werden geladen"
@@ -162,7 +165,7 @@ export function ConnectionEditor({
           <strong>{isNew ? "Neue Verbindung" : connection.name}</strong>
           {!isNew && (
             <span>
-              {connection.provider} · {connection.base_url}
+              {providerLabel} · {connection.base_url}
             </span>
           )}
         </div>
@@ -219,6 +222,13 @@ export function ConnectionEditor({
         </label>
       </div>
 
+      {draft.provider === "opencode-go" && (
+        <p className="llm-connection-usage">
+          Benötigt ein OpenCode-Go-Abonnement. Kompatible Chat-Modelle werden automatisch geladen.
+          Go ist für Coding-Agenten ausgelegt; die Nutzung für Transkriptfragen kann
+          vom Anbieter eingeschränkt werden.
+        </p>
+      )}
       {usedBy.length > 0 && (
         <div className="llm-connection-usage">Verwendet für: {usedBy.join(", ")}</div>
       )}

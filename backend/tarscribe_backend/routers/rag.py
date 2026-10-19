@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from .. import llm as L
@@ -44,6 +45,7 @@ ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 
 class ChatIn(BaseModel):
     messages: list[ChatMessage]
+    session_id: str | None = Field(default=None, max_length=200)
     topic_id: int | None = None
     recording_id: int | None = None
     include_topic_context: bool = False
@@ -211,6 +213,7 @@ async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> Stre
         raise HTTPException(400, "Keine Nachricht übergeben.")
 
     cfg = L.get_llm_config("chat")
+    conversation_id = payload.session_id or str(uuid.uuid4())
     if not cfg["model"]:
         raise HTTPException(400, "Kein Chat-Modell konfiguriert (siehe Einstellungen).")
 
@@ -262,6 +265,7 @@ async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> Stre
     ]
 
     agent_cfg = AG.get_agent_rag_config("chat")
+    agent_cfg["session_id"] = conversation_id
     agent_enabled = AG.research_active(agent_cfg)
     agent_topic_id = payload.topic_id
     if agent_enabled and payload.recording_id is not None and payload.include_topic_context:
@@ -358,6 +362,7 @@ async def chat(payload: ChatIn, session: Session = Depends(get_session)) -> Stre
                     payload.reasoning_effort or cfg.get("reasoning_effort")
                 ),
                 provider=cfg.get("provider"),
+                session_id=conversation_id,
             ):
                 yield f"data: {json.dumps({'type': 'delta', 'content': delta})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"

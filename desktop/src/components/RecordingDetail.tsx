@@ -29,7 +29,9 @@ import { ChaptersBar } from "./ChaptersBar";
 import { MeetingTimeline } from "./MeetingTimeline";
 import { AskWorkspace } from "./recording-detail/AskWorkspace";
 import { DetailTabs } from "./recording-detail/DetailTabs";
+import { DetailEmptyState } from "./recording-detail/DetailEmptyState";
 import { JobErrorBanners } from "./recording-detail/JobErrorBanners";
+import { RecordingActivityNotice } from "./recording-detail/RecordingActivityNotice";
 import { RecordingFlowTimeline } from "./recording-detail/RecordingFlowTimeline";
 import { RecordingToolbar } from "./recording-detail/RecordingToolbar";
 import { SpeakersWorkspace } from "./recording-detail/SpeakersWorkspace";
@@ -86,7 +88,7 @@ export function RecordingDetail({
   const toast = useToast();
   const queryClient = useQueryClient();
   const statusRunning = ["queued", "transcribing", "diarizing"].includes(recording.status);
-  const { data: transcript } = useTranscript(recording.id, true);
+  const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, true);
   const isTranscribed = !!transcript;
   const { data: qualityReport } = useRecordingQuality(recording.id, isTranscribed && !!transcript);
   const createCorrection = useCreateCorrection(recording.id);
@@ -96,6 +98,7 @@ export function RecordingDetail({
   const { data: actionItems } = useRecordingActionItems(recording.id, isTranscribed && !!transcript);
   const [showTuning, setShowTuning] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("transcript");
+  const [processingOpen, setProcessingOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const playerRef = useRef<PlayerHandle>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -115,15 +118,16 @@ export function RecordingDetail({
     )?.start ?? -1;
   const recordingTopic = topics.find((topic) => topic.id === recording.topic_id);
   useEffect(() => {
-    if (activeTab === "transcript" && (playing || initialSeekSec != null) && activeRef.current) {
+    if (!processingOpen && activeTab === "transcript" && (playing || initialSeekSec != null) && activeRef.current) {
       activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-  }, [activeStart, activeTab, initialSeekSec, playing]);
+  }, [activeStart, activeTab, initialSeekSec, playing, processingOpen]);
 
   const localRunning = job?.status === "running" || job?.status === "pending";
   const persistedRunning = recordingJobs.find((item) => item.status === "pending" || item.status === "running");
   const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning || !!persistedRunning);
-  const activeJob = preferJobEvent(job, persistedRunning ?? polledJob);
+  const latestPersistedJob = preferJobEvent(polledJob ?? undefined, recordingJobs[0]);
+  const activeJob = preferJobEvent(job, persistedRunning ?? latestPersistedJob);
   const running =
     activeJob?.status === "running" || activeJob?.status === "pending" || statusRunning || !!persistedRunning;
   const pendingPhase = transcribe.isPending ? "asr" : diarizeFirst.isPending ? "diarization"
@@ -289,7 +293,7 @@ export function RecordingDetail({
     activeJob,
     jobs: recordingJobs,
     pendingPhase,
-    running: !!running || audioEditing,
+    running: !!running || audioEditing || transcriptLoading,
     rangeValid,
     transcript,
     diar,
@@ -327,18 +331,16 @@ export function RecordingDetail({
         diar={diar}
         isTranscribed={isTranscribed}
         updatePending={updateRec.isPending}
-        diarizePending={diarizeFirst.isPending}
-        running={busy || audioEditing}
-        transcribePending={transcribe.isPending}
+        processingOpen={processingOpen}
+        audioEditing={audioEditing}
         exportOpen={exportOpen}
         onBack={onBack}
         onRename={(title) => updateRec.mutate({ id: recording.id, patch: { title } })}
         onMoveRecording={(topicId) => void moveRecording(topicId)}
-        onDetectSpeakers={() => {
-          setActiveTab("speakers");
-          diarizeFirst.mutate({ id: recording.id });
+        onToggleProcessing={() => {
+          setProcessingOpen((value) => !value);
+          setExportOpen(false);
         }}
-        onRetranscribe={() => void startTranscription(true)}
         onToggleExport={() => setExportOpen((value) => !value)}
         onCloseExport={() => setExportOpen(false)}
         onExport={(format) => void exportRecording(format)}
@@ -349,25 +351,43 @@ export function RecordingDetail({
         onSendToFolder={() => void sendToFolder()}
       />
 
+      {processingOpen && (
+        <div className="recording-processing-heading">
+          <h1>Verarbeitung</h1>
+          <p>Prüfe das Audio und starte die gewünschten Schritte. Deine Ergebnisse findest du im Transkript und in den zugehörigen Bereichen.</p>
+        </div>
+      )}
+
       <AudioPlayer ref={playerRef} recordingId={recording.id} audioPath={recording.audio_path}
         durationSec={recording.duration_sec} initialSeekSec={initialSeekSec}
         onTime={setCurrentTime} onPlaying={setPlaying}
-        selection={{ start: trimStart, end: trimEnd, disabled: busy,
+        selection={processingOpen ? { start: trimStart, end: trimEnd, disabled: busy || transcriptLoading,
           onChange: (start, end) => { setTrimStart(start); setTrimEnd(end); },
-          onEditingChange: setAudioEditing }} />
-      <RecordingFlowTimeline steps={flowSteps} />
+          onEditingChange: setAudioEditing } : undefined} />
 
-      <JobErrorBanners
-        activeJob={activeJob}
-        running={!!running || audioEditing}
-        retryPending={retry.isPending}
-        transcribePending={transcribe.isPending}
-        hasTranscript={!!transcript}
-        onRetry={(jobId) => retry.mutate(jobId)}
-        onRetranscribe={() => void startTranscription(true)}
-      />
+      {processingOpen ? (
+        <>
+          <RecordingFlowTimeline steps={flowSteps} />
+          <JobErrorBanners
+            activeJob={activeJob}
+            running={!!running || audioEditing}
+            retryPending={retry.isPending}
+            transcribePending={transcribe.isPending}
+            hasTranscript={!!transcript}
+            onRetry={(jobId) => retry.mutate(jobId)}
+            onRetranscribe={() => void startTranscription(true)}
+          />
+        </>
+      ) : (
+        <RecordingActivityNotice activeJob={activeJob} busy={busy} pendingPhase={pendingPhase}
+          onOpenProcessing={() => setProcessingOpen(true)} />
+      )}
 
-      {transcript && (
+      {!processingOpen && !transcript && !busy && (
+        <DetailEmptyState loading={transcriptLoading} onOpenProcessing={() => setProcessingOpen(true)} />
+      )}
+
+      {!processingOpen && transcript && (
         <>
           <ChaptersBar
             recordingId={recording.id}

@@ -42,7 +42,8 @@ export function useRecordingFlowSteps({
     const failed = job?.status === "failed";
     const progress = pendingPhase === phase ? 0 : Math.round((job?.progress ?? 0) * 100);
     return {
-      key, eyebrow: optional ? "Optional" : "Verarbeitung", label,
+      key, eyebrow: active ? "Läuft" : failed ? "Fehlgeschlagen" : done ? "Abgeschlossen"
+        : !available ? "Noch nicht verfügbar" : optional ? "Optional" : "Bereit", label,
       detail: active ? `${jobPhaseLabel(phase)}… ${progress}%`
         : failed ? job.error ?? "Verarbeitung fehlgeschlagen. Erneut starten."
         : detail,
@@ -53,11 +54,12 @@ export function useRecordingFlowSteps({
     };
   };
   const summary = create("summary", "summarize", "Zusammenfassung",
-    transcript ? `${summaryCount} gespeichert · Vorlage auswählen und starten.`
+    transcript ? templates.length === 0 ? "Lege zuerst eine Vorlage in den Einstellungen an."
+      : `${summaryCount} gespeichert · Vorlage auswählen und starten.`
       : "Nach der Transkription verfügbar.", summaryCount > 0,
     !!transcript && templateId !== null, onSummarize);
   summary.selection = {
-    label: "Template für Zusammenfassung", value: templateId ?? "", disabled: busy || !transcript,
+    label: "Vorlage für Zusammenfassung", value: templateId ?? "", disabled: busy || !transcript || templates.length === 0,
     options: templates.map((template) => ({ value: template.id, label: template.name })),
     onChange: onTemplateChange,
   };

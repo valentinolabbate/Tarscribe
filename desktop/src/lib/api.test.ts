@@ -60,3 +60,25 @@ describe("audio preview cache", () => {
       expect.objectContaining({ cache: "no-store" }));
   });
 });
+
+describe("chat conversation identity", () => {
+  it("sends the persisted conversation identity with each streamed turn", async () => {
+    const fetch = vi.fn().mockImplementation(async () => new Response(
+      'data: {"type":"delta","content":"Antwort"}\n\ndata: {"type":"done"}\n\n',
+      { headers: { "Content-Type": "text/event-stream" } },
+    ));
+    vi.stubGlobal("fetch", fetch);
+    const onDelta = vi.fn();
+    for (const sessionId of ["tarscribe-chat-12", "tarscribe-chat-12", "tarscribe-chat-13"]) {
+      await api.ragChat([{ role: "user", content: "Was wurde entschieden?" }],
+        { sessionId, recordingId: 7 }, { onDelta });
+    }
+    const bodies = fetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(bodies.map((body) => body.session_id)).toEqual([
+      "tarscribe-chat-12", "tarscribe-chat-12", "tarscribe-chat-13",
+    ]);
+    expect(bodies.every((body) => body.recording_id === 7)).toBe(true);
+    expect(onDelta).toHaveBeenCalledTimes(3);
+    expect(onDelta).toHaveBeenCalledWith("Antwort");
+  });
+});

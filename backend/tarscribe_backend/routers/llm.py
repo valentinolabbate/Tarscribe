@@ -159,6 +159,7 @@ def set_llm_config(payload: LlmConfigIn) -> dict:
 @router.get("/api/llm/models")
 def list_models(base_url: str | None = None, connection_id: str | None = None) -> dict:
     try:
+        provider = None
         if connection_id:
             connection = next(
                 (
@@ -171,7 +172,8 @@ def list_models(base_url: str | None = None, connection_id: str | None = None) -
             if connection is None:
                 raise HTTPException(404, "LLM-Verbindung nicht gefunden")
             base_url = connection["base_url"]
-        return {"models": L.list_models(base_url)}
+            provider = connection["provider"]
+        return {"models": L.list_models(base_url, provider=provider)}
     except Exception as exc:  # noqa: BLE001
         if isinstance(exc, HTTPException):
             raise
@@ -180,7 +182,7 @@ def list_models(base_url: str | None = None, connection_id: str | None = None) -
 
 @router.post("/api/llm/test")
 def test(payload: LlmConfigIn) -> dict:
-    return L.test_connection(payload.base_url)
+    return L.test_connection(payload.base_url, provider=payload.provider)
 
 
 @router.put("/api/llm/api-key")

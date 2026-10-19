@@ -3,15 +3,17 @@ export const PRESETS: Record<string, string> = {
   lmstudio: "http://localhost:1234/v1",
   openai: "https://api.openai.com/v1",
   openrouter: "https://openrouter.ai/api/v1",
+  "opencode-go": "https://opencode.ai/inference/go/openai/v1",
 };
 
-export const KEY_PROVIDERS = new Set(["openai", "openrouter", "custom"]);
+export const KEY_PROVIDERS = new Set(["openai", "openrouter", "opencode-go", "custom"]);
 
 export const PROVIDER_OPTIONS: Array<[string, string]> = [
   ["ollama", "Ollama"],
   ["lmstudio", "LM Studio"],
   ["openai", "OpenAI"],
   ["openrouter", "OpenRouter"],
+  ["opencode-go", "OpenCode Go"],
   ["custom", "OpenAI-kompatibel"],
 ];
 

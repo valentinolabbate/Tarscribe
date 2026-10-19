@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -405,6 +406,7 @@ async def research_context(
     Raises ``ToolSupportError`` when the endpoint rejects ``tools``, so the
     caller can fall back to one-shot RAG enrichment.
     """
+    cfg = {**cfg, "session_id": cfg.get("session_id") or str(uuid.uuid4())}
     model = cfg["model"]
     max_context_tokens = cfg.get("max_context_tokens", 12000)
     top_k = cfg.get("top_k", 6)
@@ -445,6 +447,7 @@ async def research_context(
                 api_key=cfg.get("api_key"),
                 reasoning_effort=cfg.get("reasoning_effort"),
                 provider=cfg.get("provider"),
+                session_id=cfg.get("session_id"),
                 tools=request_tools,
                 tool_choice=tool_choice,
             )
@@ -593,6 +596,7 @@ def research_context_sync(
     broadcast_fn: Callable[[dict], None] | None = None,
 ) -> tuple[str, list[dict]]:
     """Sync version of ``research_context`` for non-async callers (digest)."""
+    cfg = {**cfg, "session_id": cfg.get("session_id") or str(uuid.uuid4())}
     model = cfg["model"]
     cached = model_supports_tools(model)
     if cached is False:
@@ -628,6 +632,7 @@ def research_context_sync(
                 api_key=cfg.get("api_key"),
                 reasoning_effort=cfg.get("reasoning_effort"),
                 provider=cfg.get("provider"),
+                session_id=cfg.get("session_id"),
                 tools=request_tools,
                 tool_choice=tool_choice,
             )
@@ -777,6 +782,7 @@ def make_agent_chat_async(
     Falls back to a plain ``L.astream_chat`` drain (no tools) when the model
     lacks tool support or research yields no notes.
     """
+    cfg = {**cfg, "session_id": cfg.get("session_id") or str(uuid.uuid4())}
     state: dict = {"research_done": False, "notes": "", "sources": []}
 
     async def _chat(messages: list[dict]) -> str:
@@ -837,6 +843,7 @@ def make_agent_chat_async(
             api_key=cfg.get("api_key"),
             reasoning_effort=cfg.get("reasoning_effort"),
             provider=cfg.get("provider"),
+            session_id=cfg.get("session_id"),
         ):
             acc.append(delta)
         return "".join(acc)
@@ -875,6 +882,7 @@ def make_agent_chat_sync(
     """Sync version of ``make_agent_chat_async`` for non-async callers
     (dictation post-processing).
     """
+    cfg = {**cfg, "session_id": cfg.get("session_id") or str(uuid.uuid4())}
     state: dict = {"research_done": False, "notes": "", "sources": []}
 
     def _chat(messages: list[dict]) -> str:
@@ -931,6 +939,7 @@ def make_agent_chat_sync(
                 api_key=cfg.get("api_key"),
                 reasoning_effort=cfg.get("reasoning_effort"),
                 provider=cfg.get("provider"),
+                session_id=cfg.get("session_id"),
             )
         )
 

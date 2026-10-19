@@ -2,9 +2,9 @@ import type { FlowStep } from "./model";
 
 export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
   return (
-    <section className="recording-flow" aria-label="Aufnahme-Workflow">
+    <ol className="recording-flow" aria-label="Verarbeitungsschritte">
       {steps.map((step, index) => (
-        <article
+        <li
           className={`recording-flow-step ${step.state}`}
           key={step.key}
           aria-current={step.state === "active" ? "step" : undefined}
@@ -13,8 +13,10 @@ export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
             <span>{step.state === "error" ? "!" : step.state === "done" ? "✓" : index + 1}</span>
           </div>
           <div className="recording-flow-copy">
-            <span className="recording-flow-kicker">{step.eyebrow}</span>
-            <strong>{step.label}</strong>
+            <div className="recording-flow-heading">
+              <strong>{step.label}</strong>
+              <span className="recording-flow-kicker">{step.eyebrow}</span>
+            </div>
             <small>{step.detail}</small>
             {step.progress != null && (
               <div className="recording-flow-progress" aria-hidden="true">
@@ -26,7 +28,7 @@ export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
             <select aria-label={step.selection.label} value={step.selection.value}
               disabled={step.selection.disabled}
               onChange={(event) => step.selection?.onChange(Number(event.target.value))}>
-              <option value="" disabled>Template auswählen</option>
+              <option value="" disabled>Vorlage auswählen</option>
               {step.selection.options.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
@@ -38,12 +40,13 @@ export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
               disabled={step.action.disabled}
               onClick={step.action.onClick}
               type="button"
+              aria-label={`${step.label}: ${step.action.label}`}
             >
               {step.action.label}
             </button>
           )}
-        </article>
+        </li>
       ))}
-    </section>
+    </ol>
   );
 }

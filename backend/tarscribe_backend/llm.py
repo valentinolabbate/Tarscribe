@@ -12,9 +12,12 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
+from . import __version__
+from .config import get_settings
 from .settings_store import get_llm_api_key, load_prefs
 
 # Rough char budget per LLM request before we switch to map-reduce chunking.
@@ -22,6 +25,12 @@ CHAR_BUDGET = 48_000
 LlmUseCase = Literal["chapters", "summaries", "chat"]
 LLM_USE_CASES: tuple[LlmUseCase, ...] = ("chapters", "summaries", "chat")
 DEFAULT_CONNECTION_ID = "local"
+OPENCODE_GO_CHAT_MODELS = frozenset({
+    "glm-5.3-flash", "glm-5.3", "glm-5.2", "kimi-k3", "kimi-k2.7-code",
+    "longcat-2.0", "deepseek-v4.1-flash", "deepseek-v4-pro", "mimo-v2.6-flash",
+    "mimo-v2.6-pro", "mimo-v2.5", "mimo-v2.5-pro", "hy4-preview", "hy3",
+    "minimax-m3.1-flash-free", "longcat-2.5-preview-free", "step-5-preview", "beam-free",
+})
 
 _THINK_START_RE = re.compile(r"<think(?:\s[^>]*)?>", re.IGNORECASE)
 _THINK_END_RE = re.compile(r"</think\s*>", re.IGNORECASE)
@@ -221,25 +230,100 @@ def get_llm_config(use_case: LlmUseCase = "chat") -> dict:
     }
 
 
-def _auth_headers(api_key: str | None) -> dict:
+def _is_opencode_go(base_url: str, provider: str | None = None) -> bool:
+    if provider == "opencode-go":
+        return True
+    parsed = urlsplit(base_url)
+    return parsed.hostname == "opencode.ai" and (
+        parsed.path.rstrip("/") == "/zen/go/v1"
+        or parsed.path.startswith("/inference/go/")
+    )
+
+
+def _auth_headers(
+    api_key: str | None,
+    base_url: str = "",
+    provider: str | None = None,
+    session_id: str | None = None,
+) -> dict:
     """Bearer header for OpenAI-compatible providers that require an API key."""
-    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    if _is_opencode_go(base_url, provider):
+        headers["User-Agent"] = f"Tarscribe/{__version__}"
+        headers["x-opencode-session"] = (
+            str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"tarscribe:{get_settings().data_dir.resolve()}:{session_id}",
+            ))
+            if session_id else str(uuid.uuid4())
+        )
+    return headers
 
 
-def list_models(base_url: str | None = None, api_key: str | None = None) -> list[str]:
+def _raise_for_status(
+    response: httpx.Response,
+    base_url: str,
+    provider: str | None,
+    api_key: str | None,
+) -> None:
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if not _is_opencode_go(base_url, provider):
+            raise
+        detail = None
+        try:
+            data = response.json()
+            error = data.get("error") if isinstance(data, dict) else None
+            detail = error.get("message") if isinstance(error, dict) else None
+        except (ValueError, httpx.ResponseNotRead):
+            pass
+        message = detail if isinstance(detail, str) and detail.strip() else str(exc)
+        if api_key:
+            message = message.replace(api_key, "[redacted]")
+        message = " ".join(re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", message).split())[:1000]
+        raise httpx.HTTPStatusError(
+            f"OpenCode Go HTTP {response.status_code}: {message}",
+            request=exc.request,
+            response=exc.response,
+        ) from None
+
+
+def list_models(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    provider: str | None = None,
+) -> list[str]:
     cfg = get_llm_config()
     base = (base_url or cfg["base_url"]).rstrip("/")
     # Explicit key wins (e.g. testing an unsaved key); otherwise use the stored one.
     key = api_key if api_key is not None else get_llm_api_key(base)
-    r = httpx.get(f"{base}/models", headers=_auth_headers(key), timeout=8)
-    r.raise_for_status()
+    selected_provider = provider or next(
+        (item["provider"] for item in get_llm_connections() if item["base_url"] == base),
+        None,
+    )
+    parsed = urlsplit(base)
+    models_url = f"{base}/models"
+    if parsed.hostname == "opencode.ai" and parsed.path == "/inference/go/openai/v1":
+        models_url = urlunsplit(parsed._replace(path="/inference/go/v1/models"))
+    r = httpx.get(
+        models_url, headers=_auth_headers(key, base, selected_provider), timeout=8
+    )
+    _raise_for_status(r, base, selected_provider, key)
     data = r.json().get("data", [])
-    return [m.get("id") for m in data if m.get("id")]
+    models = [m.get("id") for m in data if m.get("id")]
+    if _is_opencode_go(base, selected_provider):
+        models = [model for model in models if model in OPENCODE_GO_CHAT_MODELS]
+    return models
 
 
-def test_connection(base_url: str | None = None, api_key: str | None = None) -> dict:
+def test_connection(
+    base_url: str | None = None,
+    api_key: str | None = None,
+    provider: str | None = None,
+) -> dict:
     try:
-        models = list_models(base_url, api_key)
+        models = list_models(base_url, api_key, provider)
         return {"ok": True, "models": models}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc)}
@@ -306,6 +390,7 @@ def stream_chat(
     api_key: str | None = None,
     reasoning_effort: str | None = None,
     provider: str | None = None,
+    session_id: str | None = None,
 ) -> Iterator[str]:
     """Yield content deltas from a streaming chat completion."""
     payload = _chat_payload(
@@ -323,10 +408,12 @@ def stream_chat(
         "POST",
         f"{base_url}/chat/completions",
         json=payload,
-        headers=_auth_headers(api_key),
+        headers=_auth_headers(api_key, base_url, provider, session_id),
         timeout=None,
     ) as r:
-        r.raise_for_status()
+        if _is_opencode_go(base_url, provider) and r.is_error:
+            r.read()
+        _raise_for_status(r, base_url, provider, api_key)
         for line in r.iter_lines():
             if line.strip() == "data: [DONE]":
                 break
@@ -351,6 +438,7 @@ async def astream_chat(
     api_key: str | None = None,
     reasoning_effort: str | None = None,
     provider: str | None = None,
+    session_id: str | None = None,
 ) -> AsyncIterator[str]:
     """Async variant used by background LLM jobs so cancellation closes HTTP streams."""
     payload = _chat_payload(
@@ -369,9 +457,11 @@ async def astream_chat(
             "POST",
             f"{base_url}/chat/completions",
             json=payload,
-            headers=_auth_headers(api_key),
+            headers=_auth_headers(api_key, base_url, provider, session_id),
         ) as response:
-            response.raise_for_status()
+            if _is_opencode_go(base_url, provider) and response.is_error:
+                await response.aread()
+            _raise_for_status(response, base_url, provider, api_key)
             async for line in response.aiter_lines():
                 if line.strip() == "data: [DONE]":
                     break
@@ -399,6 +489,7 @@ async def achat_complete(
     tools: list[dict] | None = None,
     tool_choice: str | dict | None = None,
     timeout: float | None = 300,
+    session_id: str | None = None,
 ) -> dict:
     """Non-streaming async completion. Returns the full choice dict:
     {"message": {"role","content","tool_calls"}, "finish_reason"}.
@@ -422,9 +513,9 @@ async def achat_complete(
         r = await client.post(
             f"{base_url}/chat/completions",
             json=payload,
-            headers=_auth_headers(api_key),
+            headers=_auth_headers(api_key, base_url, provider, session_id),
         )
-        r.raise_for_status()
+        _raise_for_status(r, base_url, provider, api_key)
         data = r.json()
     choices = data.get("choices") or []
     if not choices:
@@ -450,6 +541,7 @@ def chat_complete(
     tools: list[dict] | None = None,
     tool_choice: str | dict | None = None,
     timeout: float | None = 300,
+    session_id: str | None = None,
 ) -> dict:
     """Sync non-streaming completion. Same return shape as ``achat_complete``.
     Used by sync callers (e.g. digest generation).
@@ -470,10 +562,10 @@ def chat_complete(
     r = httpx.post(
         f"{base_url}/chat/completions",
         json=payload,
-        headers=_auth_headers(api_key),
+        headers=_auth_headers(api_key, base_url, provider, session_id),
         timeout=timeout,
     )
-    r.raise_for_status()
+    _raise_for_status(r, base_url, provider, api_key)
     data = r.json()
     choices = data.get("choices") or []
     if not choices:

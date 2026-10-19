@@ -39,7 +39,7 @@ konfigurierbar.
 
 - **Local first:** Audio, Transkription, Sprecherverarbeitung und Datenbank bleiben auf dem Mac.
 - **Belegbares Gedächtnis:** Aufgaben, Zusagen und Entscheidungen führen zurück zur Gesprächsstelle.
-- **Offene Modellwahl:** Ollama, LM Studio, OpenAI, OpenRouter oder ein eigener
+- **Offene Modellwahl:** Ollama, LM Studio, OpenAI, OpenRouter, OpenCode Go oder ein eigener
   OpenAI-kompatibler Endpoint — mehrere Verbindungen mit sicher hinterlegtem API-Key
   speichern und für Kapitel, Zusammenfassungen und Chat jeweils Verbindung und Modell wählen.
 - **Mehr als ein Transkript:** Personenprofile, Themen-Threads, Wochen-Digests und
@@ -90,7 +90,7 @@ während die eigentlichen Arbeitslisten als klare Hauptflächen im Vordergrund b
 - Mikrofon und System-Audio einzeln oder gemeinsam aufnehmen
 - Optional während der Aufnahme live transkribieren und Sprecher live trennen; **Light Mode** unter Einstellungen → Allgemein speichert nur Audio und vermeidet Live-ML-Verarbeitung (für M1 / 8 GB)
 - Audio vor der Transkription direkt an der Wellenform kürzen: Anfang/Ende ziehen, zoomen und Schnittgrenzen vorhören; Änderungen übernehmen oder verwerfen. Das Original und seine Zeitmarken bleiben erhalten
-- Transkription, optionale Diarisierung, Speaker Matching, Aufgaben-/Entscheidungsanalyse und Zusammenfassung einzeln über die Verarbeitungsliste starten; die Zusammenfassung bietet eine Template-Auswahl
+- Transkription, optionale Diarisierung, Speaker Matching, Aufgaben-/Entscheidungsanalyse und Zusammenfassung auf der eigenen Seite **Verarbeitung** der Aufnahme starten; dort lassen sich auch der Audiobereich und die Zusammenfassungsvorlage auswählen. Im Transkript führt eine beschriftete Schaltfläche dorthin
 - WAV, MP3, M4A, OGG, WebM, FLAC, AAC, MOV und MP4 importieren
 - Aufnahmen automatisch in Kapitel gliedern
 - Unsichere Wortstellen im Text anspringen, per Schaltfläche oder Doppelklick als korrekt bestätigen, anhören oder inline nicht-destruktiv korrigieren
@@ -113,6 +113,13 @@ Webrecherche aktuelle Quellen einbeziehen. Suchschritte und verwendete Quellen b
 Oberfläche sichtbar.
 
 Unterstützte Referenzdokumente: PDF, DOCX, TXT, Markdown, HTML und EPUB.
+
+**OpenCode Go** lässt sich unter Einstellungen → Zusammenfassung als LLM-Verbindung
+hinzufügen und dem Chat zuordnen. Der API-Key wird im sicheren Secret-Store gespeichert.
+Tarscribe sendet automatisch einen eigenen User-Agent und den pro Unterhaltung stabilen
+`x-opencode-session`-Header. Die Modellauswahl umfasst die unterstützten Chat-Completions-Modelle.
+Go ist laut [Anbieterdokumentation](https://opencode.ai/v2/docs/console/go) für Coding-Agenten
+ausgelegt; die Freigabe für Transkriptfragen hängt vom Anbieter ab.
 
 ## Installation
 

@@ -64,6 +64,7 @@ export interface SearchFilters {
 
 export interface RagChatOptions extends SearchFilters {
   reasoningEffort?: string | null;
+  sessionId?: string;
 }
 
 export interface DiarizeParams {
@@ -678,6 +679,7 @@ export const api = {
         recording_id: opts.recordingId ?? null,
         include_topic_context: opts.includeTopicContext ?? false,
         reasoning_effort: opts.reasoningEffort || null,
+        session_id: opts.sessionId ?? null,
         top_k: opts.topK ?? null,
         speaker: opts.speaker || null,
         date_from: opts.dateFrom || null,

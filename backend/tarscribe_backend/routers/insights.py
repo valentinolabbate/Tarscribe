@@ -203,7 +203,9 @@ def extract_action_items(
     payload: ActionItemExtractIn | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    _get_recording(session, recording_id)
+    from ..processing import require_processing_ready
+
+    require_processing_ready(session, recording_id)
     from ..jobs import enqueue_action_items
 
     clarification = (payload.clarification or "").strip() if payload else ""
@@ -699,7 +701,9 @@ def _chapter_dict(ch: Chapter) -> dict:
 
 @router.post("/recordings/{recording_id}/chapters/generate")
 def generate_chapters(recording_id: int, session: Session = Depends(get_session)) -> dict:
-    _get_recording(session, recording_id)
+    from ..processing import require_processing_ready
+
+    require_processing_ready(session, recording_id)
     from ..jobs import enqueue_chapters
 
     job_id = enqueue_chapters(recording_id)

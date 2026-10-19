@@ -1,3 +1,3 @@
 fn main() {
-    desktop_lib::run()
+    tarscribe_lib::run()
 }

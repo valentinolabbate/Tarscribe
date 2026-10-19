@@ -41,6 +41,8 @@ def client(monkeypatch):
         return 1000 + len(queued_asr_jobs) - 1
 
     monkeypatch.setattr(jobs, "enqueue_asr", fake_enqueue_asr)
+    import tarscribe_backend.routers.transcription as transcription
+    monkeypatch.setattr(transcription, "enqueue_asr", fake_enqueue_asr)
 
     from fastapi.testclient import TestClient
 
@@ -126,8 +128,28 @@ def test_live_recording_can_finish_transcribe_and_create_summary(client):
         json={"recording_id": recording_id},
     )
     assert finished.status_code == 200
-    assert finished.json()["transcription_job_id"] == 1000
+    assert finished.json()["transcription_job_id"] is None
+    assert client.queued_asr_jobs == []
+    assert client.get(f"/api/recordings/{recording_id}/transcript").status_code == 404
+
+    started = client.post(f"/api/recordings/{recording_id}/transcribe")
+    assert started.status_code == 200
+    assert started.json()["job_id"] == 1000
     assert client.queued_asr_jobs == [recording_id]
+
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Recording, RecordingStatus, Transcript, Word
+
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=recording_id, asr_model="manual-final")
+        session.add(transcript)
+        session.flush()
+        session.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1.2,
+                         text="Heute testen wir"))
+        recording = session.get(Recording, recording_id)
+        recording.status = RecordingStatus.ready
+        session.add(recording)
+        session.commit()
 
     transcript = client.get(f"/api/recordings/{recording_id}/transcript")
     assert transcript.status_code == 200

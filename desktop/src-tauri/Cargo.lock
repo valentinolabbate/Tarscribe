@@ -742,8 +742,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop"
-version = "0.1.11"
+name = "tarscribe"
+version = "0.21.0"
 dependencies = [
  "cc",
  "dirs 6.0.0",

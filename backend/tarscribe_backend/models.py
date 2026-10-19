@@ -46,6 +46,7 @@ class LiveSessionStatus(str, Enum):
 class JobPhase(str, Enum):
     asr = "asr"
     diarization = "diarization"
+    speaker_matching = "speaker_matching"
     alignment = "alignment"
     summarize = "summarize"
     embedding = "embedding"
@@ -91,6 +92,8 @@ class Recording(SQLModel, table=True):
     # Original uploaded filename, for display/export.
     original_filename: Optional[str] = None
     duration_sec: float = 0.0
+    trim_start_sec: float = 0.0
+    trim_end_sec: Optional[float] = None
     sample_rate: int = 16000
     language: Optional[str] = None
     kind: str = "recording"  # recording | dictation

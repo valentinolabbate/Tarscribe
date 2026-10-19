@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type DiarizeParams } from "../lib/api";
 import type { ActionItem, DocumentSourceKind, Topic } from "../lib/types";
-import { clearAgentResearch, trackPendingJob } from "./useJobs";
+import { clearAgentResearch, trackPendingJob, trackSummaryStart } from "./useJobs";
 
 export function useHardware() {
   return useQuery({ queryKey: ["hardware"], queryFn: api.hardware, staleTime: Infinity });
@@ -192,9 +192,12 @@ export function useDeleteRecording(topicId?: number) {
 export function useTranscribe() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, asr }: { id: number; asr?: string }) => api.transcribe(id, asr),
+    mutationFn: ({ id, asr, range }: {
+      id: number; asr?: string; range?: { start_sec: number; end_sec: number | null };
+    }) => api.transcribe(id, asr, range),
     onSuccess: (data, vars) => {
       trackPendingJob(vars.id, data.job_id, "asr");
+      qc.invalidateQueries({ queryKey: ["jobs", "recording", vars.id] });
       qc.invalidateQueries({ queryKey: ["recordings"] });
       qc.invalidateQueries({ queryKey: ["latest-job", vars.id] });
     },
@@ -307,7 +310,6 @@ export function useRecordingJobs(recordingId: number, enabled = true) {
     refetchInterval: (query) =>
       query.state.data?.some(
         (job) =>
-          job.phase === "action_items" &&
           (job.status === "pending" || job.status === "running"),
       )
         ? 1000
@@ -342,8 +344,21 @@ export function useDiarize() {
       api.diarize(id, params),
     onSuccess: (data, vars) => {
       trackPendingJob(vars.id, data.job_id, "diarization");
+      qc.invalidateQueries({ queryKey: ["jobs", "recording", vars.id] });
       qc.invalidateQueries({ queryKey: ["recordings"] });
       qc.invalidateQueries({ queryKey: ["latest-job", vars.id] });
+    },
+  });
+}
+
+export function useMatchSpeakers(recordingId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.matchRecording(recordingId),
+    onSuccess: (data) => {
+      trackPendingJob(recordingId, data.job_id, "speaker_matching");
+      qc.invalidateQueries({ queryKey: ["latest-job", recordingId] });
+      qc.invalidateQueries({ queryKey: ["jobs", "recording", recordingId] });
     },
   });
 }
@@ -402,7 +417,13 @@ export function useSummarize() {
       templateId: number;
       clarification?: string;
     }) => api.summarize(id, templateId, clarification),
-    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["summaries", vars.id] }),
+    onSuccess: (data, vars) => {
+      trackPendingJob(vars.id, data.job_id, "summarize");
+      trackSummaryStart(vars.id, data.summary_id, data.job_id);
+      qc.invalidateQueries({ queryKey: ["summaries", vars.id] });
+      qc.invalidateQueries({ queryKey: ["latest-job", vars.id] });
+      qc.invalidateQueries({ queryKey: ["jobs", "recording", vars.id] });
+    },
   });
 }
 

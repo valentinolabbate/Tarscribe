@@ -28,6 +28,13 @@ export interface FlowStep {
   detail: string;
   state: FlowStepState;
   progress?: number | null;
+  selection?: {
+    label: string;
+    value: number | "";
+    options: { value: number; label: string }[];
+    disabled: boolean;
+    onChange: (value: number) => void;
+  };
   action?: {
     label: string;
     onClick: () => void;

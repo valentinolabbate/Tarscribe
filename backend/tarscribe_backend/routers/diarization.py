@@ -15,11 +15,11 @@ from ..ml.diarization import SpeakerSegment
 from ..overlay import load_overlay
 from ..models import (
     DiarizationRun,
-    Recording,
     Segment,
     SpeakerLabel,
 )
 from ..transcript_view import load_effective_words
+from ..processing import require_processing_ready
 
 router = APIRouter(prefix="/api/recordings", tags=["diarization"])
 
@@ -38,9 +38,7 @@ def diarize(
     params: DiarizeParamsIn | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    rec = session.get(Recording, recording_id)
-    if not rec:
-        raise HTTPException(404, "Aufnahme nicht gefunden")
+    require_processing_ready(session, recording_id)
     job_id = enqueue_diarization(recording_id, (params or DiarizeParamsIn()).model_dump())
     return {"job_id": job_id, "status": "queued"}
 

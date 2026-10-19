@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import type { AppSettings } from "../../lib/types";
 import type { RecordingDevice } from "../../lib/recorder";
 import type { AutostartStatus, SystemAudioCapability } from "../../lib/tauri";
+import { useToast } from "../Toast";
 
 export function GeneralSettingsTab({
   settings,
@@ -29,6 +30,8 @@ export function GeneralSettingsTab({
   saveMeetingDetection: (next: Pick<AppSettings, "meeting_detection_enabled" | "meeting_detection_apps">) => void;
   saveAutostartEnabled: (enabled: boolean) => void;
 }) {
+  const toast = useToast();
+  const [lightModeSaving, setLightModeSaving] = useState(false);
   return (
     <>
       <div className="settings-section-title">
@@ -124,9 +127,36 @@ export function GeneralSettingsTab({
 
       <div className="field">
         <label className="check-row">
+          <input type="checkbox" checked={settings.light_mode_enabled ?? false}
+            disabled={lightModeSaving}
+            onChange={async (event) => {
+              const light_mode_enabled = event.target.checked;
+              setLightModeSaving(true);
+              setSettings({ ...settings, light_mode_enabled });
+              try {
+                await api.updateSettings({ light_mode_enabled });
+              } catch (error) {
+                setSettings(settings);
+                toast((error as Error).message, "error");
+              } finally {
+                setLightModeSaving(false);
+              }
+            }} />
+          <span>Light Mode · Nur Audio aufnehmen</span>
+        </label>
+        <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
+          Empfohlen für M1 und 8 GB Arbeitsspeicher: Ab der nächsten Aufnahme keine Live-Transkription,
+          Diarisierung oder Stimmzuordnung. Danach Audio kürzen und Verarbeitung manuell starten.
+          Deine Live-Einstellungen bleiben gespeichert.
+        </div>
+      </div>
+
+      <div className="field">
+        <label className="check-row">
           <input
             type="checkbox"
             checked={settings.live_speaker_detection_enabled}
+            disabled={settings.light_mode_enabled}
             onChange={(event) => {
               const live_speaker_detection_enabled = event.target.checked;
               setSettings({ ...settings, live_speaker_detection_enabled });
@@ -137,7 +167,7 @@ export function GeneralSettingsTab({
         </label>
         <div className="rec-sub" style={{ marginTop: 7, fontSize: 11.5, lineHeight: 1.5 }}>
           Trennt Sprecher schon während der Aufnahme. Ausgeschaltet zeigt die Live-Ansicht
-          nur Zeitmarken und Transkripttext; die Verarbeitung nach der Aufnahme bleibt unverändert.
+          nur Zeitmarken und Transkripttext. Die Verarbeitung nach der Aufnahme startest du selbst.
         </div>
       </div>
 
@@ -146,7 +176,7 @@ export function GeneralSettingsTab({
           <input
             type="checkbox"
             checked={settings.live_speaker_matching_enabled}
-            disabled={!settings.live_speaker_detection_enabled}
+            disabled={settings.light_mode_enabled || !settings.live_speaker_detection_enabled}
             onChange={(event) => {
               const live_speaker_matching_enabled = event.target.checked;
               setSettings({ ...settings, live_speaker_matching_enabled });

@@ -124,9 +124,10 @@ export function trackSummaryStart(recordingId: number, summaryId: number, jobId:
 }
 
 /** Mount once (in App) to stream job + live events and refresh data on completion. */
-export function useJobSocket(onLive?: (e: LiveEvent) => void) {
+export function useJobSocket(onLive?: (e: LiveEvent) => void, enabled = true) {
   const qc = useQueryClient();
   useEffect(() => {
+    if (!enabled) return;
     let cleanup: (() => void) | undefined;
     let closed = false;
       api
@@ -193,10 +194,10 @@ export function useJobSocket(onLive?: (e: LiveEvent) => void) {
       .then((c) => {
         if (closed) c();
         else cleanup = c;
-      });
+      }).catch(() => {});
     return () => {
       closed = true;
       cleanup?.();
     };
-  }, [qc, onLive]);
+  }, [qc, onLive, enabled]);
 }

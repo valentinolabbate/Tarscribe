@@ -88,7 +88,9 @@ während die eigentlichen Arbeitslisten als klare Hauptflächen im Vordergrund b
 ## Aufnahme und Verarbeitung
 
 - Mikrofon und System-Audio einzeln oder gemeinsam aufnehmen
-- Während der Aufnahme live transkribieren und Sprecher optional live trennen
+- Optional während der Aufnahme live transkribieren und Sprecher live trennen; **Light Mode** unter Einstellungen → Allgemein speichert nur Audio und vermeidet Live-ML-Verarbeitung (für M1 / 8 GB)
+- Audio vor der Transkription direkt an der Wellenform kürzen: Anfang/Ende ziehen, zoomen und Schnittgrenzen vorhören; Änderungen übernehmen oder verwerfen. Das Original und seine Zeitmarken bleiben erhalten
+- Transkription, optionale Diarisierung, Speaker Matching, Aufgaben-/Entscheidungsanalyse und Zusammenfassung einzeln über die Verarbeitungsliste starten; die Zusammenfassung bietet eine Template-Auswahl
 - WAV, MP3, M4A, OGG, WebM, FLAC, AAC, MOV und MP4 importieren
 - Aufnahmen automatisch in Kapitel gliedern
 - Unsichere Wortstellen im Text anspringen, per Schaltfläche oder Doppelklick als korrekt bestätigen, anhören oder inline nicht-destruktiv korrigieren
@@ -179,11 +181,12 @@ du dafür einen lokalen oder externen Endpoint konfigurierst.
 
 1. Einen Themenbereich für ein Projekt, Seminar oder Interview anlegen.
 2. Audio aufnehmen oder eine vorhandene Datei importieren.
-3. Transkription starten; anschließend folgt normalerweise die separate Sprechererkennung. Modelle mit eigenen Sprecherlabels übernehmen diesen Schritt zunächst selbst.
-4. In der Aufnahme Transkript, Meeting-Zeitstrahl, Zusammenfassung, Fragen und Sprecher prüfen.
-5. Unter **Gedächtnis** offene Zusagen, Entscheidungen, Aufgaben und Personen weiterverfolgen.
-6. Die gesamte Bibliothek durchsuchen, im Wissens-Chat befragen oder als Wochen-Digest bündeln.
-7. Ergebnisse als TXT, SRT, VTT, JSON, PDF, WAV, Markdown oder Kalenderdatei exportieren.
+3. Audio anhören und bei Bedarf kürzen; die Transkription per Knopf starten. Nach dem Stoppen startet keine automatische Analyse.
+4. In der Verarbeitungsliste bei Bedarf Diarisierung und Speaker Matching starten. Aufgaben/Entscheidungen und Zusammenfassung (mit Template-Dropdown) sind nach dem Transkript auch ohne Diarisierung verfügbar. Modelle mit eigenen Sprecherlabels können die separate Diarisierung ersetzen.
+5. In der Aufnahme Transkript, Meeting-Zeitstrahl, Zusammenfassung, Fragen und Sprecher prüfen.
+6. Unter **Gedächtnis** offene Zusagen, Entscheidungen, Aufgaben und Personen weiterverfolgen.
+7. Die gesamte Bibliothek durchsuchen, im Wissens-Chat befragen oder als Wochen-Digest bündeln.
+8. Ergebnisse als TXT, SRT, VTT, JSON, PDF, WAV, Markdown oder Kalenderdatei exportieren.
 
 ### Lokale Transkriptionsmodelle
 
@@ -301,6 +304,11 @@ backend/
 Die Tauri-Shell startet das Python-Backend auf einem zufälligen lokalen Port mit einem
 zufälligen Token. Daten und Suchindex liegen als SQLite-Datenbank plus Audiodateien im
 App-Datenverzeichnis.
+
+Bei einem Ausfall des lokalen Dienstes zeigt die Oberfläche den Verbindungsstatus.
+Über **Dienst neu starten** lässt sich das Backend direkt in der App neu starten;
+ein vollständiges Beenden über das Menüleistensymbol ist nicht nötig. Nach der
+Wiederverbindung werden Daten und Live-Verbindungen automatisch aktualisiert.
 
 ## Entwicklung
 

@@ -117,7 +117,10 @@ async function resolveConfig(): Promise<BackendConfig> {
 }
 
 export function getConfig(): Promise<BackendConfig> {
-  if (!configPromise) configPromise = resolveConfig();
+  if (!configPromise) configPromise = resolveConfig().catch((error) => {
+    configPromise = null;
+    throw error;
+  });
   return configPromise;
 }
 
@@ -248,26 +251,22 @@ export async function downloadBlob(path: string, filename: string, options?: Req
   setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
 }
 
-/** Wait until the backend answers /health, so the UI can show a splash. */
-export async function waitForBackend(timeoutMs = 30000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      await request("/api/health");
-      return;
-    } catch {
-      await new Promise((r) => setTimeout(r, 300));
-    }
+async function statusRequest<T>(path: string): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    return await request<T>(path, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
   }
-  throw new Error("Backend nicht erreichbar");
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/api/health"),
+  health: () => statusRequest<{ status: string }>("/api/health"),
   hardware: () => request<HardwareInfo>("/api/system/hardware"),
   modelStatus: () => request<ModelStatusPayload>("/api/system/models"),
   setupStatus: () =>
-    request<{
+    statusRequest<{
       setup_complete: boolean;
       ffmpeg_available: boolean;
       hf_token_set: boolean;
@@ -404,10 +403,11 @@ export const api = {
     await downloadBlob(`/api/documents/${id}/file`, "dokument");
   },
 
-  transcribe: (id: number, asr?: string) =>
+  transcribe: (id: number, asr?: string, range?: { start_sec: number; end_sec: number | null }) =>
     request<{ job_id: number; status: string }>(
       `/api/recordings/${id}/transcribe${asr ? `?asr=${asr}` : ""}`,
-      { method: "POST" },
+      { method: "POST", headers: { "Content-Type": "application/json" },
+        body: range ? JSON.stringify(range) : undefined },
     ),
   getTranscript: (id: number) =>
     request<TranscriptData>(`/api/recordings/${id}/transcript`),
@@ -509,8 +509,8 @@ export const api = {
       body: JSON.stringify({ name, known_speaker_id: knownSpeakerId ?? null }),
     }),
   matchRecording: (recordingId: number) =>
-    request<{ matches: { label: string; name: string; score: number }[] }>(
-      `/api/recordings/${recordingId}/match`,
+    request<{ job_id: number; status: string }>(
+      `/api/recordings/${recordingId}/match?background=true`,
       { method: "POST" },
     ),
 
@@ -942,10 +942,15 @@ export const api = {
     if (isTauriRuntime()) {
       const connectionId = crypto.randomUUID().replace(/-/g, "");
       const unlisten = await tauriListen<string>(`backend-ws-event-${connectionId}`, handleMessage);
-      await tauriInvoke<string>("backend_ws_connect", { connectionId });
+      try {
+        await tauriInvoke<string>("backend_ws_connect", { connectionId });
+      } catch (error) {
+        unlisten();
+        throw error;
+      }
       return () => {
         unlisten();
-        void tauriInvoke<void>("backend_ws_disconnect", { connectionId });
+        void tauriInvoke<void>("backend_ws_disconnect", { connectionId }).catch(() => {});
       };
     }
 
@@ -989,10 +994,11 @@ export const api = {
     }
     const cfg = await getConfig();
     if (cfg.token) throw new Error("Audio-Streaming ist im Browser mit Token nicht verfügbar");
-    return `${cfg.base_url}${path}`;
+    const version = audioPath.split(/[\\/]/).pop() ?? "";
+    return `${cfg.base_url}${path}?v=${encodeURIComponent(version)}`;
   },
   getWaveform: (id: number) =>
-    request<{ duration_sec: number; peaks: number[] }>(`/api/recordings/${id}/waveform`),
+    request<{ duration_sec: number; peaks: number[] }>(`/api/recordings/${id}/waveform`, { cache: "no-store" }),
 
   // MCP (agent integration)
   getMcpInfo: () => request<McpInfo>("/api/mcp/info"),

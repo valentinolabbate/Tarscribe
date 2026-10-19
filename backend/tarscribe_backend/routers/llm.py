@@ -218,9 +218,9 @@ def summarize(
     payload: SummarizeIn | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    rec = session.get(Recording, recording_id)
-    if not rec:
-        raise HTTPException(404, "Aufnahme nicht gefunden")
+    from ..processing import require_processing_ready
+
+    require_processing_ready(session, recording_id)
     tpl = session.get(SummaryTemplate, template_id)
     if not tpl:
         raise HTTPException(404, "Vorlage nicht gefunden")

@@ -200,6 +200,7 @@ interface Props {
   state: "starting" | "recording" | "paused" | "saving" | "transcribing";
   handle: LiveRecordingHandle | null;
   showLiveSpeakers: boolean;
+  lightModeEnabled?: boolean;
   finalTranscriptionJob: {
     jobId: number;
     progress: number;
@@ -217,6 +218,7 @@ export function LiveRecordingDetail({
   state,
   handle,
   showLiveSpeakers,
+  lightModeEnabled = false,
   finalTranscriptionJob,
   onPause,
   onResume,
@@ -304,16 +306,23 @@ export function LiveRecordingDetail({
       {showSpeakers && <SpeakerChips snapshot={visibleSpeakerSnapshot} />}
 
       <div className="live-detail-body" ref={bodyRef}>
-        <LiveTranscript
+        {lightModeEnabled ? (
+          <div className="live-empty" role="status">
+            <strong>Light Mode · Nur Audioaufnahme</strong>
+            <p>Transkription, Diarisierung und Speaker Matching sind während der Aufnahme aus.</p>
+            <p>Nach dem Stoppen kannst du das Audio kürzen und jeden Verarbeitungsschritt selbst starten.</p>
+          </div>
+        ) : <LiveTranscript
           snapshot={transcriptSnapshot}
           speakers={showSpeakers ? visibleSpeakers : []}
           showSpeakers={showSpeakers}
           bodyRef={bodyRef}
-        />
+        />}
       </div>
 
       <div className="live-detail-note">
-        Live-Vorschau ist provisorisch. Das finale Transkript erscheint nach der Verarbeitung.
+        {lightModeEnabled ? "Audio wird gespeichert. Die Verarbeitung startest du nach der Aufnahme."
+          : "Live-Vorschau ist provisorisch. Die finale Transkription startest du nach der Aufnahme selbst."}
       </div>
     </div>
   );

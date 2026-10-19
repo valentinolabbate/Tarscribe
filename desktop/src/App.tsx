@@ -10,6 +10,7 @@ import { useToast } from "./components/Toast";
 import { checkForUpdate, type PendingUpdate } from "./lib/updater";
 import { TopicExportModal } from "./components/TopicExportModal";
 import { Splash } from "./components/Splash";
+import { BackendStatus } from "./components/BackendStatus";
 import { AppContent } from "./components/layout/AppContent";
 import { Sidebar } from "./components/layout/Sidebar";
 import { TopBar } from "./components/layout/TopBar";
@@ -35,7 +36,7 @@ const DocumentEditorModal = lazy(() =>
 );
 
 export default function App() {
-  const { ready, error, needsSetup, setNeedsSetup, needsEnv, setNeedsEnv, proceed } =
+  const { ready, connection, restart, needsSetup, setNeedsSetup, needsEnv, setNeedsEnv, proceed } =
     useAppBootstrap();
   const [activeTopic, setActiveTopic] = useState<number | null>(null);
   const [openRecording, setOpenRecording] = useState<Recording | null>(null);
@@ -80,7 +81,7 @@ export default function App() {
   const recording = useRecording();
   const currentTopicRef = useRef<Topic | null>(null);
   const recordingRef = useRef(recording);
-  useJobSocket(recording.dispatchLiveEvent);
+  useJobSocket(recording.dispatchLiveEvent, connection.status === "online");
   const current = topics?.find((t) => t.id === activeTopic);
 
   useEffect(() => {
@@ -96,9 +97,9 @@ export default function App() {
       state: recording.state,
       elapsed: recording.elapsed,
       topicName: recording.topicName ?? current?.name ?? null,
-      canStart: recording.state === "idle" && !!current,
+      canStart: connection.status === "online" && recording.state === "idle" && !!current,
     }).catch(() => {});
-  }, [current, recording.elapsed, recording.state, recording.topicName]);
+  }, [connection.status, current, recording.elapsed, recording.state, recording.topicName]);
 
   useEffect(() => {
     if (!openRecording || !liveRecordings) return;
@@ -246,12 +247,13 @@ export default function App() {
         }}
       />
     );
-  if (!ready) return <Splash error={error} />;
+  if (!ready || (needsSetup && connection.status !== "online")) return <Splash connection={connection} onRestart={restart} />;
   if (needsSetup) return <FirstRunWizard onDone={() => setNeedsSetup(false)} />;
 
   return (
     <div className="app" style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}>
       <Sidebar
+        backendOnline={connection.status === "online"}
         topics={topics ?? []}
         activeTopic={activeTopic}
         showHome={showHome}
@@ -310,6 +312,7 @@ export default function App() {
       <div className="resizer" onMouseDown={handleResizerDown} />
 
       <main className="main">
+        <BackendStatus connection={connection} onRestart={restart} />
         <TopBar
           showJobs={showJobs}
           showTasks={showTasks}

@@ -17,6 +17,7 @@ export function Sidebar({
   onSelectTopic,
   onMoveTopic,
   onSettings,
+  backendOnline = true,
   compactOpen = false,
   onClose = () => {},
 }: {
@@ -34,6 +35,7 @@ export function Sidebar({
   onSelectTopic: (topicId: number) => void;
   onMoveTopic: (topicId: number, direction: -1 | 1) => void;
   onSettings: () => void;
+  backendOnline?: boolean;
   compactOpen?: boolean;
   onClose?: () => void;
 }) {
@@ -95,9 +97,9 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
-        <div className="sidebar-status" title="Audio, Transkripte und Chat bleiben auf diesem Mac.">
-          <span className="sidebar-status-dot" />
-          <strong>Lokal bereit</strong>
+        <div className="sidebar-status" title={backendOnline ? "Der lokale Tarscribe-Dienst ist verbunden." : "Der lokale Tarscribe-Dienst ist nicht verbunden."}>
+          <span className="sidebar-status-dot" style={backendOnline ? undefined : { background: "var(--danger)" }} />
+          <strong>{backendOnline ? "Lokal bereit" : "Dienst nicht verbunden"}</strong>
         </div>
         <button className={`topic-item sidebar-utility ${showJobs ? "active" : ""}`} onClick={() => navigate(onJobs)}>
           <ActivityIcon width={16} height={16} /> Verarbeitung

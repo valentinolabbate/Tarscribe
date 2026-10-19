@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -15,6 +16,7 @@ from ..jobs import (
     enqueue_diarization,
     enqueue_embedding,
     enqueue_summary,
+    enqueue_speaker_matching,
     serialize_job,
 )
 from ..models import (
@@ -22,24 +24,38 @@ from ..models import (
     Job,
     JobPhase,
     JobStatus,
-    Recording,
     Summary,
     TranscriptCorrection,
 )
 from ..pagination import CursorError, decode_cursor, encode_cursor
 from ..transcript_quality import analyze_words, filter_acknowledged_issues, quality_summary
 from ..transcript_view import effective_text, load_effective_words
+from ..processing import require_processing_ready
 
 router = APIRouter(prefix="/api/recordings", tags=["transcription"])
 
 
+class TranscribeIn(BaseModel):
+    start_sec: float = Field(default=0, ge=0, allow_inf_nan=False)
+    end_sec: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+
 @router.post("/{recording_id}/transcribe")
 def transcribe(
-    recording_id: int, asr: str | None = None, session: Session = Depends(get_session)
+    recording_id: int,
+    payload: TranscribeIn | None = None,
+    asr: str | None = None,
+    session: Session = Depends(get_session),
 ) -> dict:
-    rec = session.get(Recording, recording_id)
-    if not rec:
-        raise HTTPException(404, "Aufnahme nicht gefunden")
+    rec = require_processing_ready(session, recording_id, transcript=False)
+    if payload is not None:
+        end = payload.end_sec if payload.end_sec is not None else rec.duration_sec
+        if end <= payload.start_sec or end > rec.duration_sec:
+            raise HTTPException(422, "Der Audiobereich muss innerhalb der Aufnahme liegen.")
+        rec.trim_start_sec = payload.start_sec
+        rec.trim_end_sec = payload.end_sec
+        session.add(rec)
+        session.commit()
     job_id = enqueue_asr(recording_id, override=asr)
     return {"job_id": job_id, "status": "queued"}
 
@@ -159,6 +175,8 @@ def _reenqueue_for_phase(session: Session, recording_id: int, phase: JobPhase) -
         ).first()
         params = json.loads(run.params_json or "{}") if run else {}
         return enqueue_diarization(recording_id, params)
+    if phase == JobPhase.speaker_matching:
+        return enqueue_speaker_matching(recording_id)
     if phase == JobPhase.action_items:
         return enqueue_action_items(recording_id)
     if phase == JobPhase.chapters:
@@ -192,6 +210,10 @@ def retry_job(
         raise HTTPException(404, "Auftrag nicht gefunden")
     if job.status != JobStatus.failed:
         raise HTTPException(409, "Nur fehlgeschlagene Aufträge können wiederholt werden")
+    require_processing_ready(
+        session, recording_id, transcript=job.phase != JobPhase.asr,
+        speakers=job.phase == JobPhase.speaker_matching,
+    )
     new_job_id = _reenqueue_for_phase(session, recording_id, job.phase)
     return {"job_id": new_job_id, "phase": job.phase.value, "status": "queued"}
 

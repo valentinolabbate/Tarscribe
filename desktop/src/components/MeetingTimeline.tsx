@@ -371,7 +371,7 @@ export function MeetingTimeline({
           <span className="timeline-empty-line" aria-hidden="true" />
           <div>
             <strong>Noch keine Schlüsselmomente erkannt</strong>
-            <span>Neue Meetings werden nach dem Transkript automatisch analysiert.</span>
+            <span>Starte die Analyse nach der Transkription über die Verarbeitungsliste oder hier.</span>
           </div>
           <button type="button" className="btn primary" onClick={() => extract.mutate(undefined)}>
             Jetzt analysieren

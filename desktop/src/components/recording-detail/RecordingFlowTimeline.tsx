@@ -1,29 +1,16 @@
 import type { FlowStep } from "./model";
 
 export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
-  const visibleSteps = steps.filter((step) => step.state === "active" || step.state === "error");
-  if (visibleSteps.length === 0) {
-    const transcriptReady = steps.some((step) => step.key === "transcript" && step.state === "done");
-    const analysisReady = steps.some((step) => step.key === "analysis" && step.state === "done");
-    if (!transcriptReady) return null;
-    return (
-      <div className="recording-flow-summary">
-        <span>✓</span>
-        <strong>{analysisReady ? "Aufnahme ausgewertet" : "Transkript bereit"}</strong>
-      </div>
-    );
-  }
-
   return (
     <section className="recording-flow" aria-label="Aufnahme-Workflow">
-      {visibleSteps.map((step) => (
+      {steps.map((step, index) => (
         <article
           className={`recording-flow-step ${step.state}`}
           key={step.key}
           aria-current={step.state === "active" ? "step" : undefined}
         >
           <div className="recording-flow-marker" aria-hidden="true">
-            <span>{step.state === "error" ? "!" : "•"}</span>
+            <span>{step.state === "error" ? "!" : step.state === "done" ? "✓" : index + 1}</span>
           </div>
           <div className="recording-flow-copy">
             <span className="recording-flow-kicker">{step.eyebrow}</span>
@@ -35,6 +22,16 @@ export function RecordingFlowTimeline({ steps }: { steps: FlowStep[] }) {
               </div>
             )}
           </div>
+          {step.selection && (
+            <select aria-label={step.selection.label} value={step.selection.value}
+              disabled={step.selection.disabled}
+              onChange={(event) => step.selection?.onChange(Number(event.target.value))}>
+              <option value="" disabled>Template auswählen</option>
+              {step.selection.options.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          )}
           {step.action && (
             <button
               className={step.state === "next" || step.state === "error" ? "btn primary" : "btn ghost"}

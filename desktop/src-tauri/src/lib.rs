@@ -295,6 +295,7 @@ pub fn run() {
             sidecar::backend_ws_disconnect,
             sidecar::is_env_ready,
             sidecar::is_backend_ready,
+            sidecar::restart_backend,
             sidecar::setup_environment,
             set_dictation_shortcut,
             configure_meeting_detection,

@@ -45,6 +45,7 @@ class PrefsIn(BaseModel):
     speaker_match_threshold: float | None = None
     my_speaker_id: int | None = None
     live_transcription_enabled: bool | None = None
+    light_mode_enabled: bool | None = None
     live_speaker_detection_enabled: bool | None = None
     live_speaker_matching_enabled: bool | None = None
     llm_chunk_size: int | None = None

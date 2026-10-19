@@ -70,6 +70,7 @@ export function AppContent({
         state={recording.state}
         handle={recording.liveHandle}
         showLiveSpeakers={recording.liveDiarizationEnabled}
+        lightModeEnabled={recording.lightModeEnabled}
         finalTranscriptionJob={recording.finalTranscriptionJob}
         onPause={recording.pause}
         onResume={recording.resume}

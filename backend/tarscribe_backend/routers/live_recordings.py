@@ -2,30 +2,24 @@
 
 from __future__ import annotations
 
-import json
 import threading
-import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from ..audio_utils import cleanup_session_dir, validate_and_append_chunk
 from ..config import get_settings
 from ..db import get_session
-from .. import jobs
 from ..live_analysis import get_service
 from ..models import (
     LiveRecordingSession,
     LiveSessionStatus,
     Recording,
-    RecordingStatus,
-    Transcript,
     Topic,
-    Word,
 )
 from ..schemas import LiveSessionCreate, LiveSessionFinish
 from ..ws import hub
@@ -55,120 +49,6 @@ def _to_dict(sess: LiveRecordingSession) -> dict[str, Any]:
         "created_at": sess.created_at.isoformat(),
         "updated_at": sess.updated_at.isoformat(),
     }
-
-
-def _normalise_live_words(snapshot_json: str | None) -> list[dict[str, Any]]:
-    if not snapshot_json:
-        return []
-    try:
-        snapshot = json.loads(snapshot_json)
-    except (TypeError, json.JSONDecodeError):
-        return []
-
-    raw_words = snapshot.get("words")
-    if not isinstance(raw_words, list):
-        return []
-
-    words: list[dict[str, Any]] = []
-    for raw in raw_words:
-        if not isinstance(raw, dict):
-            continue
-        text_value = raw.get("text")
-        if text_value is None:
-            continue
-        text = str(text_value)
-        if not text.strip():
-            continue
-        try:
-            start = float(raw.get("start", 0.0))
-        except (TypeError, ValueError):
-            start = 0.0
-        try:
-            end = float(raw.get("end", start))
-        except (TypeError, ValueError):
-            end = start
-        if end < start:
-            end = start
-
-        confidence_value = raw.get("confidence")
-        try:
-            confidence = float(confidence_value) if confidence_value is not None else None
-        except (TypeError, ValueError):
-            confidence = None
-
-        words.append({"start": start, "end": end, "text": text, "confidence": confidence})
-    return words
-
-
-def _recording_has_persisted_words(session: Session, recording_id: int) -> bool:
-    transcripts = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording_id)
-    ).all()
-    for transcript in transcripts:
-        if transcript.id is None:
-            continue
-        first_word = session.exec(
-            select(Word.id).where(Word.transcript_id == transcript.id).limit(1)
-        ).first()
-        if first_word is not None:
-            return True
-    return False
-
-
-def _persist_live_transcript_snapshot(
-    session: Session,
-    live_session: LiveRecordingSession,
-    recording: Recording,
-) -> bool:
-    if recording.id is None:
-        return False
-
-    if _recording_has_persisted_words(session, recording.id):
-        if recording.status == RecordingStatus.uploaded:
-            recording.status = RecordingStatus.ready
-            session.add(recording)
-        return False
-
-    words = _normalise_live_words(live_session.transcript_snapshot_json)
-    if not words:
-        return False
-
-    old_transcripts = session.exec(
-        select(Transcript).where(Transcript.recording_id == recording.id)
-    ).all()
-    for transcript in old_transcripts:
-        if transcript.id is None:
-            continue
-        for word in session.exec(select(Word).where(Word.transcript_id == transcript.id)).all():
-            session.delete(word)
-    session.flush()
-    for transcript in old_transcripts:
-        session.delete(transcript)
-    session.flush()
-
-    transcript = Transcript(
-        recording_id=recording.id,
-        asr_model="live",
-        language=recording.language,
-    )
-    session.add(transcript)
-    session.flush()
-
-    for idx, word in enumerate(words):
-        session.add(
-            Word(
-                transcript_id=transcript.id,
-                idx=idx,
-                start=word["start"],
-                end=word["end"],
-                text=word["text"],
-                confidence=word["confidence"],
-            )
-        )
-
-    recording.status = RecordingStatus.ready
-    session.add(recording)
-    return True
 
 
 @router.post("", status_code=201)
@@ -328,7 +208,6 @@ def finish_session(
         recording = session.get(Recording, payload.recording_id)
         if not recording:
             raise HTTPException(404, "Aufnahme nicht gefunden")
-        _persist_live_transcript_snapshot(session, live_session, recording)
 
     live_session.status = LiveSessionStatus.completed
     live_session.finalized_recording_id = payload.recording_id
@@ -340,12 +219,6 @@ def finish_session(
     get_service().detach(session_id)
 
     transcription_job_id: int | None = None
-    if recording is not None and recording.id is not None:
-        try:
-            transcription_job_id = jobs.enqueue_asr(recording.id)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
-
     hub.broadcast({
         "type": "live_finalized",
         "session_id": session_id,

@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import math
 import subprocess
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +24,31 @@ TARGET_CHANNELS = 1
 
 class AudioError(RuntimeError):
     pass
+
+
+@contextmanager
+def processing_audio(path: Path, start: float = 0, end: float | None = None):
+    if start == 0 and end is None:
+        yield path
+        return
+    with tempfile.TemporaryDirectory(prefix="tarscribe-trim-") as directory:
+        trimmed = Path(directory) / "audio.wav"
+        with sf.SoundFile(str(path)) as source:
+            first = round(start * source.samplerate)
+            last = min(len(source), round(end * source.samplerate)) if end is not None else len(source)
+            if first < 0 or first >= last:
+                raise AudioError("Der ausgewählte Audiobereich ist leer oder ungültig.")
+            source.seek(first)
+            with sf.SoundFile(str(trimmed), "w", samplerate=source.samplerate,
+                              channels=source.channels, subtype="PCM_16") as target:
+                remaining = last - first
+                while remaining > 0:
+                    samples = source.read(min(remaining, 65536), dtype="int16", always_2d=True)
+                    if not len(samples):
+                        break
+                    target.write(samples)
+                    remaining -= len(samples)
+        yield trimmed
 
 
 def _resolve(tool: str) -> str:

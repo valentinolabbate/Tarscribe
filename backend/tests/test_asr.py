@@ -385,7 +385,7 @@ def test_run_asr_marks_failed_when_audio_missing(jobs_env):
         assert s.get(Recording, rec_id).status == RecordingStatus.failed
 
 
-def test_run_asr_queues_diarization_before_automatic_action_extraction(
+def test_run_asr_waits_for_manual_followup_steps(
     jobs_env, tmp_path, monkeypatch
 ):
     import numpy as np
@@ -424,10 +424,10 @@ def test_run_asr_queues_diarization_before_automatic_action_extraction(
 
     with db.session_scope() as session:
         assert session.get(Job, job_id).status == JobStatus.done
-    assert queued == [rec_id]
+    assert queued == []
 
 
-def test_successful_diarization_and_matching_then_start_action_extraction(
+def test_successful_diarization_waits_for_manual_matching_and_analysis(
     jobs_env, monkeypatch
 ):
     from tarscribe_backend.models import Job, JobPhase, JobStatus, Recording, Topic, Transcript
@@ -482,8 +482,8 @@ def test_successful_diarization_and_matching_then_start_action_extraction(
 
     with db.session_scope() as session:
         assert session.get(Job, job_id).status == JobStatus.done
-    assert matched == [recording_id]
-    assert extracted == [recording_id]
+    assert matched == []
+    assert extracted == []
 
 
 def test_native_asr_speakers_are_persisted_without_duplicate_diarization(
@@ -532,4 +532,4 @@ def test_native_asr_speakers_are_persisted_without_duplicate_diarization(
         assert json.loads(run.params_json) == {"source": "asr", "speaker_scope": "chunk"}
         segment = session.exec(select(Segment).where(Segment.run_id == run.id)).one()
         assert segment.speaker_label == "ASR_0000_S01"
-    assert extracted == [recording_id]
+    assert extracted == []

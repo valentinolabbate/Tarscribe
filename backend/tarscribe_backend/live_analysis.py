@@ -98,7 +98,8 @@ class LiveAnalysisService:
     def tick(self, session_id: str) -> None:
         """Signal new PCM arrived. Fires at most once per ASR_INTERVAL_SEC."""
         from .settings_store import load_prefs
-        if not load_prefs().get("live_transcription_enabled", True):
+        prefs = load_prefs()
+        if prefs.get("light_mode_enabled", False) or not prefs.get("live_transcription_enabled", True):
             return
 
         with self._mu:
@@ -177,6 +178,8 @@ class LiveAnalysisService:
                 pass
 
         prefs = load_prefs()
+        if prefs.get("light_mode_enabled", False) or not prefs.get("live_transcription_enabled", True):
+            return
         language = prefs.get("language")
         live_diarization_enabled = prefs.get("live_speaker_detection_enabled", True)
         live_speaker_matching_enabled = prefs.get("live_speaker_matching_enabled", True)
@@ -295,7 +298,7 @@ class LiveAnalysisService:
         from .settings_store import get_hf_token, load_prefs
 
         prefs = load_prefs()
-        if not prefs.get("live_speaker_detection_enabled", True):
+        if prefs.get("light_mode_enabled", False) or not prefs.get("live_speaker_detection_enabled", True):
             return None
 
         from .ml.lifecycle import diar_lock

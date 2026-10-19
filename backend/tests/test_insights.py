@@ -876,6 +876,17 @@ def test_extract_endpoint_enqueues_job(client, monkeypatch):
     import tarscribe_backend.jobs as jobs
 
     rec_id, _ = _make_recording()
+    from sqlmodel import Session
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Transcript, Word
+
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=rec_id, asr_model="test")
+        session.add(transcript)
+        session.flush()
+        session.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Meeting"))
+        session.commit()
+
     monkeypatch.setattr(jobs, "_submit_llm_job", lambda *a, **k: None)
     r = client.post(f"/api/recordings/{rec_id}/action-items/extract")
     assert r.status_code == 200
@@ -886,6 +897,17 @@ def test_extract_endpoint_forwards_optional_clarification(client, monkeypatch):
     import tarscribe_backend.jobs as jobs
 
     rec_id, _ = _make_recording()
+    from sqlmodel import Session
+    import tarscribe_backend.db as db
+    from tarscribe_backend.models import Transcript, Word
+
+    with Session(db.get_engine()) as session:
+        transcript = Transcript(recording_id=rec_id, asr_model="test")
+        session.add(transcript)
+        session.flush()
+        session.add(Word(transcript_id=transcript.id, idx=0, start=0, end=1, text="Meeting"))
+        session.commit()
+
     submitted: list[tuple] = []
     monkeypatch.setattr(jobs, "_submit_llm_job", lambda *args: submitted.append(args))
 

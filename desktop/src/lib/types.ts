@@ -55,6 +55,8 @@ export interface Recording {
   audio_path: string;
   original_filename: string | null;
   duration_sec: number;
+  trim_start_sec?: number;
+  trim_end_sec?: number | null;
   sample_rate: number;
   language: string | null;
   kind: "recording" | "dictation" | string;
@@ -85,6 +87,7 @@ export interface AppSettings {
   diarization_model: string;
   speaker_match_threshold: number;
   live_transcription_enabled: boolean;
+  light_mode_enabled?: boolean;
   live_speaker_detection_enabled: boolean;
   live_speaker_matching_enabled: boolean;
   /** Known-speaker id treated as "me" for the Tasks area. 0/null = unset. */

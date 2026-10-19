@@ -15,6 +15,11 @@ import {
   useCreateCorrection,
   useAcknowledgeQualityIssue,
   useRecordingQuality,
+  useTemplates,
+  useSummarize,
+  useMatchSpeakers,
+  useExtractActionItems,
+  useRecordingJobs,
 } from "../hooks/queries";
 import { preferJobEvent, useJobFor } from "../hooks/useJobs";
 import { api } from "../lib/api";
@@ -23,7 +28,6 @@ import { useToast } from "./Toast";
 import { ChaptersBar } from "./ChaptersBar";
 import { MeetingTimeline } from "./MeetingTimeline";
 import { AskWorkspace } from "./recording-detail/AskWorkspace";
-import { DetailEmptyState } from "./recording-detail/DetailEmptyState";
 import { DetailTabs } from "./recording-detail/DetailTabs";
 import { JobErrorBanners } from "./recording-detail/JobErrorBanners";
 import { RecordingFlowTimeline } from "./recording-detail/RecordingFlowTimeline";
@@ -63,22 +67,33 @@ export function RecordingDetail({
   const job = useJobFor(recording.id);
   const transcribe = useTranscribe();
   const diarizeFirst = useDiarize();
+  const matchSpeakers = useMatchSpeakers(recording.id);
+  const extractActionItems = useExtractActionItems(recording.id);
+  const summarize = useSummarize();
+  const { data: templates = [] } = useTemplates();
+  const { data: recordingJobs = [] } = useRecordingJobs(recording.id);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const templateId = templates.some((template) => template.id === selectedTemplateId)
+    ? selectedTemplateId : templates[0]?.id ?? null;
+  const [trimStart, setTrimStart] = useState(recording.trim_start_sec ?? 0);
+  const [trimEnd, setTrimEnd] = useState(recording.trim_end_sec ?? recording.duration_sec);
+  const [audioEditing, setAudioEditing] = useState(false);
+  const rangeValid = Number.isFinite(trimStart) && Number.isFinite(trimEnd)
+    && trimStart >= 0 && trimEnd > trimStart && trimEnd <= recording.duration_sec;
   const retry = useRetryJob(recording.id);
   const { reassign } = useSpeakerEdits(recording.id);
   const updateRec = useUpdateRecording();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const isFullyReady = recording.status === "ready";
-  const isTranscribed = isFullyReady || recording.status === "diarizing";
-  const statusRunning = recording.status === "transcribing" || recording.status === "diarizing";
-  const { data: transcript, isLoading: transcriptLoading } = useTranscript(recording.id, isTranscribed);
+  const statusRunning = ["queued", "transcribing", "diarizing"].includes(recording.status);
+  const { data: transcript } = useTranscript(recording.id, true);
+  const isTranscribed = !!transcript;
   const { data: qualityReport } = useRecordingQuality(recording.id, isTranscribed && !!transcript);
   const createCorrection = useCreateCorrection(recording.id);
   const acknowledgeIssue = useAcknowledgeQualityIssue(recording.id);
   const { data: diar } = useDiarization(recording.id, isTranscribed && !!transcript);
   const { data: summaries } = useSummaries(recording.id, isTranscribed && !!transcript);
   const { data: actionItems } = useRecordingActionItems(recording.id, isTranscribed && !!transcript);
-  const transcriptPending = isTranscribed && transcriptLoading;
   const [showTuning, setShowTuning] = useState(false);
   const [activeTab, setActiveTab] = useState<DetailTab>("transcript");
   const [exportOpen, setExportOpen] = useState(false);
@@ -106,16 +121,28 @@ export function RecordingDetail({
   }, [activeStart, activeTab, initialSeekSec, playing]);
 
   const localRunning = job?.status === "running" || job?.status === "pending";
-  const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning);
-  const activeJob = preferJobEvent(job, polledJob);
+  const persistedRunning = recordingJobs.find((item) => item.status === "pending" || item.status === "running");
+  const { data: polledJob } = useLatestJob(recording.id, localRunning || statusRunning || !!persistedRunning);
+  const activeJob = preferJobEvent(job, persistedRunning ?? polledJob);
   const running =
-    activeJob?.status === "running" || activeJob?.status === "pending" || statusRunning;
+    activeJob?.status === "running" || activeJob?.status === "pending" || statusRunning || !!persistedRunning;
+  const pendingPhase = transcribe.isPending ? "asr" : diarizeFirst.isPending ? "diarization"
+    : matchSpeakers.isPending ? "speaker_matching" : extractActionItems.isPending ? "action_items"
+    : summarize.isPending ? "summarize" : null;
+  const busy = !!running || pendingPhase !== null;
+  const terminalJobs = [...recordingJobs, ...(activeJob ? [activeJob] : [])]
+    .filter((item) => ["done", "failed", "canceled"].includes(item.status))
+    .map((item) => `${item.job_id}:${item.status}`).join(",");
+  useEffect(() => {
+    if (!terminalJobs) return;
+    for (const key of ["transcript", "diarization", "summaries", "quality"]) {
+      void queryClient.invalidateQueries({ queryKey: [key, recording.id] });
+    }
+    void queryClient.invalidateQueries({ queryKey: ["recordings"] });
+    void queryClient.invalidateQueries({ queryKey: ["action-items"] });
+    void queryClient.invalidateQueries({ queryKey: ["jobs", "recording", recording.id] });
+  }, [terminalJobs, recording.id, queryClient]);
 
-  const startingPhase = transcribe.isPending
-    ? "Starte Transkription"
-    : diarizeFirst.isPending
-      ? "Starte Sprechererkennung"
-      : null;
   const labels = diar?.speakers.map((s) => s.label) ?? [];
   const summaryCount = summaries?.filter((summary) => summary.content).length ?? 0;
   const timelineCount = actionItems?.filter((item) => item.review_state !== "rejected").length ?? 0;
@@ -187,6 +214,7 @@ export function RecordingDetail({
   }
 
   async function startTranscription(replaceExisting: boolean) {
+    if (audioEditing) return;
     if (
       replaceExisting &&
       transcript &&
@@ -196,7 +224,8 @@ export function RecordingDetail({
     }
     setActiveTab("transcript");
     try {
-      await transcribe.mutateAsync({ id: recording.id });
+      await transcribe.mutateAsync({ id: recording.id,
+        range: { start_sec: trimStart, end_sec: trimEnd === recording.duration_sec ? null : trimEnd } });
       toast(replaceExisting ? "Transkription neu gestartet" : "Transkription gestartet", "info");
     } catch (e) {
       toast((e as Error).message, "error");
@@ -257,21 +286,36 @@ export function RecordingDetail({
   }
 
   const flowSteps = useRecordingFlowSteps({
-    recording,
     activeJob,
-    startingPhase,
-    transcribePending: transcribe.isPending,
-    diarizePending: diarizeFirst.isPending,
-    running: !!running,
+    jobs: recordingJobs,
+    pendingPhase,
+    running: !!running || audioEditing,
+    rangeValid,
     transcript,
     diar,
     summaryCount,
+    actionItemCount: timelineCount,
+    templates,
+    templateId,
+    onTemplateChange: setSelectedTemplateId,
     onStartTranscription: (replaceExisting) => void startTranscription(replaceExisting),
     onStartDiarization: () => {
       setActiveTab("speakers");
-      diarizeFirst.mutate({ id: recording.id });
+      diarizeFirst.mutate({ id: recording.id }, { onError: (error) => toast(error.message, "error") });
     },
-    onOpenSummary: () => setActiveTab("summary"),
+    onMatchSpeakers: () => {
+      setActiveTab("speakers");
+      matchSpeakers.mutate(undefined, { onError: (error) => toast(error.message, "error") });
+    },
+    onExtractActionItems: () => {
+      setActiveTab("timeline");
+      extractActionItems.mutate(undefined, { onError: (error) => toast(error.message, "error") });
+    },
+    onSummarize: () => {
+      if (templateId === null) return;
+      setActiveTab("summary");
+      summarize.mutate({ id: recording.id, templateId }, { onError: (error) => toast(error.message, "error") });
+    },
   });
 
   return (
@@ -284,7 +328,7 @@ export function RecordingDetail({
         isTranscribed={isTranscribed}
         updatePending={updateRec.isPending}
         diarizePending={diarizeFirst.isPending}
-        running={!!running}
+        running={busy || audioEditing}
         transcribePending={transcribe.isPending}
         exportOpen={exportOpen}
         onBack={onBack}
@@ -305,11 +349,17 @@ export function RecordingDetail({
         onSendToFolder={() => void sendToFolder()}
       />
 
+      <AudioPlayer ref={playerRef} recordingId={recording.id} audioPath={recording.audio_path}
+        durationSec={recording.duration_sec} initialSeekSec={initialSeekSec}
+        onTime={setCurrentTime} onPlaying={setPlaying}
+        selection={{ start: trimStart, end: trimEnd, disabled: busy,
+          onChange: (start, end) => { setTrimStart(start); setTrimEnd(end); },
+          onEditingChange: setAudioEditing }} />
       <RecordingFlowTimeline steps={flowSteps} />
 
       <JobErrorBanners
         activeJob={activeJob}
-        running={!!running}
+        running={!!running || audioEditing}
         retryPending={retry.isPending}
         transcribePending={transcribe.isPending}
         hasTranscript={!!transcript}
@@ -317,27 +367,8 @@ export function RecordingDetail({
         onRetranscribe={() => void startTranscription(true)}
       />
 
-      {!transcript && !transcriptPending && (
-        <DetailEmptyState
-          running={!!running}
-          startingPhase={startingPhase}
-          transcribePending={transcribe.isPending}
-          error={activeJob?.status === "failed" ? activeJob.error : null}
-          onTranscribe={() => void startTranscription(false)}
-        />
-      )}
-
       {transcript && (
         <>
-          <AudioPlayer
-            ref={playerRef}
-            recordingId={recording.id}
-            audioPath={recording.audio_path}
-            durationSec={recording.duration_sec}
-            initialSeekSec={initialSeekSec}
-            onTime={setCurrentTime}
-            onPlaying={setPlaying}
-          />
           <ChaptersBar
             recordingId={recording.id}
             recordingTitle={recording.title}

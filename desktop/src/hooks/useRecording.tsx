@@ -18,13 +18,7 @@ import {
   systemAudioSampleRate,
 } from "../lib/nativeSystemAudioRecorder";
 import { Recorder, errorMessage, recordingExtension } from "../lib/recorder";
-import {
-  FinalTranscriptionPollingError,
-  failedFinalTranscriptionJob,
-  waitForFinalTranscriptionJob,
-} from "./finalTranscriptionPolling";
 import { useLiveRecording, type LiveRecordingHandle } from "./useLiveRecording";
-import { trackPendingJob } from "./useJobs";
 import type { JobEvent, LiveEvent, Recording } from "../lib/types";
 
 type RecordingState = "idle" | "starting" | "recording" | "paused" | "saving" | "transcribing";
@@ -42,6 +36,7 @@ interface RecordingContextValue {
   topicId: number | null;
   topicName: string | null;
   liveDiarizationEnabled: boolean;
+  lightModeEnabled: boolean;
   liveHandle: LiveRecordingHandle | null;
   finalTranscriptionJob: FinalTranscriptionJob | null;
   /** Set after a successful stop — App.tsx uses this to auto-open the recording detail. */
@@ -62,7 +57,6 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const toast = useToast();
   const recorder = useRef<Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null>(null);
   const pcmCapture = useRef<LivePcmCapture | SystemAudioPcmCapture | null>(null);
-  const finalTranscriptionAbort = useRef<AbortController | null>(null);
   const elapsedBase = useRef(0);
   const elapsedStartedAt = useRef<number | null>(null);
   const [state, setState] = useState<RecordingState>("idle");
@@ -70,7 +64,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const [topicId, setTopicId] = useState<number | null>(null);
   const [topicName, setTopicName] = useState<string | null>(null);
   const [liveDiarizationEnabled, setLiveDiarizationEnabled] = useState(true);
-  const [finalTranscriptionJob, setFinalTranscriptionJob] = useState<FinalTranscriptionJob | null>(null);
+  const [lightModeEnabled, setLightModeEnabled] = useState(false);
+  const finalTranscriptionJob: FinalTranscriptionJob | null = null;
   const [lastFinishedRecording, setLastFinishedRecording] = useState<Recording | null>(null);
   const clearLastFinished = useCallback(() => setLastFinishedRecording(null), []);
 
@@ -97,14 +92,11 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   }, [state, computeElapsed]);
 
   useEffect(() => () => {
-    finalTranscriptionAbort.current?.abort();
     recorder.current?.dispose();
     pcmCapture.current?.stop();
   }, []);
 
   const reset = useCallback(() => {
-    finalTranscriptionAbort.current?.abort();
-    finalTranscriptionAbort.current = null;
     recorder.current = null;
     pcmCapture.current?.stop();
     pcmCapture.current = null;
@@ -114,7 +106,6 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     setElapsed(0);
     setTopicId(null);
     setTopicName(null);
-    setFinalTranscriptionJob(null);
   }, []);
 
   const start = useCallback(
@@ -124,7 +115,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       let next: Recorder | NativeSystemAudioRecorder | SystemAudioAndMicrophoneRecorder | null = null;
       try {
         const settings = await api.getSettings();
-        setLiveDiarizationEnabled(settings.live_speaker_detection_enabled);
+        setLightModeEnabled(settings.light_mode_enabled ?? false);
+        setLiveDiarizationEnabled(!settings.light_mode_enabled && settings.live_speaker_detection_enabled);
         next = settings.recording_source === "system_audio"
           ? new NativeSystemAudioRecorder()
           : settings.recording_source === "system_audio_and_microphone"
@@ -141,6 +133,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
         if (usedFallback) {
           toast("Das gewählte Mikrofon ist nicht verfügbar. Verwende das Systemstandardgerät.", "info");
         }
+
+        if (settings.light_mode_enabled || !settings.live_transcription_enabled) return;
 
         // Start live session in background — failure must not affect archive recording.
         const stamp = new Date().toLocaleString("de-DE", {
@@ -237,81 +231,12 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
           ? await api.importMixedLocalRecording(topicId, output.path, output.microphoneBlob, `Aufnahme ${stamp}`)
         : await api.importLocalRecording(topicId, output.path, `Aufnahme ${stamp}`);
       await queryClient.invalidateQueries({ queryKey: ["recordings", topicId] });
-      const finishResult = await liveHandle?.finish(recording.id ?? null);
-      let transcriptionJobId = finishResult?.transcription_job_id ?? null;
-
-      if (liveHandle && recording.id != null && transcriptionJobId == null) {
-        try {
-          const queued = await api.transcribe(recording.id);
-          transcriptionJobId = queued.job_id;
-        } catch (e) {
-          console.warn("[recording] final transcription fallback failed:", e);
-        }
-      }
-
-      let recordingToOpen = recording;
-      if (recording.id != null && transcriptionJobId != null) {
-        setState("transcribing");
-        trackPendingJob(recording.id, transcriptionJobId, "asr");
-        setFinalTranscriptionJob({
-          jobId: transcriptionJobId,
-          progress: 0,
-          status: "pending",
-          error: null,
-        });
-        const controller = new AbortController();
-        finalTranscriptionAbort.current?.abort();
-        finalTranscriptionAbort.current = controller;
-        let finalJob: JobEvent;
-        try {
-          finalJob = await waitForFinalTranscriptionJob({
-            recordingId: recording.id,
-            jobId: transcriptionJobId,
-            getJobs: api.getJobs,
-            signal: controller.signal,
-            onPollError: (e) => console.warn("[recording] final transcription polling failed:", e),
-            onUpdate: (job) => {
-              setFinalTranscriptionJob({
-                jobId: job.job_id,
-                progress: job.progress,
-                status: job.status,
-                error: job.error,
-              });
-            },
-          });
-        } catch (e) {
-          if (e instanceof FinalTranscriptionPollingError && e.reason === "aborted") throw e;
-          finalJob = failedFinalTranscriptionJob(recording.id, transcriptionJobId, e);
-          setFinalTranscriptionJob({
-            jobId: finalJob.job_id,
-            progress: finalJob.progress,
-            status: finalJob.status,
-            error: finalJob.error,
-          });
-        } finally {
-          if (finalTranscriptionAbort.current === controller) finalTranscriptionAbort.current = null;
-        }
-        await queryClient.invalidateQueries({ queryKey: ["recordings", topicId] });
-        await queryClient.invalidateQueries({ queryKey: ["transcript", recording.id] });
-        try {
-          recordingToOpen = await api.getRecording(recording.id);
-        } catch (e) {
-          console.warn("[recording] failed to refresh recording after final transcription:", e);
-        }
-        if (finalJob.status === "done") {
-          toast("Aufnahme gespeichert und final transkribiert", "success");
-        } else {
-          toast(finalJob.error ?? "Finale Transkription fehlgeschlagen", "error");
-        }
-      } else {
-        toast("Aufnahme gespeichert", "success");
-      }
-      setLastFinishedRecording(recordingToOpen);
+      await liveHandle?.finish(recording.id ?? null);
+      toast("Aufnahme gespeichert. Audio prüfen und Transkription manuell starten.", "success");
+      setLastFinishedRecording(recording);
     } catch (e) {
-      if (!(e instanceof FinalTranscriptionPollingError && e.reason === "aborted")) {
-        toast(`Aufnahme fehlgeschlagen: ${errorMessage(e)}`, "error");
-        await liveHandle?.cancel();
-      }
+      toast(`Aufnahme fehlgeschlagen: ${errorMessage(e)}`, "error");
+      await liveHandle?.cancel();
     } finally {
       current.dispose();
       reset();
@@ -326,7 +251,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   return (
     <RecordingContext.Provider
       value={{
-        state, elapsed, topicId, topicName, liveDiarizationEnabled, liveHandle,
+        state, elapsed, topicId, topicName, liveDiarizationEnabled, lightModeEnabled, liveHandle,
         finalTranscriptionJob,
         lastFinishedRecording, clearLastFinished,
         start, pause, resume, stop, dispatchLiveEvent,

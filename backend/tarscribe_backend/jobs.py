@@ -318,6 +318,7 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
             if not rec:
                 raise RuntimeError("Aufnahme nicht gefunden")
             audio_path = Path(rec.audio_path)
+            trim_start, trim_end = rec.trim_start_sec, rec.trim_end_sec
 
         if not audio_path.exists():
             raise RuntimeError(
@@ -343,8 +344,11 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         # live-analysis ticks (which share the cached model) cannot run — or
         # swap the model — concurrently.
         with asr_lock:
+            from .audio import processing_audio
+
             backend = get_backend(override)
-            result = backend.transcribe(audio_path, language=language, progress=progress)
+            with processing_audio(audio_path, trim_start, trim_end) as selected_audio:
+                result = backend.transcribe(selected_audio, language=language, progress=progress)
         backend = None  # drop strong ref so the model can be unloaded below
         _raise_if_canceled(job_id)
 
@@ -378,19 +382,19 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                     Word(
                         transcript_id=transcript.id,
                         idx=i,
-                        start=w.start,
-                        end=w.end,
+                        start=w.start + trim_start,
+                        end=w.end + trim_start,
                         text=w.text,
                         confidence=w.confidence,
                     )
                 )
 
+            for previous in s.exec(select(DiarizationRun).where(
+                DiarizationRun.recording_id == recording_id
+            )).all():
+                previous.is_active = False
+                s.add(previous)
             if result.speakers:
-                for previous in s.exec(select(DiarizationRun).where(
-                    DiarizationRun.recording_id == recording_id
-                )).all():
-                    previous.is_active = False
-                    s.add(previous)
                 run = DiarizationRun(
                     recording_id=recording_id, model=result.model,
                     params_json=json.dumps({"source": "asr", "speaker_scope": "chunk"}),
@@ -399,7 +403,8 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
                 s.add(run)
                 s.flush()
                 for span in result.speakers:
-                    s.add(Segment(run_id=run.id, start=span.start, end=span.end,
+                    s.add(Segment(run_id=run.id, start=span.start + trim_start,
+                                  end=span.end + trim_start,
                                   speaker_label=span.speaker))
 
             rec = s.get(Recording, recording_id)
@@ -411,13 +416,6 @@ def _run_asr(recording_id: int, job_id: int, override: str | None) -> None:
         _maybe_postprocess_dictation(recording_id)
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         schedule_reindex(recording_id)
-        try:
-            if result.speakers:
-                maybe_enqueue_action_items(recording_id)
-            else:
-                enqueue_diarization(recording_id)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
     except JobCanceled:
         _update_job(job_id, status=JobStatus.canceled)
         _set_recording_status_after_cancel(recording_id)
@@ -459,6 +457,7 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
             if not rec:
                 raise RuntimeError("Aufnahme nicht gefunden")
             audio_path = Path(rec.audio_path)
+            trim_start, trim_end = rec.trim_start_sec, rec.trim_end_sec
 
         prefs = load_prefs()
         diarization_selection = resolve_diarization_selection(prefs, detect_hardware())
@@ -479,7 +478,10 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
         backend = DiarizationBackend(hf_token=token, model_id=model_id, device=device)
         params = DiarizationParams(**params_dict)
         with diar_lock:
-            segments = backend.diarize(audio_path, params=params, progress=progress)
+            from .audio import processing_audio
+
+            with processing_audio(audio_path, trim_start, trim_end) as selected_audio:
+                segments = backend.diarize(selected_audio, params=params, progress=progress)
         backend = None  # drop strong ref to the pyannote pipeline
         _raise_if_canceled(job_id)
 
@@ -503,7 +505,8 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
             for seg in segments:
                 s.add(
                     Segment(
-                        run_id=run.id, start=seg.start, end=seg.end, speaker_label=seg.speaker
+                        run_id=run.id, start=seg.start + trim_start, end=seg.end + trim_start,
+                        speaker_label=seg.speaker
                     )
                 )
             rec = s.get(Recording, recording_id)
@@ -511,24 +514,9 @@ def _run_diarization(recording_id: int, job_id: int, params_dict: dict) -> None:
                 rec.status = RecordingStatus.ready
                 s.add(rec)
 
-        # Auto-match speakers against the known-speaker library (best effort).
-        try:
-            from .ml.speaker_matching import apply_matches, match_recording
-
-            threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
-            with session_scope() as s:
-                matches = match_recording(s, recording_id, threshold)
-                apply_matches(s, recording_id, matches)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
-
         _update_job(job_id, status=JobStatus.done, progress=1.0)
         # Re-diarization changes speaker assignment -> re-embed the (re-labeled) text.
         schedule_reindex(recording_id)
-        try:
-            maybe_enqueue_action_items(recording_id)
-        except Exception:  # noqa: BLE001
-            traceback.print_exc()
     except JobCanceled:
         _update_job(job_id, status=JobStatus.canceled)
         _set_recording_status_after_cancel(recording_id)
@@ -1731,6 +1719,38 @@ def enqueue_summary(
         summary_id,
         clarification,
     )
+    return job_id
+
+
+def _run_speaker_matching(recording_id: int, job_id: int) -> None:
+    from .ml.lifecycle import diar_lock, unload_all
+    from .ml.speaker_matching import apply_matches, match_recording
+    from .settings_store import load_prefs
+
+    try:
+        _start_job(job_id, progress=0)
+        threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
+        with diar_lock, session_scope() as session:
+            matches = match_recording(session, recording_id, threshold)
+            _raise_if_canceled(job_id)
+            apply_matches(session, recording_id, matches)
+        _update_job(job_id, status=JobStatus.done, progress=1)
+        schedule_reindex(recording_id)
+    except JobCanceled:
+        _update_job(job_id, status=JobStatus.canceled)
+    except Exception as exc:
+        _update_job(job_id, status=JobStatus.failed, error=str(exc))
+    finally:
+        unload_all()
+
+
+def enqueue_speaker_matching(recording_id: int) -> int:
+    with session_scope() as session:
+        job = Job(recording_id=recording_id, phase=JobPhase.speaker_matching)
+        session.add(job)
+        session.flush()
+        job_id = job.id
+    _executor.submit(_run_speaker_matching, recording_id, job_id)
     return job_id
 
 

@@ -24,6 +24,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Default)]
 pub struct BackendState {
+    pub lifecycle: Mutex<()>,
     pub child: Mutex<Option<Child>>,
     pub config: Mutex<Option<BackendConfig>>,
     pub ws_connections: Mutex<HashMap<String, watch::Sender<bool>>>,
@@ -155,14 +156,19 @@ pub fn is_env_ready(app: AppHandle) -> bool {
 
 #[tauri::command]
 pub fn is_backend_ready(state: tauri::State<BackendState>) -> bool {
-    state.config.lock().unwrap().is_some()
+    let mut child = state.child.lock().unwrap();
+    matches!(child.as_mut().map(Child::try_wait), Some(Ok(None)))
 }
 
 // --- lifecycle -------------------------------------------------------------
 
 fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
-    let port = find_free_port();
-    let token = uuid::Uuid::new_v4().simple().to_string();
+    let state = app.state::<BackendState>();
+    let config = state.config.lock().unwrap().clone().unwrap_or_else(|| BackendConfig {
+        base_url: format!("http://127.0.0.1:{}", find_free_port()),
+        token: uuid::Uuid::new_v4().simple().to_string(),
+    });
+    let port = config.base_url.rsplit(':').next().ok_or("Ungültige Backend-Adresse")?;
     let data_dir = app_data(app);
     let backend =
         backend_source(app).ok_or_else(|| "Backend-Quellen nicht gefunden".to_string())?;
@@ -176,9 +182,9 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
             "--host",
             "127.0.0.1",
             "--port",
-            &port.to_string(),
+            port,
             "--token",
-            &token,
+            &config.token,
             "--data-dir",
             &data_dir.to_string_lossy(),
         ])
@@ -204,11 +210,6 @@ fn spawn_backend(app: &AppHandle, python: &Path) -> Result<(), String> {
         });
     }
 
-    let config = BackendConfig {
-        base_url: format!("http://127.0.0.1:{port}"),
-        token,
-    };
-    let state = app.state::<BackendState>();
     *state.child.lock().unwrap() = Some(child);
     *state.config.lock().unwrap() = Some(config);
     Ok(())
@@ -258,6 +259,16 @@ pub fn sync_dependencies_if_stale(app: &AppHandle) {
 /// Start the sidecar if an environment already exists. Returns Ok(false) if the
 /// environment still needs to be set up (first run on a packaged build).
 pub fn start_if_ready(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<BackendState>();
+    let _lifecycle = state.lifecycle.lock().unwrap();
+    {
+        let mut child = state.child.lock().unwrap();
+        if let Some(child) = child.as_mut() {
+            if child.try_wait().map_err(|e| e.to_string())?.is_none() {
+                return Ok(true);
+            }
+        }
+    }
     match resolve_python(app) {
         Some(python) => {
             spawn_backend(app, &python)?;
@@ -338,6 +349,7 @@ pub async fn setup_environment(app: AppHandle) -> Result<(), String> {
 
 pub fn stop(app: &AppHandle) {
     let state = app.state::<BackendState>();
+    let _lifecycle = state.lifecycle.lock().unwrap();
     for (_, stop) in state.ws_connections.lock().unwrap().drain() {
         let _ = stop.send(true);
     }
@@ -346,6 +358,32 @@ pub fn stop(app: &AppHandle) {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+#[tauri::command]
+pub async fn restart_backend(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<BackendState>();
+        let _lifecycle = state.lifecycle.lock().unwrap();
+        let python = resolve_python(&app).ok_or("Python-Umgebung nicht gefunden")?;
+        let mut child = state.child.lock().unwrap();
+        stop_child(&mut child)?;
+        drop(child);
+        spawn_backend(&app, &python)
+    })
+    .await
+    .map_err(|e| format!("Neustart abgebrochen: {e}"))?
+}
+
+fn stop_child(child: &mut Option<Child>) -> Result<(), String> {
+    if let Some(process) = child.as_mut() {
+        if process.try_wait().map_err(|e| e.to_string())?.is_none() {
+            process.kill().map_err(|e| format!("Dienst konnte nicht beendet werden: {e}"))?;
+        }
+        process.wait().map_err(|e| e.to_string())?;
+    }
+    *child = None;
+    Ok(())
 }
 
 fn current_config(state: &BackendState) -> Result<BackendConfig, String> {
@@ -406,6 +444,9 @@ pub async fn proxy_request(
     let mut request = client
         .request(method, url)
         .header("X-Tarscribe-Token", config.token);
+    if path == "/api/health" || path == "/api/system/setup-status" {
+        request = request.timeout(Duration::from_secs(5));
+    }
 
     for header in headers {
         if !should_forward_request_header(&header.name) {
@@ -574,8 +615,31 @@ pub fn backend_ws_disconnect(
 
 #[cfg(test)]
 mod tests {
-    use super::python_path;
+    use super::{python_path, stop_child};
     use std::path::Path;
+
+    #[test]
+    fn restart_cleans_up_a_running_child() {
+        let process = std::process::Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        let pid = process.id();
+        let mut child = Some(process);
+        stop_child(&mut child).unwrap();
+        assert!(child.is_none());
+        assert!(!std::process::Command::new("/bin/kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status().unwrap().success());
+    }
+
+    #[test]
+    fn restart_handles_an_already_crashed_or_missing_child() {
+        let mut process = std::process::Command::new("/usr/bin/false").spawn().unwrap();
+        process.wait().unwrap();
+        let mut child = Some(process);
+        stop_child(&mut child).unwrap();
+        assert!(child.is_none());
+        stop_child(&mut child).unwrap();
+    }
 
     #[test]
     fn bundled_backend_is_first_python_path_entry() {

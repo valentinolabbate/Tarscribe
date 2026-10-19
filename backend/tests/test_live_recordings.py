@@ -20,6 +20,11 @@ def client(monkeypatch):
     importlib.reload(config)
     config.get_settings.cache_clear()
 
+    import tarscribe_backend.settings_store as settings_store
+
+    monkeypatch.setattr(settings_store, "get_settings", config.get_settings)
+
+
     import tarscribe_backend.db as db
 
     importlib.reload(db)
@@ -162,7 +167,7 @@ def test_finish_session(client):
     assert r2.json()["status"] == "completed"
 
 
-def test_finish_persists_live_transcript_snapshot(client):
+def test_finish_keeps_transcription_manual_even_with_live_snapshot(client):
     from sqlmodel import Session
 
     import tarscribe_backend.db as db
@@ -181,18 +186,14 @@ def test_finish_persists_live_transcript_snapshot(client):
 
     r = client.post(f"/api/live-recordings/{sid}/finish", json={"recording_id": recording_id})
     assert r.status_code == 200
-    assert r.json()["transcription_job_id"] == 1000
-    assert client.queued_asr_jobs == [(recording_id, None)]
+    assert r.json()["transcription_job_id"] is None
+    assert client.queued_asr_jobs == []
 
     tr = client.get(f"/api/recordings/{recording_id}/transcript")
-    assert tr.status_code == 200
-    body = tr.json()
-    assert body["asr_model"] == "live"
-    assert body["text"] == "Hallo Welt"
-    assert [w["text"] for w in body["words"]] == ["Hallo ", "Welt"]
+    assert tr.status_code == 404
 
     with Session(db.get_engine()) as s:
-        assert s.get(Recording, recording_id).status == RecordingStatus.ready
+        assert s.get(Recording, recording_id).status == RecordingStatus.uploaded
 
 
 def test_finish_does_not_overwrite_existing_transcript_words(client):

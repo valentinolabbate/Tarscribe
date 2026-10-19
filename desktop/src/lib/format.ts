@@ -34,6 +34,7 @@ export const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
 const JOB_PHASE_LABEL: Record<string, string> = {
   asr: "Transkribiere",
   diarization: "Erkenne Sprecher",
+  speaker_matching: "Ordne bekannte Stimmen zu",
   summarize: "Erstelle Zusammenfassung",
   embedding: "Indexiere für Suche",
   action_items: "Extrahiere Aufgaben",

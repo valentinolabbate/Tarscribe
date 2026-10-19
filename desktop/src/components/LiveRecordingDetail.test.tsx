@@ -80,6 +80,15 @@ function render(
 }
 
 describe("LiveRecordingDetail", () => {
+  it("explains audio-only recording in Light Mode without showing a live transcript", () => {
+    const html = renderToStaticMarkup(<LiveRecordingDetail topicName="Projekt" elapsed={8}
+      state="recording" handle={null} showLiveSpeakers={false} lightModeEnabled
+      finalTranscriptionJob={null} onPause={vi.fn()} onResume={vi.fn()} onStop={vi.fn()} />);
+    expect(html).toContain("Light Mode · Nur Audioaufnahme");
+    expect(html).toContain("Audio kürzen");
+    expect(html).not.toContain("live-utterance");
+  });
+
   it("shows speaker information when live diarization is enabled", () => {
     const html = render(true);
 

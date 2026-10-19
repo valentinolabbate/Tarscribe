@@ -12,9 +12,7 @@ from sqlmodel import Session, select
 from .. import jobs
 from ..db import get_session
 from ..ml.embedding import embed_speaker_segments, from_blob, to_blob, update_mean
-from ..ml.speaker_matching import apply_matches, match_recording
 from ..models import ActionItem, KnownSpeaker, Recording, SpeakerLabel
-from ..settings_store import load_prefs
 
 router = APIRouter(tags=["speakers"])
 
@@ -248,14 +246,23 @@ def enroll_from_label(
 
 
 @router.post("/api/recordings/{recording_id}/match")
-def match_now(recording_id: int, session: Session = Depends(get_session)) -> dict:
-    """Re-run auto-matching of this recording's speakers against the library."""
-    threshold = float(load_prefs().get("speaker_match_threshold", 0.5))
-    matches = match_recording(session, recording_id, threshold)
-    apply_matches(session, recording_id, matches)
-    jobs.schedule_reindex(recording_id)
+def match_now(
+    recording_id: int, background: bool = False, session: Session = Depends(get_session)
+) -> dict:
+    from ..processing import require_processing_ready
 
-    from ..ml.lifecycle import unload_all
+    require_processing_ready(session, recording_id, speakers=True)
+    if background:
+        return {"job_id": jobs.enqueue_speaker_matching(recording_id), "status": "queued"}
+    from ..ml.lifecycle import diar_lock, unload_all
+    from ..ml.speaker_matching import apply_matches, match_recording
+    from ..settings_store import load_prefs
 
-    unload_all()
-    return {"matches": matches}
+    try:
+        with diar_lock:
+            matches = match_recording(session, recording_id, float(load_prefs()["speaker_match_threshold"]))
+            apply_matches(session, recording_id, matches)
+        jobs.schedule_reindex(recording_id)
+        return {"matches": matches}
+    finally:
+        unload_all()

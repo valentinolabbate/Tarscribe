@@ -137,6 +137,8 @@ def _run_lightweight_migrations() -> None:
         ("topics", "position", "INTEGER DEFAULT 0"),
         ("recordings", "kind", "TEXT DEFAULT 'recording'"),
         ("recordings", "exported_at", "DATETIME"),
+        ("recordings", "trim_start_sec", "REAL DEFAULT 0"),
+        ("recordings", "trim_end_sec", "REAL"),
         ("action_items", "due_date", "TEXT"),
         ("action_items", "recipient", "TEXT"),
         ("action_items", "source_quote", "TEXT"),
